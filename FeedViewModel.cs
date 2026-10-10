@@ -3,12 +3,12 @@ using System.Windows.Input;
 
 namespace Readdit;
 
-public enum FeedKind { Home, Subreddit, Search, User, Saved, Inbox, Offline, ModQueue }
+public enum FeedKind { Home, Subreddit, Search, User, Saved, Inbox, Offline, ModQueue, Folder, Alerts }
 
 /// <summary>
 /// A feed's identity as text, used to save open tabs and in sidebar links: "home", "r/name",
 /// "u/name", "search:scope:query" (empty scope = all of Reddit), "saved", "inbox", "offline",
-/// "mod:name" ("mod:mod" = every community you moderate).
+/// "mod:name" ("mod:mod" = every community you moderate), "folder:name" (one of your folders), "alerts".
 /// </summary>
 public readonly record struct FeedSpec(FeedKind Kind, string Target = "", string? Scope = null)
 {
@@ -25,6 +25,8 @@ public readonly record struct FeedSpec(FeedKind Kind, string Target = "", string
         }
         if (spec.StartsWith("mod:", StringComparison.OrdinalIgnoreCase))
             return spec.Length > 4 ? new FeedSpec(FeedKind.ModQueue, spec[4..]) : null;
+        if (spec.StartsWith("folder:", StringComparison.OrdinalIgnoreCase))
+            return spec.Length > 7 ? new FeedSpec(FeedKind.Folder, spec[7..]) : null;
         if (spec.StartsWith("r/", StringComparison.OrdinalIgnoreCase))
             return spec.Length > 2 ? new FeedSpec(FeedKind.Subreddit, spec[2..]) : null;
         if (spec.StartsWith("u/", StringComparison.OrdinalIgnoreCase))
@@ -35,6 +37,7 @@ public readonly record struct FeedSpec(FeedKind Kind, string Target = "", string
             "saved" => new FeedSpec(FeedKind.Saved),
             "inbox" => new FeedSpec(FeedKind.Inbox),
             "offline" => new FeedSpec(FeedKind.Offline),
+            "alerts" => new FeedSpec(FeedKind.Alerts),
             _ => null,
         };
     }
@@ -48,6 +51,8 @@ public readonly record struct FeedSpec(FeedKind Kind, string Target = "", string
         FeedKind.Saved => "saved",
         FeedKind.Inbox => "inbox",
         FeedKind.ModQueue => "mod:" + Target,
+        FeedKind.Folder => "folder:" + Target,
+        FeedKind.Alerts => "alerts",
         _ => "offline",
     };
 }
@@ -78,6 +83,7 @@ public sealed class FeedViewModel : ObservableObject
     public event Action<RedditAuthException>? AuthFailed;
     public event Action? SubscriptionsChanged;
     public event Action? InboxRead;
+    public event Action? ManageAlertsRequested;
 
     public FeedKind Kind { get; }
     public string Target { get; }
@@ -103,15 +109,22 @@ public sealed class FeedViewModel : ObservableObject
         FeedKind.Saved => "★ Saved",
         FeedKind.Inbox => "✉ Inbox",
         FeedKind.ModQueue => IsAllModQueue ? "🛡 Mod queue" : $"🛡 r/{Target}",
+        FeedKind.Folder => "📁 " + Target,
+        FeedKind.Alerts => "🔔 Alerts",
         _ => "📥 Offline",
     };
+
+    /// <summary>The communities in this folder (Folder tabs only).</summary>
+    List<string> FolderSubreddits =>
+        _services.Settings.SubscriptionFolders
+            .FirstOrDefault(f => f.Name.Equals(Target, StringComparison.OrdinalIgnoreCase))?.Subreddits ?? [];
 
     /// <summary>"r/mod" is Reddit's combined view of every community you moderate.</summary>
     bool IsAllModQueue => Target.Equals("mod", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>r/all, r/popular, multireddits, home and search mix many communities.</summary>
     bool IsAggregate =>
-        Kind is FeedKind.Home or FeedKind.Search ||
+        Kind is FeedKind.Home or FeedKind.Search or FeedKind.Folder ||
         (Kind == FeedKind.Subreddit && IsAggregateName(Target));
 
     /// <summary>r/all, r/popular (any case), r/all-excluded or a multireddit like a+b.</summary>
@@ -127,7 +140,7 @@ public sealed class FeedViewModel : ObservableObject
     public IReadOnlyList<string> Sorts => Kind switch
     {
         FeedKind.Home => ["best", "hot", "new", "top", "rising", "controversial"],
-        FeedKind.Subreddit => ["hot", "new", "top", "rising", "controversial"],
+        FeedKind.Subreddit or FeedKind.Folder => ["hot", "new", "top", "rising", "controversial"],
         FeedKind.Search => ["relevance", "hot", "top", "new", "comments"],
         FeedKind.User => ["new", "hot", "top", "controversial"],
         // For queues the "sort" picks which queue to show.
@@ -222,7 +235,7 @@ public sealed class FeedViewModel : ObservableObject
     /// </summary>
     public async Task CheckForNewAsync()
     {
-        if (!_loaded || IsLoading || _checkingForNew || Kind is FeedKind.Offline or FeedKind.Saved) return;
+        if (!_loaded || IsLoading || _checkingForNew || Kind is FeedKind.Offline or FeedKind.Saved or FeedKind.Alerts) return;
         _checkingForNew = true;
         try
         {
@@ -376,6 +389,21 @@ public sealed class FeedViewModel : ObservableObject
                 return;
             }
 
+            if (Kind == FeedKind.Alerts)
+            {
+                foreach (var post in _services.Alerts.List())
+                {
+                    post.IsRead = _services.Read.Contains(post.FullName);
+                    AddPost(post);
+                }
+                Status = Posts.Count == 0
+                    ? _services.Settings.AlertRules.Count == 0
+                        ? "No alerts yet. Click “Manage alerts…” to watch for keywords."
+                        : "Nothing has matched your alerts yet."
+                    : $"{Posts.Count} posts matched your alerts";
+                return;
+            }
+
             // Filters can empty a whole page, so keep paging a little before giving up.
             var added = 0;
             for (var attempt = 0; attempt < PageAttemptsWhenFiltered && added == 0; attempt++)
@@ -428,6 +456,7 @@ public sealed class FeedViewModel : ObservableObject
     {
         post.BlurThumbnail = _services.Settings.BlurNsfw && (post.Over18 || post.Spoiler);
         post.IsHighlightedAuthor = _services.IsHighlighted(post.Author);
+        post.AuthorTag = _services.UserNotes.Get(post.Author)?.Tag ?? "";
         post.CanModerate = post.Kind != ItemKind.Message && _services.IsModeratorOf(post.Subreddit);
         if (post.Kind == ItemKind.Link && _services.Visits.Get(post.Id) is { } visit)
             post.NewComments = Math.Max(0, post.NumComments - visit.CommentCount);
@@ -449,15 +478,22 @@ public sealed class FeedViewModel : ObservableObject
                 : throw new InvalidOperationException("Readdit doesn't know your username yet. Refresh in a moment."),
             FeedKind.Inbox => "/message/inbox.json",
             FeedKind.ModQueue => $"/r/{Target}/about/{Sort}.json?",
+            FeedKind.Folder => FolderSubreddits.Count > 0
+                ? $"/r/{string.Join("+", FolderSubreddits.Take(MaxFolderSize))}/{Sort}.json?{time}"
+                : throw new InvalidOperationException(
+                    "This folder is empty. Right-click communities in the sidebar and choose \"Add to folder…\"."),
             _ => throw new InvalidOperationException(),
         };
     }
+
+    /// <summary>Reddit combines up to about this many communities in one listing.</summary>
+    public const int MaxFolderSize = 100;
 
     bool IsFiltered(Post p)
     {
         var s = _services.Settings;
         // Queues must show everything waiting for review, whatever your personal filters say.
-        if (Kind is FeedKind.Saved or FeedKind.Inbox or FeedKind.ModQueue) return false;
+        if (Kind is FeedKind.Saved or FeedKind.Inbox or FeedKind.ModQueue or FeedKind.Alerts) return false;
         if (Kind != FeedKind.User && _services.IsMuted(p.Author)) return true;
         if (s.HideNsfw && p.Over18 && (IsAggregate || Kind == FeedKind.User)) return true;
         if (s.HideRead && p.IsRead && Kind is FeedKind.Home or FeedKind.Subreddit or FeedKind.Search) return true;
@@ -526,6 +562,26 @@ public sealed class FeedViewModel : ObservableObject
                     };
                     break;
 
+                case FeedKind.Folder:
+                    var members = FolderSubreddits;
+                    HeaderTitle = "📁 " + Target;
+                    HeaderText = members.Count == 0
+                        ? "No communities in this folder yet."
+                        : $"{members.Count} {(members.Count == 1 ? "community" : "communities")}" +
+                          (members.Count > MaxFolderSize ? $" (showing posts from the first {MaxFolderSize})" : "");
+                    HeaderChips = members.Take(40).Select(s => new SidebarItem("r/" + s, "r/" + s)).ToList();
+                    break;
+
+                case FeedKind.Alerts:
+                    var rules = _services.Settings.AlertRules;
+                    HeaderTitle = "🔔 Alerts";
+                    HeaderText = rules.Count == 0
+                        ? "Get notified when a post matching your keywords appears, in any community or the ones you pick."
+                        : $"Watching {rules.Count(r => r.Enabled)} of {rules.Count} alerts, every " +
+                          $"{_services.Settings.AlertIntervalMinutes} minutes while Readdit runs (in the tray too).";
+                    HeaderActionLabel = "Manage alerts…";
+                    break;
+
                 case FeedKind.Inbox:
                     HeaderTitle = "Inbox";
                     HeaderText = "Replies, mentions and private messages.";
@@ -564,7 +620,11 @@ public sealed class FeedViewModel : ObservableObject
         CommandManager.InvalidateRequerySuggested();
         try
         {
-            if (Kind == FeedKind.Inbox)
+            if (Kind == FeedKind.Alerts)
+            {
+                ManageAlertsRequested?.Invoke();
+            }
+            else if (Kind == FeedKind.Inbox)
             {
                 await _services.Api.MarkAllReadAsync();
                 Status = "Inbox marked as read.";

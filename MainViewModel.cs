@@ -57,6 +57,9 @@ public sealed partial class MainViewModel : ObservableObject
         CloseBrowserCommand = new RelayCommand(_ => ShowBrowser = false);
         OpenLinkCommand = new RelayCommand(p => { if (p is string url) OpenLink(url); });
         Favorites = new ObservableCollection<string>(Settings.Favorites);
+        // Last session's list, so the sidebar is full straight away; Reddit's copy replaces it after sign-in.
+        _subscriptions = _services.SubscriptionCache.Load(Settings.ActiveProfile);
+        foreach (var sub in _subscriptions.Where(s => s.Icon != null)) _icons[sub.Name] = sub.Icon!;
 
         _detail.OpenUrlRequested += url => OpenUrl(url);
         _detail.ExternalUrlRequested += url => OpenLink(url);
@@ -64,11 +67,19 @@ public sealed partial class MainViewModel : ObservableObject
         _detail.StatusMessage += message => Status = message;
         _detail.PostStateChanged += OnDetailPostStateChanged;
         _detail.ModActionDone += OnModActionDone;
+        _detail.UserNoteChanged += OnUserNoteChanged;
         _detail.ThreadVisited += postId =>
         {
             foreach (var post in Tabs.SelectMany(t => t.Posts).Where(p => p.Id == postId)) post.NewComments = 0;
         };
         _inboxTimer.Tick += async (_, _) => await RefreshInboxAsync();
+        _alertMonitor = new AlertMonitor(services);
+        _alertMonitor.Matched += OnAlertsMatched;
+        _alertTimer.Tick += async (_, _) =>
+        {
+            _alertTimer.Interval = AlertInterval; // the first tick comes early; then the chosen rate
+            await _alertMonitor.CheckAsync();
+        };
         _suggestTimer.Tick += async (_, _) =>
         {
             _suggestTimer.Stop();
@@ -100,7 +111,27 @@ public sealed partial class MainViewModel : ObservableObject
         PreferencesCommand = new RelayCommand(_ => ShowPreferences());
         SubmitCommand = new RelayCommand(_ => ShowSubmit(), _ => _isReady);
         ShortcutsCommand = new RelayCommand(_ => new ShortcutsWindow { Owner = Application.Current.MainWindow }.ShowDialog());
-        RefreshSubscriptionsCommand = new RelayCommand(_ => _ = LoadSubscriptionsAsync(), _ => _isReady); ToggleReadingModeCommand = new RelayCommand(_ => IsReadingMode = !IsReadingMode);
+        RefreshSubscriptionsCommand = new RelayCommand(_ => _ = LoadSubscriptionsAsync(), _ => _isReady);
+        ToggleSubscriptionSortCommand = new RelayCommand(_ => ToggleSubscriptionSort());
+        CleanupSubscriptionsCommand = new RelayCommand(_ => ShowCleanup(), _ => _isReady);
+        NewFolderCommand = new RelayCommand(_ => EditFolder(null));
+        EditFolderCommand = new RelayCommand(p => EditFolder(p as string));
+        OpenFolderCommand = new RelayCommand(p => { if (p is string name) OpenFeed("folder:" + name, newTab: false); });
+        AddToFolderCommand = new RelayCommand(p => { if (p is string spec) AddToFolder(spec); });
+        RemoveFromFolderCommand = new RelayCommand(p => { if (p is SidebarItem item) RemoveFromFolder(item); });
+        ManageAlertsCommand = new RelayCommand(_ => ShowAlerts());
+        CommandPaletteCommand = new RelayCommand(_ => PaletteRequested?.Invoke(), _ => _isReady);
+        EditUserNoteCommand = new RelayCommand(p =>
+        {
+            if (p is Post { Author.Length: > 0 } post && post.Author != "[deleted]") EditUserNote(post.Author);
+        });
+        OpenCopiedLinkCommand = new RelayCommand(_ =>
+        {
+            if (CopiedLink is { } link) OpenUrl(link);
+            CopiedLink = null;
+        });
+        DismissCopiedLinkCommand = new RelayCommand(_ => CopiedLink = null);
+        ToggleReadingModeCommand = new RelayCommand(_ => IsReadingMode = !IsReadingMode);
         HideCommand = new RelayCommand(p => _ = HideAsync(p as Post ?? SelectedPost));
         ApproveCommand = new RelayCommand(p => _ = ModerateAsync(p as Post ?? SelectedPost, "approve"));
         RemoveCommand = new RelayCommand(p => _ = ModerateAsync(p as Post ?? SelectedPost, "remove"));
@@ -138,8 +169,22 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>Raised to ask the window to focus the search box.</summary>
     public event Action? FocusSearchRequested;
 
-    /// <summary>Raised when new inbox items arrive: notification title and text.</summary>
-    public event Action<string, string>? InboxNotification;
+    /// <summary>
+    /// Raised when new inbox items arrive: notification title and text, and the item itself when
+    /// there's just one (so it can be answered from the notification).
+    /// </summary>
+    public event Action<string, string, Post?>? InboxNotification;
+
+    /// <summary>Raised when alerts match new posts: title, text, and the post when there's just one.</summary>
+    public event Action<string, string, Post?>? AlertNotification;
+
+    /// <summary>Raised to open the command palette (Ctrl+K).</summary>
+    public event Action? PaletteRequested;
+
+    readonly AlertMonitor _alertMonitor;
+    readonly DispatcherTimer _alertTimer = new() { Interval = TimeSpan.FromSeconds(20) };
+
+    TimeSpan AlertInterval => TimeSpan.FromMinutes(Math.Clamp(Settings.AlertIntervalMinutes, 1, 240));
 
     readonly HashSet<string> _notified = [];
     bool _inboxPrimed;
@@ -175,6 +220,7 @@ public sealed partial class MainViewModel : ObservableObject
         new("★ Saved", "saved"),
         new("✉ Inbox", "inbox"),
         new("📥 Offline library", "offline"),
+        new("🔔 Alerts", "alerts"),
         new("👤 My profile", "u/me"),
     ];
 
@@ -199,6 +245,18 @@ public sealed partial class MainViewModel : ObservableObject
     public ICommand SubmitCommand { get; }
     public ICommand ShortcutsCommand { get; }
     public ICommand RefreshSubscriptionsCommand { get; }
+    public ICommand ManageAlertsCommand { get; }
+    public ICommand CommandPaletteCommand { get; }
+    public ICommand EditUserNoteCommand { get; }
+    public ICommand OpenCopiedLinkCommand { get; }
+    public ICommand DismissCopiedLinkCommand { get; }
+    public ICommand ToggleSubscriptionSortCommand { get; }
+    public ICommand CleanupSubscriptionsCommand { get; }
+    public ICommand NewFolderCommand { get; }
+    public ICommand EditFolderCommand { get; }
+    public ICommand OpenFolderCommand { get; }
+    public ICommand AddToFolderCommand { get; }
+    public ICommand RemoveFromFolderCommand { get; }
     public ICommand BrowserBackCommand { get; }
     public ICommand BrowserForwardCommand { get; }
     public ICommand BrowserReloadCommand { get; }
@@ -486,6 +544,7 @@ public sealed partial class MainViewModel : ObservableObject
         feed.StatusChanged += (f, status) => { if (f == SelectedTab) Status = status; };
         feed.AuthFailed += ex => { if (Tabs.Contains(feed)) _ = HandleAuthFailureAsync(ex); };
         feed.SubscriptionsChanged += () => _ = LoadSubscriptionsAsync();
+        feed.ManageAlertsRequested += ShowAlerts;
         feed.InboxRead += () =>
         {
             UnreadCount = 0;
@@ -507,6 +566,10 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
         if (spec == "u/me") spec = "u/" + _services.Api.UserName;
+
+        // Counted for the "most visited" order of the Subscriptions list.
+        if (FeedSpec.Parse(spec) is { Kind: FeedKind.Subreddit } community && !FeedViewModel.IsAggregateName(community.Target))
+            _services.CommunityVisits.Record(community.Target);
 
         // Reuse an existing tab for the same feed rather than piling up duplicates.
         var existing = Tabs.FirstOrDefault(t => t.Spec.Equals(spec, StringComparison.OrdinalIgnoreCase));
@@ -581,29 +644,75 @@ public sealed partial class MainViewModel : ObservableObject
     {
         _sidebarRows = null;
         Raise(nameof(SidebarRows));
+        // Only swap the jump bar's list when the letters change, so its buttons aren't rebuilt
+        // on every sidebar refresh.
+        var letters = ComputeJumpLetters();
+        if (!letters.SequenceEqual(JumpLetters))
+        {
+            _jumpLetters = letters;
+            Raise(nameof(JumpLetters));
+            Raise(nameof(ShowJumpBar));
+        }
     }
+
+    /// <summary>Where the Subscriptions list starts in <see cref="SidebarRows"/> (-1 if hidden).</summary>
+    int _subscriptionsStart = -1;
 
     List<object> BuildSidebarRows()
     {
         var rows = new List<object>();
-        void Section(string key, string title, bool expanded, bool show, string toolTip,
-            IEnumerable<object> items, bool canRefresh = false)
+        void Section(string key, string title, bool show, string toolTip, IEnumerable<object> items,
+            IReadOnlyList<SidebarAction>? actions = null, bool nested = false)
         {
-            rows.Add(new SidebarHeader(key, title, expanded, toolTip, canRefresh, SetSectionExpanded));
+            rows.Add(new SidebarHeader(key, title, IsExpanded(key), toolTip, actions ?? [], SetSectionExpanded, nested));
             if (show) rows.AddRange(items);
         }
 
-        Section("feeds", "FEEDS", FeedsExpanded, FeedsExpanded, "Show or hide", Feeds);
+        Section("feeds", "FEEDS", FeedsExpanded, "Show or hide", Feeds);
         if (HasModeration)
-            Section("moderation", "MODERATION", ModerationExpanded, ShowModeration,
-                "Mod queues for the communities you moderate", ModerationItems);
-        Section("favorites", FavoritesHeader, FavoritesExpanded, ShowFavorites,
+            Section("moderation", "MODERATION", ShowModeration, "Mod queues for the communities you moderate", ModerationItems);
+        Section("favorites", FavoritesHeader, ShowFavorites,
             "Your favorite communities on Reddit. Starring one here stars it on Reddit too.",
             HasNoFavorites
                 ? [new SidebarHint("Star a community with ☆ Favorite (or right-click it) and it shows up here and on Reddit.")]
                 : FavoriteItems);
-        Section("subscriptions", SubscriptionsHeader, SubscriptionsExpanded, ShowSubscriptions, "Show or hide",
-            SubscriptionItems, canRefresh: true);
+
+        // Folders: your own groups. Each folder is its own collapsible heading inside the section.
+        var folders = Settings.SubscriptionFolders;
+        Section("folders", folders.Count == 0 ? "FOLDERS" : $"FOLDERS ({folders.Count})", false,
+            "Your own groups of communities. Open one to see all of their posts together.", [],
+            [new SidebarAction("+", "New folder", NewFolderCommand)]);
+        if (FoldersExpanded || IsFiltering)
+        {
+            if (folders.Count == 0 && !IsFiltering)
+                rows.Add(new SidebarHint("Right-click a community and choose “Add to folder…”, or click + to make a folder."));
+            foreach (var folder in folders)
+            {
+                var members = folder.Subreddits.Where(MatchesFilter).ToList();
+                if (IsFiltering && members.Count == 0 && !MatchesFilter(folder.Name)) continue;
+                var key = "folder:" + folder.Name;
+                Section(key, $"📁 {folder.Name} ({folder.Subreddits.Count})", IsExpanded(key) || IsFiltering,
+                    "Show or hide this folder's communities",
+                    members.Select(s => new SidebarItem("r/" + s, "r/" + s, _icons.GetValueOrDefault(s), Folder: folder.Name)),
+                    [
+                        new SidebarAction("▶", "Open all of this folder's posts together", OpenFolderCommand, folder.Name),
+                        new SidebarAction("✎", "Rename, edit or delete this folder", EditFolderCommand, folder.Name),
+                    ],
+                    nested: true);
+            }
+        }
+
+        var byVisits = Settings.SubscriptionSort == "Visits";
+        Section("subscriptions", SubscriptionsHeader, false, "Show or hide", [],
+            [
+                new SidebarAction(byVisits ? "★" : "AZ",
+                    byVisits ? "Sorted by most visited. Click to sort A–Z." : "Sorted A–Z. Click to sort by most visited.",
+                    ToggleSubscriptionSortCommand),
+                new SidebarAction("🧹", "Clean up: find banned, private and quiet communities", CleanupSubscriptionsCommand),
+                new SidebarAction("⟳", "Reload subscriptions from Reddit", RefreshSubscriptionsCommand),
+            ]);
+        _subscriptionsStart = ShowSubscriptions ? rows.Count : -1;
+        if (ShowSubscriptions) rows.AddRange(SubscriptionItems);
         return rows;
     }
 
@@ -618,8 +727,179 @@ public sealed partial class MainViewModel : ObservableObject
                 case "moderation": ModerationExpanded = expanded; break;
                 case "favorites": FavoritesExpanded = expanded; break;
                 case "subscriptions": SubscriptionsExpanded = expanded; break;
+                default: SetExpanded(key, expanded); break; // folders, and each folder
             }
         });
+    }
+
+    bool FoldersExpanded => IsExpanded("folders");
+
+    // ---- A–Z jump bar ---------------------------------------------------------------------------
+
+    IReadOnlyList<string>? _jumpLetters;
+
+    /// <summary>Letters the Subscriptions list can jump to (only while it's shown A–Z and unfiltered).</summary>
+    public IReadOnlyList<string> JumpLetters => _jumpLetters ??= ComputeJumpLetters();
+
+    List<string> ComputeJumpLetters() =>
+        Settings.SubscriptionSort == "Visits" || IsFiltering || !SubscriptionsExpanded || _subscriptions.Count < 40
+            ? []
+            : _subscriptions.Select(s => JumpLetterFor(s.Name)).Distinct().Order(StringComparer.Ordinal).ToList();
+
+    public bool ShowJumpBar => JumpLetters.Count > 0;
+
+    static string JumpLetterFor(string name) =>
+        name.Length > 0 && char.IsAsciiLetter(name[0]) ? char.ToUpperInvariant(name[0]).ToString() : "#";
+
+    /// <summary>Row in <see cref="SidebarRows"/> of the first subscription under <paramref name="letter"/>.</summary>
+    public int IndexOfJumpLetter(string letter)
+    {
+        if (_subscriptionsStart < 0) return -1;
+        var rows = SidebarRows;
+        for (var i = _subscriptionsStart; i < rows.Count; i++)
+            if (rows[i] is SidebarItem item && JumpLetterFor(item.Spec[2..]) == letter)
+                return i;
+        return -1;
+    }
+
+    // ---- Subscription order and cleanup --------------------------------------------------------
+
+    void ToggleSubscriptionSort()
+    {
+        Settings.SubscriptionSort = Settings.SubscriptionSort == "Visits" ? "Name" : "Visits";
+        Settings.Save();
+        Status = Settings.SubscriptionSort == "Visits"
+            ? "Subscriptions sorted by how often you open them."
+            : "Subscriptions sorted A–Z.";
+        RefreshSidebar();
+    }
+
+    void ShowCleanup()
+    {
+        if (_subscriptions.Count == 0)
+        {
+            Status = "Your subscriptions haven't loaded yet.";
+            return;
+        }
+        var window = new CleanupWindow(_services.Api, _subscriptions) { Owner = Application.Current.MainWindow };
+        window.ShowDialog();
+        if (window.Unsubscribed.Count == 0) return;
+        var gone = window.Unsubscribed.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _subscriptions = _subscriptions.Where(s => !gone.Contains(s.Name)).ToList();
+        _services.SubscriptionCache.Save(Settings.ActiveProfile, _subscriptions);
+        Status = $"Unsubscribed from {gone.Count} {(gone.Count == 1 ? "community" : "communities")}.";
+        Raise(nameof(SubscriptionsHeader));
+        RefreshSidebar();
+    }
+
+    // ---- Folders --------------------------------------------------------------------------------
+
+    SubscriptionFolder? FindFolder(string? name) =>
+        Settings.SubscriptionFolders.FirstOrDefault(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+
+    void EditFolder(string? name)
+    {
+        var folder = FindFolder(name);
+        var others = Settings.SubscriptionFolders.Where(f => f != folder).Select(f => f.Name).ToList();
+        var window = new FolderWindow(folder, others) { Owner = Application.Current.MainWindow };
+        if (window.ShowDialog() != true) return;
+
+        var oldSpec = folder == null ? null : "folder:" + folder.Name;
+        if (window.Deleted && folder != null)
+        {
+            Settings.SubscriptionFolders.Remove(folder);
+            Status = $"Deleted the folder “{folder.Name}”.";
+        }
+        else
+        {
+            folder ??= AddFolder(window.FolderNameValue);
+            RenameFolder(folder, window.FolderNameValue);
+            folder.Subreddits = window.MemberNames;
+        }
+        Settings.Save();
+        RefreshSidebar();
+        // An open tab for the folder shows its new contents (or closes, if the folder is gone).
+        foreach (var tab in Tabs.Where(t => t.Kind == FeedKind.Folder && t.Spec.Equals(oldSpec, StringComparison.OrdinalIgnoreCase)).ToList())
+        {
+            if (window.Deleted) CloseTab(tab);
+            else if (!tab.Target.Equals(folder!.Name, StringComparison.Ordinal)) ReplaceTab(tab, "folder:" + folder.Name);
+            else _ = tab.ReloadAsync();
+        }
+    }
+
+    SubscriptionFolder AddFolder(string name)
+    {
+        var folder = new SubscriptionFolder { Name = name };
+        Settings.SubscriptionFolders.Add(folder);
+        Settings.SubscriptionFolders.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+        return folder;
+    }
+
+    void RenameFolder(SubscriptionFolder folder, string name)
+    {
+        if (folder.Name == name) return;
+        // Keep its collapsed state under the new name.
+        var collapsed = Settings.CollapsedSidebarSections.RemoveAll(s => s.Equals("folder:" + folder.Name, StringComparison.OrdinalIgnoreCase)) > 0;
+        folder.Name = name;
+        if (collapsed) Settings.CollapsedSidebarSections.Add("folder:" + name);
+        Settings.SubscriptionFolders.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    void AddToFolder(string spec)
+    {
+        if (!spec.StartsWith("r/")) return;
+        var subreddit = spec[2..];
+        var picker = new FolderPickerWindow(subreddit, Settings.SubscriptionFolders.Select(f => f.Name).ToList())
+        {
+            Owner = Application.Current.MainWindow,
+        };
+        if (picker.ShowDialog() != true) return;
+        var folder = FindFolder(picker.FolderName) ?? AddFolder(picker.FolderName);
+        if (folder.Subreddits.Contains(subreddit, StringComparer.OrdinalIgnoreCase))
+        {
+            Status = $"r/{subreddit} is already in “{folder.Name}”.";
+            return;
+        }
+        folder.Subreddits.Add(subreddit);
+        folder.Subreddits.Sort(StringComparer.OrdinalIgnoreCase);
+        Settings.Save();
+        Status = $"Added r/{subreddit} to “{folder.Name}”.";
+        RefreshSidebar();
+        RefreshFolderTabs(folder.Name);
+    }
+
+    /// <summary>A folder's contents changed: its open tab reloads now if showing, or when next shown.</summary>
+    void RefreshFolderTabs(string name)
+    {
+        foreach (var tab in Tabs.Where(t => t.Kind == FeedKind.Folder && t.Target.Equals(name, StringComparison.OrdinalIgnoreCase)))
+        {
+            if (tab == SelectedTab) _ = tab.ReloadAsync();
+            else tab.MarkStale();
+        }
+    }
+
+    void RemoveFromFolder(SidebarItem item)
+    {
+        if (FindFolder(item.Folder) is not { } folder || !item.Spec.StartsWith("r/")) return;
+        folder.Subreddits.RemoveAll(s => s.Equals(item.Spec[2..], StringComparison.OrdinalIgnoreCase));
+        Settings.Save();
+        Status = $"Removed {item.Spec} from “{folder.Name}”.";
+        RefreshSidebar();
+        RefreshFolderTabs(folder.Name);
+    }
+
+    /// <summary>Swaps a tab for another feed in the same place.</summary>
+    void ReplaceTab(FeedViewModel tab, string spec)
+    {
+        var index = Tabs.IndexOf(tab);
+        var wasSelected = SelectedTab == tab;
+        var feed = AddTab(spec, select: false);
+        if (feed == null) return;
+        Tabs.Move(Tabs.Count - 1, index + 1);
+        if (wasSelected) SelectedTab = feed;
+        Tabs.Remove(tab);
+        tab.Close();
+        SaveTabs();
     }
 
     bool MatchesFilter(string name) =>
@@ -628,10 +908,17 @@ public sealed partial class MainViewModel : ObservableObject
     public IReadOnlyList<SidebarItem> FavoriteItems =>
         Favorites.Where(MatchesFilter).Select(f => new SidebarItem("r/" + f, "r/" + f, _icons.GetValueOrDefault(f))).ToList();
 
-    public IReadOnlyList<SidebarItem> SubscriptionItems =>
-        _subscriptions.Where(s => MatchesFilter(s.Name))
-            .Select(s => new SidebarItem("r/" + s.Name, "r/" + s.Name, s.Icon))
-            .ToList();
+    public IReadOnlyList<SidebarItem> SubscriptionItems
+    {
+        get
+        {
+            var matching = _subscriptions.Where(s => MatchesFilter(s.Name));
+            if (Settings.SubscriptionSort == "Visits")
+                matching = matching.OrderByDescending(s => _services.CommunityVisits.CountFor(s.Name))
+                    .ThenBy(s => s.Name, StringComparer.OrdinalIgnoreCase);
+            return matching.Select(s => new SidebarItem("r/" + s.Name, "r/" + s.Name, s.Icon)).ToList();
+        }
+    }
 
     // ---- Collapsible sidebar sections (remembered in settings) ---------------------------------
 
@@ -689,6 +976,7 @@ public sealed partial class MainViewModel : ObservableObject
         try
         {
             _subscriptions = await _services.Api.GetSubscriptionsAsync();
+            _services.SubscriptionCache.Save(Settings.ActiveProfile, _subscriptions);
             foreach (var sub in _subscriptions.Where(s => s.Icon != null)) _icons[sub.Name] = sub.Icon!;
 
             // Favorites come from Reddit (the communities you've starred); the saved list is just
@@ -989,6 +1277,7 @@ public sealed partial class MainViewModel : ObservableObject
                 case "l": FocusSearchRequested?.Invoke(); return true;
                 case "f": _detail.OpenFind(); return true;
                 case "r": RefreshCommand.Execute(null); return true;
+                case "k": PaletteRequested?.Invoke(); return true;
                 default: return false;
             }
         }
@@ -1098,13 +1387,185 @@ public sealed partial class MainViewModel : ObservableObject
                     ? $"{from} replied" + (first.Title.Length > 0 ? $" in “{first.Title}”" : "")
                     : $"Message from {from}: {first.Title}";
             var body = first.Snippet.Length > 0 ? first.Snippet : first.SelfText;
-            InboxNotification?.Invoke(title, body.Length > 200 ? body[..200] + "…" : body);
+            InboxNotification?.Invoke(title, body.Length > 200 ? body[..200] + "…" : body, fresh.Count == 1 ? first : null);
         }
         catch
         {
-            InboxNotification?.Invoke("New message on Reddit", Status);
+            InboxNotification?.Invoke("New message on Reddit", Status, null);
         }
     }
+
+    // ---- Alerts --------------------------------------------------------------------------------
+
+    void ShowAlerts()
+    {
+        var window = new AlertsWindow(Settings.AlertRules, Settings.AlertIntervalMinutes) { Owner = Application.Current.MainWindow };
+        if (window.ShowDialog() != true) return;
+        Settings.AlertRules = window.Result;
+        Settings.AlertIntervalMinutes = window.IntervalMinutes;
+        Settings.Save();
+        _alertTimer.Stop();
+        _alertTimer.Interval = AlertInterval;
+        if (_isReady) _alertTimer.Start();
+        var on = Settings.AlertRules.Count(r => r.Enabled);
+        Status = on == 0 ? "No alerts are on." : $"Watching {on} {(on == 1 ? "alert" : "alerts")}. Checking now…";
+        _ = CheckAlertsNowAsync();
+    }
+
+    async Task CheckAlertsNowAsync()
+    {
+        if (!_isReady) return;
+        await _alertMonitor.CheckAsync();
+        RefreshAlertTabs();
+        if (Status.EndsWith("Checking now…")) Status = $"Alerts checked. {_services.Alerts.Count} matching posts so far.";
+    }
+
+    void RefreshAlertTabs()
+    {
+        foreach (var tab in Tabs.Where(t => t.Kind == FeedKind.Alerts))
+        {
+            if (tab == SelectedTab) _ = tab.ReloadAsync();
+            else tab.MarkStale();
+        }
+    }
+
+    void OnAlertsMatched(List<(string Rule, Post Post)> found)
+    {
+        RefreshAlertTabs();
+        var (rule, post) = found[0];
+        var title = found.Count == 1 ? $"🔔 {rule} · r/{post.Subreddit}" : $"🔔 {found.Count} new posts match your alerts";
+        var text = found.Count == 1 ? post.Title : string.Join("\n", found.Take(3).Select(f => "• " + f.Post.Title));
+        Status = found.Count == 1 ? $"Alert “{rule}”: {post.Title}" : $"{found.Count} new posts match your alerts.";
+        AlertNotification?.Invoke(title, text, found.Count == 1 ? post : null);
+    }
+
+    // ---- Command palette (Ctrl+K) -------------------------------------------------------------------
+
+    /// <summary>Everything the palette offers, in the order shown before anything is typed.</summary>
+    public IReadOnlyList<PaletteItem> BuildPaletteItems()
+    {
+        var items = new List<PaletteItem>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Community(string glyph, string name, string detail)
+        {
+            if (seen.Add(name)) items.Add(new PaletteItem(glyph, "r/" + name, detail, () => OpenFeed("r/" + name, newTab: false)));
+        }
+
+        foreach (var tab in Tabs.Where(t => t != SelectedTab))
+            items.Add(new PaletteItem("🗂", tab.Title, "Open tab", () => SelectedTab = tab));
+        foreach (var feed in Feeds)
+            items.Add(new PaletteItem("", feed.Label, "Feed", () => OpenFeed(feed.Spec, newTab: false)));
+        foreach (var name in Favorites) Community("★", name, "Favorite");
+        foreach (var folder in Settings.SubscriptionFolders)
+            items.Add(new PaletteItem("📁", folder.Name, $"Folder · {folder.Subreddits.Count}", () => OpenFeed("folder:" + folder.Name, newTab: false)));
+
+        items.AddRange(
+        [
+            new PaletteItem("⟳", "Refresh", "R", () => RefreshCommand.Execute(null)),
+            new PaletteItem("✏", "New post", "N", () => ShowSubmit()),
+            new PaletteItem("🔔", "Manage alerts", "Alerts", ShowAlerts),
+            new PaletteItem("📁", "New folder", "Folders", () => EditFolder(null)),
+            new PaletteItem("🧹", "Clean up subscriptions", "Subscriptions", ShowCleanup),
+            new PaletteItem("⇅", Settings.SubscriptionSort == "Visits" ? "Sort subscriptions A–Z" : "Sort subscriptions by most visited",
+                "Subscriptions", ToggleSubscriptionSort),
+            new PaletteItem("⤢", IsReadingMode ? "Leave reading mode" : "Reading mode", "F", () => IsReadingMode = !IsReadingMode),
+            new PaletteItem("▤", "Layout: Compact", "1", () => LayoutMode = "Compact"),
+            new PaletteItem("▦", "Layout: Cards", "2", () => LayoutMode = "Cards"),
+            new PaletteItem("▩", "Layout: Grid", "3", () => LayoutMode = "Grid"),
+            new PaletteItem("⚙", "Preferences", "Settings", ShowPreferences),
+            new PaletteItem("⌨", "Keyboard shortcuts", "?", () => ShortcutsCommand.Execute(null)),
+        ]);
+        foreach (var account in Accounts.Where(a => a.Profile != ActiveProfile && a.UserName.Length > 0))
+            items.Add(new PaletteItem("👤", $"Switch to u/{account.UserName}", "Account", () => SwitchAccount(account.Profile)));
+
+        if (HasModeration)
+            foreach (var sub in _moderated)
+                items.Add(new PaletteItem("🛡", $"Mod queue: r/{sub.Name}", "Moderation", () => OpenFeed("mod:" + sub.Name, newTab: false)));
+        foreach (var sub in _subscriptions) Community("", sub.Name, "Subscribed");
+        return items;
+    }
+
+    /// <summary>Palette entries made from what was typed: go to it, or search for it.</summary>
+    public IEnumerable<PaletteItem> PaletteExtras(string query)
+    {
+        if (query.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+        {
+            yield return new PaletteItem("🔗", "Open " + query, "Link", () => OpenUrl(query));
+            yield break;
+        }
+        if (RedditLinks.ParseFeedInput(query) is { } spec)
+            yield return new PaletteItem("→", "Go to " + spec, "Open", () => OpenFeed(spec, newTab: false));
+        else if (!query.Contains(' ') && query.Length <= 21)
+            yield return new PaletteItem("→", $"Go to r/{query}", "Community", () => OpenFeed("r/" + query, newTab: false));
+        yield return new PaletteItem("🔍", $"Search Reddit for “{query}”", "Search", () => OpenFeed($"search::{query}", newTab: true));
+    }
+
+    // ---- User notes and tags ----------------------------------------------------------------------
+
+    void EditUserNote(string user)
+    {
+        var window = new UserNoteWindow(user, _services.UserNotes.Get(user)) { Owner = Application.Current.MainWindow };
+        if (window.ShowDialog() != true) return;
+        _services.UserNotes.Set(user, window.TagValue, window.NoteValue);
+        OnUserNoteChanged(user);
+        _detail.RefreshSettings();
+        Status = window.TagValue.Length + window.NoteValue.Length == 0 ? $"Cleared your note on u/{user}." : $"Saved your note on u/{user}.";
+    }
+
+    /// <summary>Shows a user's new tag on every loaded post of theirs.</summary>
+    void OnUserNoteChanged(string user)
+    {
+        var tag = _services.UserNotes.Get(user)?.Tag ?? "";
+        foreach (var post in Tabs.SelectMany(t => t.Posts).Where(p => p.Author.Equals(user, StringComparison.OrdinalIgnoreCase)))
+            post.AuthorTag = tag;
+    }
+
+    // ---- Copied reddit links ------------------------------------------------------------------------
+
+    string? _copiedLink;
+    string? _lastClipboard;
+
+    /// <summary>A reddit link on the clipboard that Readdit offers to open.</summary>
+    public string? CopiedLink
+    {
+        get => _copiedLink;
+        private set
+        {
+            if (!Set(ref _copiedLink, value)) return;
+            Raise(nameof(HasCopiedLink));
+            Raise(nameof(CopiedLinkLabel));
+        }
+    }
+
+    public bool HasCopiedLink => CopiedLink != null;
+
+    public string CopiedLinkLabel =>
+        CopiedLink == null ? "" : "📋 Open the reddit link you copied? " + (CopiedLink.Length > 70 ? CopiedLink[..70] + "…" : CopiedLink);
+
+    /// <summary>Called when Readdit comes to the front: offer a newly copied reddit link.</summary>
+    public void CheckClipboard(string? text)
+    {
+        text = text?.Trim();
+        if (string.IsNullOrEmpty(text) || text == _lastClipboard) return;
+        _lastClipboard = text;
+        if (!_isReady || text.Length > 2000 || text.Contains(' ') || text.Contains('\n')) return;
+        if (!LinkHandler.IsRedditUrl(text) || RedditLinks.Classify(text) is WebLink) return;
+        // Not the post that's already open (you probably copied it from here).
+        if (SelectedPost != null && text.Contains(SelectedPost.PermalinkUrl.Replace("https://www.reddit.com", ""), StringComparison.OrdinalIgnoreCase))
+            return;
+        CopiedLink = text;
+    }
+
+    // ---- Quick reply ----------------------------------------------------------------------------
+
+    /// <summary>An inbox item was marked read outside the inbox (from Quick reply).</summary>
+    public void OnItemMarkedRead(Post item)
+    {
+        UnreadCount = Math.Max(0, UnreadCount - 1);
+        foreach (var copy in Tabs.SelectMany(t => t.Posts).Where(p => p.FullName == item.FullName)) copy.IsUnread = false;
+    }
+
+    public RedditApi Api => _services.Api;
 
     // ---- Dialogs ----------------------------------------------------------------------------
 
@@ -1279,6 +1740,7 @@ public sealed partial class MainViewModel : ObservableObject
         _ = CheckForUpdatesQuietlyAsync();
         _updateTimer.Start();
         _newPostsTimer.Start();
+        _alertTimer.Start();
 
         if (Tabs.Count == 0)
         {
@@ -1292,6 +1754,22 @@ public sealed partial class MainViewModel : ObservableObject
         {
             _ = SelectedTab?.ReloadAsync();
         }
+
+        // A link another app handed over before Readdit was ready.
+        if (_pendingUrl is { } pending)
+        {
+            _pendingUrl = null;
+            OpenUrl(pending);
+        }
+    }
+
+    string? _pendingUrl;
+
+    /// <summary>Opens a link from another app now, or once signed in.</summary>
+    public void OpenWhenReady(string url)
+    {
+        if (_isReady) OpenUrl(url);
+        else _pendingUrl = url;
     }
 
     // ---- Multiple accounts --------------------------------------------------------------------

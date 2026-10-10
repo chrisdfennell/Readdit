@@ -9,6 +9,7 @@ public partial class ShortcutsWindow : Window
         InitializeComponent();
         List.ItemsSource = new Dictionary<string, string>
         {
+            ["Ctrl+K"] = "Go anywhere: communities, folders, tabs and commands",
             ["j / k"] = "Next / previous post",
             ["Shift+J / K"] = "Next / previous top-level comment",
             ["Shift+N"] = "Next comment that's new since your last visit",

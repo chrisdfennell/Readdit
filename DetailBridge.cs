@@ -88,7 +88,15 @@ public sealed class DetailBridge(WebView2 view, Services services)
         muted = services.Settings.MutedUsers,
         highlighted = services.Settings.HighlightedUsers,
         modOf = services.Moderated,
+        // Lower-cased names → your tag and note on that user.
+        notes = services.UserNotes.All.ToDictionary(n => n.Key.ToLowerInvariant(), n => new { tag = n.Value.Tag, note = n.Value.Note }),
     });
+
+    /// <summary>Your note on a user changed from the post view (list rows update their tags).</summary>
+    public event Action<string>? UserNoteChanged;
+
+    /// <summary>Sends fresh settings (user notes, mutes…) to the page without re-rendering.</summary>
+    public void RefreshSettings() => Send($$"""{"type":"settings","settings":{{SettingsJson}}}""");
 
     /// <summary>A moderator action succeeded (fullname, action), so lists can update.</summary>
     public event Action<string, string>? ModActionDone;
@@ -434,6 +442,15 @@ public sealed class DetailBridge(WebView2 view, Services services)
                     if (m.Bool("on") && existing == null && name.Length > 0) list.Add(name);
                     else if (!m.Bool("on") && existing != null) list.Remove(existing);
                     services.Settings.Save();
+                    return SettingsJson;
+                }
+
+            case "userNote":
+                {
+                    var name = m.Str("name");
+                    if (name.Length == 0 || name.Length > 40) throw new InvalidOperationException("That isn't a username.");
+                    services.UserNotes.Set(name, m.Str("tag"), m.Str("note"));
+                    UserNoteChanged?.Invoke(name);
                     return SettingsJson;
                 }
 

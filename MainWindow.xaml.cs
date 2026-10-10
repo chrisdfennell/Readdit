@@ -31,6 +31,21 @@ public partial class MainWindow : Window
             SearchBox.SelectAll();
         };
         _vm.InboxNotification += OnInboxNotification;
+        _vm.AlertNotification += OnAlertNotification;
+        _vm.PaletteRequested += ShowPalette;
+        Loaded += (_, _) => { if (Program.StartupUrl is { } url) _vm.OpenWhenReady(url); };
+        // Offer a reddit link you copied elsewhere when you come back to Readdit.
+        Activated += (_, _) =>
+        {
+            try
+            {
+                if (Clipboard.ContainsText()) _vm.CheckClipboard(Clipboard.GetText());
+            }
+            catch
+            {
+                // Another app can hold the clipboard open; just skip this time.
+            }
+        };
         _vm.PropertyChanged += OnViewModelPropertyChanged;
         _vm.AppearanceChanged += ApplyAppearance;
         Loaded += async (_, _) => await _vm.InitializeAsync();
@@ -139,10 +154,56 @@ public partial class MainWindow : Window
         _vm.OpenFeedCommand.Execute("inbox");
     }
 
-    void OnInboxNotification(string title, string text)
+    void OnInboxNotification(string title, string text, Post? item)
     {
-        if (!IsVisible || !IsActive) _tray.Notify(title, text, OpenInbox);
+        // A single new message or reply can be answered right from the notification.
+        if (!IsVisible || !IsActive) _tray.Notify(title, text, item != null ? () => ShowQuickReply(item) : OpenInbox);
         FlashTaskbar();
+    }
+
+    void OnAlertNotification(string title, string text, Post? post)
+    {
+        if (IsVisible && IsActive) return; // the status bar says it already
+        _tray.Notify(title, text, () =>
+        {
+            BringToFront();
+            if (post != null) _vm.OpenUrl(post.PermalinkUrl);
+            else _vm.OpenFeedCommand.Execute("alerts");
+        });
+        FlashTaskbar();
+    }
+
+    QuickReplyWindow? _quickReply;
+
+    void ShowQuickReply(Post item)
+    {
+        _quickReply?.Close();
+        _quickReply = new QuickReplyWindow(item, _vm.Api);
+        _quickReply.MarkedRead += _vm.OnItemMarkedRead;
+        _quickReply.OpenRequested += opened =>
+        {
+            BringToFront();
+            _vm.OpenFeedCommand.Execute("inbox");
+            if (opened.Kind == ItemKind.Comment) _vm.OpenUrl(opened.PermalinkUrl);
+        };
+        _quickReply.Closed += (_, _) => _quickReply = null;
+        _quickReply.Show();
+        _quickReply.Activate();
+    }
+
+    /// <summary>A link handed over by another app (Readdit as link handler, or readdit://).</summary>
+    public void OpenIncomingLink(string url)
+    {
+        BringToFront();
+        _vm.OpenWhenReady(url);
+    }
+
+    void ShowPalette()
+    {
+        if (!IsVisible) BringToFront();
+        var palette = new CommandPaletteWindow(_vm.BuildPaletteItems(), _vm.PaletteExtras) { Owner = this };
+        palette.Show();
+        palette.Activate();
     }
 
     /// <summary>Interface scale and the true-black background for the Black theme.</summary>
@@ -215,6 +276,34 @@ public partial class MainWindow : Window
         }
 
         menu.IsOpen = true;
+    }
+
+    // ---- Sidebar A–Z jump bar ----------------------------------------------------------------
+
+    void OnJumpLetter(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Content: string letter }) return;
+        var index = _vm.IndexOfJumpLetter(letter);
+        if (index < 0 || FindDescendant<VirtualizingStackPanel>(SidebarList) is not { } panel ||
+            AutoScroller.FindScrollViewer(SidebarList) is not { } viewer)
+            return;
+
+        // The list is virtualized, so the row may not exist yet: bring it in, then put it at the top.
+        panel.BringIndexIntoViewPublic(index);
+        SidebarList.UpdateLayout();
+        if (SidebarList.ItemContainerGenerator.ContainerFromIndex(index) is FrameworkElement row)
+            viewer.ScrollToVerticalOffset(viewer.VerticalOffset + row.TransformToAncestor(viewer).Transform(new Point()).Y);
+    }
+
+    static T? FindDescendant<T>(DependencyObject node) where T : DependencyObject
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
+        {
+            var child = VisualTreeHelper.GetChild(node, i);
+            if (child is T match) return match;
+            if (FindDescendant<T>(child) is { } deeper) return deeper;
+        }
+        return null;
     }
 
     // ---- Post list ----------------------------------------------------------------------------

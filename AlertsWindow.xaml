@@ -1,0 +1,47 @@
+<Window x:Class="Readdit.AlertsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Alerts" Width="820" Height="520" MinWidth="620" MinHeight="360"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <DockPanel Margin="20">
+        <TextBlock DockPanel.Dock="Top" Text="Keyword alerts" FontSize="16" FontWeight="SemiBold" />
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Opacity="0.8" Margin="0,6,0,0">
+            Readdit watches for new posts whose titles contain any of the words, and lets you know.
+            Separate words or phrases with commas; put a minus in front to exclude one (<Run FontFamily="Consolas" Text="RTX, 4090, -broken" />).
+            Leave Communities empty to search all of Reddit, or list them (<Run FontFamily="Consolas" Text="hardwareswap, buildapcsales" />).
+            With no words, every new post in those communities counts.
+        </TextBlock>
+
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,14,0,0">
+            <StackPanel Orientation="Horizontal">
+                <Button Content="+ Add alert" Click="OnAdd" />
+                <Button Content="Remove" Margin="8,0,0,0" Click="OnRemove" />
+                <TextBlock Text="Check every" VerticalAlignment="Center" Margin="20,0,6,0" />
+                <ComboBox x:Name="Interval" MinWidth="110">
+                    <ComboBoxItem Content="2 minutes" Tag="2" />
+                    <ComboBoxItem Content="5 minutes" Tag="5" />
+                    <ComboBoxItem Content="15 minutes" Tag="15" />
+                    <ComboBoxItem Content="30 minutes" Tag="30" />
+                    <ComboBoxItem Content="hour" Tag="60" />
+                </ComboBox>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Save" MinWidth="80" IsDefault="True" Click="OnSave" Style="{DynamicResource AccentButtonStyle}" />
+                <Button Content="Cancel" MinWidth="80" Margin="8,0,0,0" IsCancel="True" />
+            </StackPanel>
+        </DockPanel>
+        <TextBlock DockPanel.Dock="Bottom" x:Name="Error" Foreground="#E5484D" TextWrapping="Wrap" Margin="0,8,0,0"
+                   Visibility="Collapsed" />
+
+        <DataGrid x:Name="Rules" Margin="0,14,0,0" AutoGenerateColumns="False" CanUserAddRows="False"
+                  CanUserDeleteRows="False" HeadersVisibility="Column" SelectionMode="Single">
+            <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="On" Binding="{Binding Enabled, UpdateSourceTrigger=PropertyChanged}" Width="50" />
+                <DataGridTextColumn Header="Name" Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Width="140" />
+                <DataGridTextColumn Header="Words" Binding="{Binding Keywords, UpdateSourceTrigger=PropertyChanged}" Width="2*" />
+                <DataGridTextColumn Header="Communities (empty = all)" Binding="{Binding Subreddits, UpdateSourceTrigger=PropertyChanged}" Width="2*" />
+                <DataGridCheckBoxColumn Header="Post text too" Binding="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Width="100" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>

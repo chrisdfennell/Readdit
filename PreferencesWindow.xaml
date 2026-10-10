@@ -67,6 +67,15 @@
                     </ComboBox>
                 </DockPanel>
 
+                <TextBlock Text="Links from other apps" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />
+                <TextBlock TextWrapping="Wrap" Opacity="0.8" Margin="0,4,0,0"
+                           Text="Make Readdit the app Windows uses for web links. Reddit links (from Discord, email, anywhere) then open in Readdit, and every other link goes straight on to your usual browser." />
+                <TextBlock x:Name="LinkHandlerStatus" TextWrapping="Wrap" Margin="0,8,0,0" FontWeight="SemiBold" />
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <Button x:Name="LinkHandlerSetUp" Content="Set up…" Click="OnSetUpLinkHandler" />
+                    <Button x:Name="LinkHandlerUndo" Content="Stop opening links" Margin="8,0,0,0" Click="OnUndoLinkHandler" />
+                </StackPanel>
+
                 <TextBlock Text="Smart filters" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />
                 <Grid Margin="0,8,0,0">
                     <Grid.ColumnDefinitions>

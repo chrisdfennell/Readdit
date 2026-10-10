@@ -1,0 +1,25 @@
+<Window x:Class="Readdit.FolderWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="460" Height="520" MinHeight="360"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <DockPanel Margin="20">
+        <TextBlock DockPanel.Dock="Top" Text="Folder name" />
+        <TextBox DockPanel.Dock="Top" x:Name="FolderName" Margin="0,6,0,0" />
+        <TextBlock DockPanel.Dock="Top" Margin="0,14,0,0" TextWrapping="Wrap"
+                   Text="Communities in this folder, one per line. Opening the folder shows all of their posts together." />
+
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,16,0,0">
+            <Button x:Name="DeleteButton" Content="Delete folder" Click="OnDelete" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Save" MinWidth="80" IsDefault="True" Click="OnSave" Style="{DynamicResource AccentButtonStyle}" />
+                <Button Content="Cancel" MinWidth="80" Margin="8,0,0,0" IsCancel="True" />
+            </StackPanel>
+        </DockPanel>
+        <TextBlock DockPanel.Dock="Bottom" x:Name="Error" Foreground="#E5484D" TextWrapping="Wrap" Margin="0,8,0,0"
+                   Visibility="Collapsed" />
+
+        <TextBox x:Name="Members" Margin="0,6,0,0" AcceptsReturn="True" TextWrapping="NoWrap"
+                 VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" />
+    </DockPanel>
+</Window>

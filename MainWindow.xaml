@@ -119,7 +119,7 @@
         </DataTemplate>
 
         <DataTemplate x:Key="SidebarItemTemplate" DataType="{x:Type local:SidebarItem}">
-            <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+            <Button x:Name="Row" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                     Background="Transparent" BorderThickness="0" Margin="0,1" Padding="8,4"
                     ToolTip="{Binding Label}"
                     Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
@@ -146,9 +146,24 @@
                         <MenuItem Header="Remove from favorites"
                                   Command="{Binding PlacementTarget.Tag.RemoveFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding Spec}" />
+                        <Separator Visibility="{Binding CanAddToFolder, Converter={StaticResource Vis}}" />
+                        <MenuItem Header="Add to folder…"
+                                  Visibility="{Binding CanAddToFolder, Converter={StaticResource Vis}}"
+                                  Command="{Binding PlacementTarget.Tag.AddToFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding Spec}" />
+                        <MenuItem Header="{Binding Folder}" HeaderStringFormat="Remove from “{0}”"
+                                  Visibility="{Binding InFolder, Converter={StaticResource Vis}}"
+                                  Command="{Binding PlacementTarget.Tag.RemoveFromFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}" />
                     </ContextMenu>
                 </Button.ContextMenu>
             </Button>
+            <DataTemplate.Triggers>
+                <!-- Communities listed under a folder sit indented beneath its heading. -->
+                <DataTrigger Binding="{Binding InFolder}" Value="True">
+                    <Setter TargetName="Row" Property="Margin" Value="14,1,0,1" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
         </DataTemplate>
 
         <!-- Right-click menu for any post row, card or tile. Tag carries the window's view model. -->
@@ -200,6 +215,9 @@
                       CommandParameter="{Binding}" />
             <MenuItem Header="{Binding Author}" HeaderStringFormat="View u/{0}"
                       Command="{Binding PlacementTarget.Tag.OpenAuthorCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <MenuItem Header="{Binding Author}" HeaderStringFormat="Note or tag on u/{0}…"
+                      Command="{Binding PlacementTarget.Tag.EditUserNoteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                       CommandParameter="{Binding}" />
         </ContextMenu>
 
@@ -491,6 +509,8 @@
                     </Border>
                 </Popup>
             </Grid>
+            <Button Content="⌘ Go to…" Margin="6,2,0,2" Command="{Binding CommandPaletteCommand}"
+                    ToolTip="Jump to any community, folder or tab, or run a command (Ctrl+K)" />
             <CheckBox Margin="10,2,0,2" VerticalAlignment="Center"
                       Content="{Binding SearchScopeLabel}" IsChecked="{Binding SearchInSubreddit}"
                       Visibility="{Binding CanSearchInSubreddit, Converter={StaticResource Vis}}" />
@@ -531,11 +551,26 @@
                                IsHitTestVisible="False"
                                Visibility="{Binding SidebarFilter, Converter={StaticResource InvVis}}" />
                 </Grid>
+                <!-- A–Z jump bar for long subscription lists. -->
+                <ItemsControl DockPanel.Dock="Right" ItemsSource="{Binding JumpLetters}" Margin="0,8,2,8" Focusable="False"
+                              Visibility="{Binding ShowJumpBar, Converter={StaticResource Vis}}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <UniformGrid Columns="1" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Content="{Binding}" Style="{StaticResource GlyphButton}" FontSize="10" Padding="3,0"
+                                    Click="OnJumpLetter" ToolTip="{Binding}" ToolTipService.InitialShowDelay="600" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
                 <!-- One flat, virtualized list of section headers, communities and hints, so only
                      the rows on screen are built (some people have thousands of subscriptions).
                      Each heading collapses its section (remembered between sessions). While
                      filtering, sections show their matches even when collapsed. -->
-                <ItemsControl ItemsSource="{Binding SidebarRows}" Focusable="False"
+                <ItemsControl x:Name="SidebarList" ItemsSource="{Binding SidebarRows}" Focusable="False"
                               VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
                               VirtualizingPanel.ScrollUnit="Pixel" ScrollViewer.CanContentScroll="True">
                     <ItemsControl.Template>
@@ -562,13 +597,32 @@
                         </DataTemplate>
                         <DataTemplate DataType="{x:Type local:SidebarHeader}">
                             <DockPanel>
-                                <Button DockPanel.Dock="Right" Content="⟳" Style="{StaticResource GlyphButton}" Margin="0,12,6,0"
-                                        VerticalAlignment="Top" ToolTip="Reload subscriptions"
-                                        Command="{Binding DataContext.RefreshSubscriptionsCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                        Visibility="{Binding CanRefresh, Converter={StaticResource Vis}}" />
-                                <ToggleButton Content="{Binding Title}" Style="{StaticResource SectionToggle}"
+                                <!-- Glyph buttons on the right: reload, sort, clean up, new folder, open folder… -->
+                                <ItemsControl x:Name="Actions" DockPanel.Dock="Right" ItemsSource="{Binding Actions}"
+                                              Margin="0,12,4,0" VerticalAlignment="Top" Focusable="False">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type local:SidebarAction}">
+                                            <Button Content="{Binding Glyph}" Style="{StaticResource GlyphButton}" FontSize="11"
+                                                    MinWidth="22" ToolTip="{Binding ToolTip}"
+                                                    Command="{Binding Command}" CommandParameter="{Binding Parameter}" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <ToggleButton x:Name="Toggle" Content="{Binding Title}" Style="{StaticResource SectionToggle}"
                                               IsChecked="{Binding IsExpanded}" ToolTip="{Binding ToolTip}" />
                             </DockPanel>
+                            <DataTemplate.Triggers>
+                                <!-- A folder inside the Folders section: indented and tighter. -->
+                                <DataTrigger Binding="{Binding IsNested}" Value="True">
+                                    <Setter TargetName="Toggle" Property="Margin" Value="14,2,2,0" />
+                                    <Setter TargetName="Actions" Property="Margin" Value="0,4,4,0" />
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
                         </DataTemplate>
                         <DataTemplate DataType="{x:Type local:SidebarHint}">
                             <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="12" Opacity="0.55" Margin="10,2,10,0" />
@@ -752,7 +806,16 @@
         <!-- Status bar -->
         <Border Grid.Row="2" BorderThickness="0,1,0,0" BorderBrush="{StaticResource Divider}" Padding="10,4">
             <DockPanel>
-                <TextBlock DockPanel.Dock="Right" Text="Press ? for shortcuts" Style="{StaticResource Meta}" />
+                <TextBlock DockPanel.Dock="Right" Text="Ctrl+K to go anywhere · ? for shortcuts" Style="{StaticResource Meta}" />
+                <!-- A reddit link copied in another app, offered when you come back. -->
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,16,0"
+                            Visibility="{Binding HasCopiedLink, Converter={StaticResource Vis}}">
+                    <TextBlock Text="{Binding CopiedLinkLabel}" Style="{StaticResource Meta}" VerticalAlignment="Center" MaxWidth="460" />
+                    <Button Content="Open" Margin="8,0,0,0" Padding="10,1" FontSize="12"
+                            Command="{Binding OpenCopiedLinkCommand}" Style="{DynamicResource AccentButtonStyle}" />
+                    <Button Content="✕" Margin="2,0,0,0" Style="{StaticResource GlyphButton}" ToolTip="Dismiss"
+                            Command="{Binding DismissCopiedLinkCommand}" />
+                </StackPanel>
                 <TextBlock Text="{Binding Status}" Style="{StaticResource Meta}" />
             </DockPanel>
         </Border>

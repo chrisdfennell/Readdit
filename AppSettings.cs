@@ -95,6 +95,30 @@ public sealed class AppSettings
     /// <summary>Cache of your Reddit favorites (starred communities), refreshed after sign-in.</summary>
     public List<string> Favorites { get; set; } = [];
 
+    /// <summary>Your own groups of communities (kept on this PC, not on Reddit).</summary>
+    public List<SubscriptionFolder> SubscriptionFolders { get; set; } = [];
+
+    /// <summary>Order of the Subscriptions list: Name (A–Z) or Visits (most opened first).</summary>
+    public string SubscriptionSort { get; set; } = "Name";
+
+    /// <summary>Keyword alerts, checked in the background.</summary>
+    public List<AlertRule> AlertRules { get; set; } = [];
+
+    /// <summary>How often alerts are checked, in minutes.</summary>
+    public int AlertIntervalMinutes { get; set; } = 5;
+
+    /// <summary>
+    /// Readdit is set up as Windows' handler for web links: it opens reddit links itself and
+    /// passes everything else to <see cref="FallbackBrowserCommand"/>.
+    /// </summary>
+    public bool LinkHandlerEnabled { get; set; }
+
+    /// <summary>The browser that had web links before Readdit (its shell command, with %1 for the URL).</summary>
+    public string FallbackBrowserCommand { get; set; } = "";
+
+    /// <summary>That browser's name, for display.</summary>
+    public string FallbackBrowserName { get; set; } = "";
+
     /// <summary>Post list layout: Compact, Cards or Grid.</summary>
     public string LayoutMode { get; set; } = "Compact";
 

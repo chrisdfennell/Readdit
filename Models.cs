@@ -100,6 +100,20 @@ public sealed partial class Post : ObservableObject
     /// <summary>Offline library tags, comma separated.</summary>
     public string LibraryTags { get; set; } = "";
 
+    /// <summary>The alert this post matched (Alerts feed only).</summary>
+    public string AlertName { get; set; } = "";
+
+    string _authorTag = "";
+    /// <summary>Your own tag for the author (user notes).</summary>
+    public string AuthorTag
+    {
+        get => _authorTag;
+        set
+        {
+            if (Set(ref _authorTag, value)) Raise(nameof(Tags));
+        }
+    }
+
     // ---- Moderation (Reddit only sends these fields to moderators) -------------------------------
 
     /// <summary>You moderate this item's community.</summary>
@@ -190,6 +204,8 @@ public sealed partial class Post : ObservableObject
         NumReports > 0 && !IsApproved ? $"⚑ {NumReports} REPORT{(NumReports == 1 ? "" : "S")}" : null,
         IsApproved && CanModerate ? "✓ APPROVED" : null,
         IsHighlightedAuthor ? $"⭐ u/{Author}" : null,
+        AuthorTag.Length > 0 ? $"👤 u/{Author}: {AuthorTag}" : null,
+        AlertName.Length > 0 ? "🔔 " + AlertName : null,
         LibraryTags.Length > 0 ? "🏷 " + LibraryTags : null,
         IsUnread ? "● NEW" : null,
         Kind != ItemKind.Link && Subject.Length > 0 ? Subject.ToUpperInvariant() : null,
@@ -351,8 +367,14 @@ public sealed partial class Post : ObservableObject
 
 /// <summary>An entry in the sidebar: a label, the feed spec it opens, and an optional icon.</summary>
 /// <param name="IsFeed">Built-in feeds (Home, Popular…) carry their own emoji, so no community badge.</param>
-public sealed record SidebarItem(string Label, string Spec, string? Icon = null, bool IsFeed = false)
+/// <param name="Folder">The folder this row is listed under, if any (offers "Remove from folder").</param>
+public sealed record SidebarItem(string Label, string Spec, string? Icon = null, bool IsFeed = false, string? Folder = null)
 {
+    public bool InFolder => Folder != null;
+
+    /// <summary>A single community (not a feed or mod queue), so it can go in a folder.</summary>
+    public bool CanAddToFolder => !IsFeed && Spec.StartsWith("r/") && !Spec.Contains('+');
+
     public bool HasIcon => Icon != null;
 
     /// <summary>Letter badge shown when a community has no icon.</summary>
@@ -371,16 +393,23 @@ public sealed record SidebarItem(string Label, string Spec, string? Icon = null,
     public bool IsCommunity => !IsFeed && (Spec.StartsWith("r/") || (Spec.StartsWith("mod:") && Spec != "mod:mod"));
 }
 
+/// <summary>A small glyph button on a sidebar heading (reload, sort, new folder…).</summary>
+public sealed record SidebarAction(string Glyph, string ToolTip, System.Windows.Input.ICommand Command, object? Parameter = null);
+
 /// <summary>A collapsible section heading in the sidebar ("▾ FAVORITES (12)").</summary>
-/// <param name="key">Section name as remembered in settings: feeds, moderation, favorites, subscriptions.</param>
+/// <param name="key">Section name as remembered in settings: feeds, moderation, favorites, folders,
+/// subscriptions, or "folder:Name" for one folder.</param>
 /// <param name="setExpanded">Called when the heading is toggled (by mouse, keyboard or accessibility tools).</param>
-public sealed class SidebarHeader(string key, string title, bool isExpanded, string toolTip, bool canRefresh,
-    Action<string, bool> setExpanded)
+public sealed class SidebarHeader(string key, string title, bool isExpanded, string toolTip,
+    IReadOnlyList<SidebarAction> actions, Action<string, bool> setExpanded, bool isNested = false)
 {
     public string Key => key;
     public string Title => title;
     public string ToolTip => toolTip;
-    public bool CanRefresh => canRefresh;
+    public IReadOnlyList<SidebarAction> Actions => actions;
+
+    /// <summary>A folder inside the Folders section: indented, and not shouted in capitals.</summary>
+    public bool IsNested => isNested;
 
     public bool IsExpanded
     {
@@ -398,7 +427,16 @@ public sealed class SidebarHeader(string key, string title, bool isExpanded, str
 public sealed record SidebarHint(string Text);
 
 /// <summary>A subreddit name, its icon URL if it has one, and whether you've starred it on Reddit.</summary>
-public sealed record SubredditRef(string Name, string? Icon, long Subscribers = 0, bool IsFavorite = false);
+/// <param name="Type">Reddit's subreddit_type: public, restricted, private, archived, user…</param>
+public sealed record SubredditRef(string Name, string? Icon, long Subscribers = 0, bool IsFavorite = false,
+    string Type = "public", bool Quarantined = false);
+
+/// <summary>A named group of communities in the sidebar; opens as one combined feed.</summary>
+public sealed class SubscriptionFolder
+{
+    public string Name { get; set; } = "";
+    public List<string> Subreddits { get; set; } = [];
+}
 
 static class Format
 {

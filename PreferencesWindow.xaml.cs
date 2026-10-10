@@ -67,6 +67,63 @@ public partial class PreferencesWindow : Window
         Keywords.Text = string.Join(Environment.NewLine, settings.KeywordFilters);
         Domains.Text = string.Join(Environment.NewLine, settings.DomainFilters);
         Subreddits.Text = string.Join(Environment.NewLine, settings.SubredditFilters);
+        ShowLinkHandlerStatus();
+        // Coming back from Windows' settings: show whether Readdit was picked.
+        Activated += (_, _) => ShowLinkHandlerStatus();
+    }
+
+    // ---- Links from other apps ------------------------------------------------------------------
+
+    void ShowLinkHandlerStatus()
+    {
+        var isDefault = LinkHandler.IsDefaultForWebLinks();
+        var browser = _settings.FallbackBrowserName.Length > 0 ? _settings.FallbackBrowserName : "your browser";
+        LinkHandlerStatus.Text = isDefault
+            ? $"✓ Readdit opens reddit links. Other links go to {browser}."
+            : _settings.LinkHandlerEnabled
+                ? "Readdit is set up, but Windows still sends web links elsewhere. Click Set up… and choose Readdit for HTTP and HTTPS."
+                : "Off: links from other apps open in your browser as usual.";
+        LinkHandlerUndo.IsEnabled = _settings.LinkHandlerEnabled || isDefault;
+    }
+
+    void OnSetUpLinkHandler(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (LinkHandler.RegisterAsBrowser() is { } previous)
+            {
+                // Remember the browser that had web links, to pass non-reddit links on to.
+                _settings.FallbackBrowserCommand = previous.Command;
+                _settings.FallbackBrowserName = previous.Name;
+            }
+            _settings.LinkHandlerEnabled = true;
+            _settings.Save();
+        }
+        catch (Exception ex)
+        {
+            LinkHandlerStatus.Text = $"Couldn't set it up: {ex.Message}";
+            return;
+        }
+        MessageBox.Show(this,
+            "Windows will now show Readdit's default apps page.\n\nSet Readdit as the default for HTTP and for HTTPS. " +
+            $"Readdit will open reddit links and pass every other link to {(_settings.FallbackBrowserName.Length > 0 ? _settings.FallbackBrowserName : "your browser")}.",
+            "Open reddit links in Readdit", MessageBoxButton.OK, MessageBoxImage.Information);
+        LinkHandler.OpenDefaultAppsSettings();
+    }
+
+    void OnUndoLinkHandler(object sender, RoutedEventArgs e)
+    {
+        var wasDefault = LinkHandler.IsDefaultForWebLinks();
+        LinkHandler.UnregisterAsBrowser();
+        _settings.LinkHandlerEnabled = false;
+        _settings.Save();
+        ShowLinkHandlerStatus();
+        if (!wasDefault) return;
+        MessageBox.Show(this,
+            "Windows will now show its default apps page. Pick your browser for web links again " +
+            $"({(_settings.FallbackBrowserName.Length > 0 ? _settings.FallbackBrowserName : "for example Edge or Chrome")}).",
+            "Stop opening links in Readdit", MessageBoxButton.OK, MessageBoxImage.Information);
+        LinkHandler.OpenDefaultAppsSettings(forReaddit: false);
     }
 
     void OnSave(object sender, RoutedEventArgs e)

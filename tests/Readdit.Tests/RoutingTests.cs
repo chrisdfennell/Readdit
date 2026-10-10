@@ -16,6 +16,8 @@ public class FeedSpecTests
     [InlineData("search::cats", FeedKind.Search, "cats", null)]
     [InlineData("search:aww:cute cats", FeedKind.Search, "cute cats", "aww")]
     [InlineData("search::a:b", FeedKind.Search, "a:b", null)]
+    [InlineData("folder:Linux stuff", FeedKind.Folder, "Linux stuff", null)]
+    [InlineData("alerts", FeedKind.Alerts, "", null)]
     public void Parses(string spec, FeedKind kind, string target, string? scope)
     {
         var parsed = FeedSpec.Parse(spec);
@@ -29,6 +31,7 @@ public class FeedSpecTests
     [InlineData("r/")]
     [InlineData("u/")]
     [InlineData("mod:")]
+    [InlineData("folder:")]
     [InlineData("search:")]
     [InlineData("search:aww")]
     [InlineData("search:aww:")]
@@ -40,6 +43,8 @@ public class FeedSpecTests
     [InlineData("u/alice")]
     [InlineData("search::cats")]
     [InlineData("search:aww:cute cats")]
+    [InlineData("folder:Linux stuff")]
+    [InlineData("alerts")]
     [InlineData("saved")]
     [InlineData("inbox")]
     [InlineData("offline")]

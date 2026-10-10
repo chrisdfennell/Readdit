@@ -139,6 +139,21 @@ body.reading .post-body { font-size: 1.08em; line-height: 1.7; }
 }
 #menu.form .reply-actions button { text-align: center; padding: 5px 14px; background: var(--soft); }
 #menu.form button.danger { background: #d0142c; color: #fff; }
+#menu.form button.primary { background: var(--accent); color: #fff; }
+
+/* Your own tag for a user, after their name. */
+.user-tag {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 0 6px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    color: var(--accent);
+    cursor: help;
+}
+.user-tag[hidden] { display: none; }
+.hc-note { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); white-space: pre-wrap; }
+.hc-note .user-tag { display: inline-block; margin-bottom: 4px; }
 
 /* ---- Find in thread ---------------------------------------------------------------------- */
 

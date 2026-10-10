@@ -73,6 +73,10 @@ if (host) {
             case 'navComments': navigateComments(m.direction); break;
             case 'find': openFind(); break;
             case 'nextNew': nextNewComment(); break;
+            case 'settings':
+                state.settings = m.settings;
+                refreshUserTags();
+                break;
         }
     });
 }
@@ -845,7 +849,7 @@ function renderPost(d, settings) {
                 postBadges,
                 el('div', { class: 'meta' },
                     link('r/' + d.subreddit, '/r/' + d.subreddit), ' · ',
-                    link('u/' + d.author, '/user/' + d.author), ' · ',
+                    link('u/' + d.author, '/user/' + d.author), d.author !== '[deleted]' && userTagChip(d.author), ' · ',
                     el('span', { title: fullDate(d.created_utc) }, age(d.created_utc)),
                     d.is_self ? null : [' · ', d.domain],
                     source !== d ? [' · crossposted from ', link('r/' + source.subreddit, '/r/' + source.subreddit)] : null))),
@@ -998,6 +1002,7 @@ function commentNode(c, depth, post) {
     const head = el('div', { class: 'c-head' },
         toggle,
         c.author === '[deleted]' ? el('span', { class: 'muted' }, '[deleted]') : link(c.author, '/user/' + c.author, authorClass),
+        c.author !== '[deleted]' && userTagChip(c.author),
         c.is_submitter && el('span', { class: 'badge op' }, 'OP'),
         c.distinguished === 'moderator' && el('span', { class: 'badge mod' }, 'MOD'),
         c.distinguished === 'admin' && el('span', { class: 'badge admin' }, 'ADMIN'),
@@ -1085,12 +1090,66 @@ function openUserMenu(anchor, name) {
         el('button', { onclick: () => setUserPref(name, 'highlighted', !highlighted) },
             highlighted ? `Stop highlighting u/${name}` : `⭐ Highlight u/${name}`),
         el('button', { onclick: () => setUserPref(name, 'muted', !muted) },
-            muted ? `Unmute u/${name}` : `🔇 Mute u/${name}`));
+            muted ? `Unmute u/${name}` : `🔇 Mute u/${name}`),
+        el('button', { onclick: () => openNoteForm(menu, name) },
+            noteFor(name) ? `📝 Edit your note on u/${name}…` : `📝 Note or tag on u/${name}…`));
     document.body.append(menu);
     const r = anchor.getBoundingClientRect();
     const w = menu.getBoundingClientRect();
     menu.style.left = Math.min(r.left, window.innerWidth - w.width - 8) + 'px';
     menu.style.top = (r.bottom + w.height + 8 > window.innerHeight ? r.top - w.height - 4 : r.bottom + 4) + 'px';
+}
+
+// ---- Your notes and tags on users -------------------------------------------------------------
+
+const noteFor = name => (state.settings.notes || {})[(name || '').toLowerCase()] || null;
+
+/** A chip after a username with your tag for them (kept in step by refreshUserTags). */
+function userTagChip(name) {
+    const chip = el('span', { class: 'user-tag', 'data-user': (name || '').toLowerCase() });
+    paintUserTag(chip);
+    return chip;
+}
+
+function paintUserTag(chip) {
+    const note = noteFor(chip.dataset.user);
+    chip.hidden = !note;
+    chip.textContent = note ? (note.tag || '📝') : '';
+    chip.title = note ? (note.note || 'Your tag for this user') : '';
+}
+
+function refreshUserTags() {
+    for (const chip of root.querySelectorAll('.user-tag')) paintUserTag(chip);
+    userCache.clear(); // hover cards show the note too
+}
+
+function openNoteForm(menu, name) {
+    const current = noteFor(name) || { tag: '', note: '' };
+    const tag = el('input', { type: 'text', maxlength: '40', placeholder: 'Tag, shown next to their name', value: current.tag });
+    const note = el('textarea', { rows: '3', placeholder: 'Note (only you see it)' });
+    note.value = current.note;
+    const status = el('div', { class: 'reply-status' });
+    const save = async (tagValue, noteValue) => {
+        try {
+            state.settings = await call('userNote', { name, tag: tagValue, note: noteValue });
+            closeMenu();
+            refreshUserTags();
+            showToast(tagValue || noteValue ? `Saved your note on u/${name}` : `Cleared your note on u/${name}`);
+        } catch (err) {
+            status.textContent = err.message;
+        }
+    };
+    menu.classList.add('form');
+    menu.replaceChildren(el('div', { class: 'menu-title' }, `Your note on u/${name}`), tag, note,
+        el('div', { class: 'reply-actions' },
+            el('button', { class: 'primary', onclick: () => save(tag.value.trim(), note.value.trim()) }, 'Save'),
+            el('button', { onclick: () => save('', '') }, 'Clear'),
+            el('button', { onclick: () => closeMenu() }, 'Cancel')),
+        status);
+    const box = menu.getBoundingClientRect();
+    if (box.bottom > window.innerHeight - 8) menu.style.top = Math.max(8, window.innerHeight - box.height - 8) + 'px';
+    if (box.right > window.innerWidth - 8) menu.style.left = Math.max(8, window.innerWidth - box.width - 8) + 'px';
+    tag.focus();
 }
 
 async function setUserPref(name, list, on) {
@@ -1536,7 +1595,10 @@ async function showUserCard(anchor, name) {
         info.suspended ? null : el('div', { class: 'hc-stats' },
             el('div', null, el('b', null, count(info.karma)), el('span', { class: 'muted' }, ' karma')),
             el('div', null, el('b', null, count(info.linkKarma)), el('span', { class: 'muted' }, ' post')),
-            el('div', null, el('b', null, count(info.commentKarma)), el('span', { class: 'muted' }, ' comment'))));
+            el('div', null, el('b', null, count(info.commentKarma)), el('span', { class: 'muted' }, ' comment'))),
+        noteFor(name) && el('div', { class: 'hc-note' },
+            noteFor(name).tag && el('span', { class: 'user-tag' }, noteFor(name).tag),
+            noteFor(name).note && el('div', null, noteFor(name).note)));
     placeHovercard(anchor);
 }
 

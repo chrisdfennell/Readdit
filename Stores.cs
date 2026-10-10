@@ -344,6 +344,135 @@ public sealed class VisitStore
     }
 }
 
+/// <summary>
+/// The last subscription list per account, so the sidebar fills instantly at launch instead of
+/// waiting for Reddit (thousands of subscriptions take a while to page through).
+/// </summary>
+public sealed class SubscriptionCache(string dir)
+{
+    public SubscriptionCache() : this(Paths.Local) { }
+
+    string FileFor(string profile) =>
+        Path.Combine(dir, profile.Length == 0 ? "subscriptions.json" : $"subscriptions-{SafeName(profile)}.json");
+
+    static string SafeName(string profile) => string.Concat(profile.Where(c => char.IsLetterOrDigit(c) || c is '-' or '_'));
+
+    public List<SubredditRef> Load(string profile)
+    {
+        try
+        {
+            var file = FileFor(profile);
+            return File.Exists(file) ? JsonSerializer.Deserialize<List<SubredditRef>>(File.ReadAllText(file)) ?? [] : [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    public void Save(string profile, List<SubredditRef> subscriptions)
+    {
+        try
+        {
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(FileFor(profile), JsonSerializer.Serialize(subscriptions));
+        }
+        catch
+        {
+            // A cache; the next launch just waits for Reddit.
+        }
+    }
+}
+
+/// <summary>How often each community has been opened, for the "most visited" sidebar order.</summary>
+public sealed class CommunityVisits
+{
+    readonly string _file;
+    readonly Dictionary<string, int> _counts;
+
+    public CommunityVisits() : this(Path.Combine(Paths.Local, "community-visits.json")) { }
+
+    /// <summary>Uses <paramref name="file"/> for storage (tests use a temporary one).</summary>
+    public CommunityVisits(string file)
+    {
+        _file = file;
+        try
+        {
+            var loaded = File.Exists(_file) ? JsonSerializer.Deserialize<Dictionary<string, int>>(File.ReadAllText(_file)) : null;
+            _counts = new Dictionary<string, int>(loaded ?? [], StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            _counts = new(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    public int CountFor(string subreddit) => _counts.GetValueOrDefault(subreddit);
+
+    public void Record(string subreddit)
+    {
+        _counts[subreddit] = CountFor(subreddit) + 1;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(_file)!);
+            File.WriteAllText(_file, JsonSerializer.Serialize(_counts));
+        }
+        catch
+        {
+            // Best-effort.
+        }
+    }
+}
+
+/// <summary>Your private notes and tags on Reddit users (kept on this PC only).</summary>
+public sealed class UserNotes
+{
+    readonly string _file;
+    readonly Dictionary<string, UserNote> _notes;
+
+    public sealed record UserNote(string Tag, string Note);
+
+    public UserNotes() : this(Path.Combine(Paths.Local, "user-notes.json")) { }
+
+    /// <summary>Uses <paramref name="file"/> for storage (tests use a temporary one).</summary>
+    public UserNotes(string file)
+    {
+        _file = file;
+        try
+        {
+            var loaded = File.Exists(_file) ? JsonSerializer.Deserialize<Dictionary<string, UserNote>>(File.ReadAllText(_file)) : null;
+            _notes = new Dictionary<string, UserNote>(loaded ?? [], StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            _notes = new(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    public IReadOnlyDictionary<string, UserNote> All => _notes;
+
+    public UserNote? Get(string user) => _notes.GetValueOrDefault(user);
+
+    /// <summary>Sets a user's tag and note; both empty removes the entry.</summary>
+    public void Set(string user, string tag, string note)
+    {
+        tag = tag.Trim();
+        note = note.Trim();
+        if (user.Length == 0) return;
+        if (tag.Length == 0 && note.Length == 0) _notes.Remove(user);
+        else _notes[user] = new UserNote(tag.Length > 40 ? tag[..40] : tag, note);
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(_file)!);
+            File.WriteAllText(_file, JsonSerializer.Serialize(_notes));
+        }
+        catch
+        {
+            // Best-effort.
+        }
+    }
+}
+
 /// <summary>Diagnostic log of write requests (no credentials), for debugging Reddit's responses.</summary>
 static class ApiLog
 {
@@ -387,6 +516,10 @@ public sealed class Services
     public ReadTracker Read { get; } = new();
     public OfflineStore Offline { get; } = new();
     public VisitStore Visits { get; } = new();
+    public SubscriptionCache SubscriptionCache { get; } = new();
+    public CommunityVisits CommunityVisits { get; } = new();
+    public AlertStore Alerts { get; } = new();
+    public UserNotes UserNotes { get; } = new();
 
     /// <summary>Communities you moderate (loaded after sign-in).</summary>
     public HashSet<string> Moderated { get; } = new(StringComparer.OrdinalIgnoreCase);

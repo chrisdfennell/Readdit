@@ -78,7 +78,8 @@ public sealed partial class RedditApi(RedditSession session)
     {
         var subs = new List<SubredditRef>();
         string? after = null;
-        for (var page = 0; page < 20; page++)
+        // Reddit allows a few thousand subscriptions; 60 pages of 100 covers them all.
+        for (var page = 0; page < 60; page++)
         {
             var url = $"{Base}/subreddits/mine/subscriber.json?limit=100&raw_json=1" +
                       (after == null ? "" : $"&after={after}");
@@ -90,14 +91,55 @@ public sealed partial class RedditApi(RedditSession session)
             after = data.Str("after");
             if (string.IsNullOrEmpty(after)) break;
         }
-        return subs.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        // Paging can hand back the same community twice when the list shifts between pages.
+        return subs.DistinctBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     static SubredditRef ToSubredditRef(JsonElement d)
     {
         var icon = d.Str("community_icon") is { Length: > 0 } c ? c : d.Str("icon_img");
         return new SubredditRef(d.Str("display_name"), icon.StartsWith("http") ? icon : null, d.Long("subscribers"),
-            d.Bool("user_has_favorited"));
+            d.Bool("user_has_favorited"), d.Str("subreddit_type") is { Length: > 0 } t ? t : "public", d.Bool("quarantine"));
+    }
+
+    /// <summary>
+    /// Current details for many communities at once (100 per request). Banned and deleted
+    /// communities are simply missing from the result.
+    /// </summary>
+    public async Task<List<SubredditRef>> GetSubredditsInfoAsync(IReadOnlyList<string> names, CancellationToken ct)
+    {
+        var found = new List<SubredditRef>();
+        foreach (var chunk in names.Chunk(100))
+        {
+            using var doc = await GetJsonAsync(
+                $"{Base}/api/info.json?raw_json=1&sr_name={string.Join(",", chunk.Select(Uri.EscapeDataString))}", ct);
+            found.AddRange(doc.RootElement.GetProperty("data").GetProperty("children").EnumerateArray()
+                .Where(c => c.Str("kind") == "t5")
+                .Select(c => ToSubredditRef(c.GetProperty("data"))));
+        }
+        return found;
+    }
+
+    /// <summary>
+    /// When a community last had a post: the HTTP status Reddit answered with, and the newest
+    /// post's time (null if there are none or it couldn't be read).
+    /// </summary>
+    public async Task<(int Status, DateTimeOffset? Newest)> GetNewestPostAsync(string subreddit, CancellationToken ct)
+    {
+        var (status, body) = await session.GetAsync($"{Base}/r/{Uri.EscapeDataString(subreddit)}/new.json?limit=1&raw_json=1", ct);
+        if (status is < 200 or >= 300 || !LooksLikeJson(body)) return (status, null);
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            var children = doc.RootElement.GetProperty("data").GetProperty("children");
+            if (children.GetArrayLength() == 0) return (status, null);
+            return (status, DateTimeOffset.FromUnixTimeSeconds((long)children[0].GetProperty("data").Double("created_utc")));
+        }
+        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            return (status, null);
+        }
     }
 
     /// <summary>Community suggestions for a partial name, as Reddit's search box offers them.</summary>
@@ -272,6 +314,38 @@ public sealed partial class RedditApi(RedditSession session)
     {
         using var _ = await PostAsync("/api/subscribe",
             new() { ["action"] = subscribe ? "sub" : "unsub", ["sr_name"] = subreddit });
+    }
+
+    /// <summary>
+    /// Leaves many communities, a batch per request. One bad name (a banned community, say) can
+    /// fail a whole batch, so a failed batch is retried one by one. Returns the ones that still failed.
+    /// </summary>
+    public async Task<List<string>> UnsubscribeManyAsync(IReadOnlyList<string> subreddits)
+    {
+        var failed = new List<string>();
+        foreach (var chunk in subreddits.Chunk(50))
+        {
+            try
+            {
+                using var _ = await PostAsync("/api/subscribe",
+                    new() { ["action"] = "unsub", ["sr_name"] = string.Join(",", chunk) });
+            }
+            catch
+            {
+                foreach (var name in chunk)
+                {
+                    try
+                    {
+                        await SubscribeAsync(name, subscribe: false);
+                    }
+                    catch
+                    {
+                        failed.Add(name);
+                    }
+                }
+            }
+        }
+        return failed;
     }
 
     /// <summary>Unread inbox items, newest first.</summary>
