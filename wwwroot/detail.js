@@ -61,6 +61,7 @@ if (host) {
             case 'thread': renderThread(m); break;
             case 'message': renderMessage(m.data, m.settings); break;
             case 'conversation': renderConversation(m); break;
+            case 'community': renderCommunity(m); break;
             case 'error': showError(m.message); break;
             case 'scroll':
                 window.scrollBy({ top: m.direction * window.innerHeight * 0.85, behavior: 'smooth' });
@@ -185,23 +186,231 @@ function renderMarkdown(text) {
     return sanitize(html);
 }
 
-/** A textarea with a live preview underneath; used for replies and edits. */
+// ---- Rich text ⇄ Markdown ----------------------------------------------------------------
+
+let turndown = null;
+
+/** Converts the rich editor's HTML to Reddit Markdown (null if the converter didn't load). */
+function htmlToMarkdown(html) {
+    if (!window.TurndownService) return null;
+    if (!turndown) {
+        turndown = new window.TurndownService({
+            headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-', emDelimiter: '*', strongDelimiter: '**',
+        });
+        if (window.turndownPluginGfm) turndown.use([window.turndownPluginGfm.strikethrough, window.turndownPluginGfm.tables]);
+        // Reddit's own syntax: >!spoilers!< and ^(superscript).
+        turndown.addRule('spoiler', {
+            filter: node => node.nodeName === 'SPAN' && node.classList.contains('md-spoiler-text'),
+            replacement: content => content.trim() ? `>!${content}!<` : '',
+        });
+        turndown.addRule('superscript', {
+            filter: 'sup',
+            replacement: content => content.trim() ? `^(${content})` : '',
+        });
+        turndown.addRule('strike', {
+            filter: ['del', 's', 'strike'],
+            replacement: content => `~~${content}~~`,
+        });
+    }
+    return turndown.turndown(html).replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// ---- The editor: Markdown or rich text, with a formatting toolbar ----------------------------
+
+const EDITOR_MODE_KEY = 'skein-editor-mode';
+
+/**
+ * Wraps the selection in Markdown markers ("**bold**"), or inserts an example to type over.
+ * Multi-line code becomes a fenced block.
+ */
+function wrapSelection(textarea, before, after, example) {
+    const { selectionStart: start, selectionEnd: end, value } = textarea;
+    let selected = value.slice(start, end);
+    if (before === '`' && selected.includes('\n')) {
+        before = '```\n';
+        after = '\n```';
+    }
+    // Already wrapped: unwrap (the buttons toggle).
+    if (selected && value.slice(start - before.length, start) === before && value.slice(end, end + after.length) === after) {
+        textarea.setRangeText(selected, start - before.length, end + after.length, 'select');
+    } else {
+        if (!selected) selected = example;
+        textarea.setRangeText(before + selected + after, start, end, 'end');
+        textarea.setSelectionRange(start + before.length, start + before.length + selected.length);
+    }
+    textarea.focus();
+    textarea.dispatchEvent(new Event('input'));
+}
+
+/** Adds (or removes) a prefix on every selected line: "> ", "- ", "1. ", "## ". */
+function prefixLines(textarea, prefix) {
+    const { selectionStart, selectionEnd, value } = textarea;
+    const lineStart = value.lastIndexOf('\n', selectionStart - 1) + 1;
+    const lineEnd = value.indexOf('\n', selectionEnd) < 0 ? value.length : value.indexOf('\n', selectionEnd);
+    const lines = value.slice(lineStart, lineEnd).split('\n');
+    const numbered = prefix === '1. ';
+    const has = line => numbered ? /^\d+\. /.test(line) : line.startsWith(prefix);
+    const all = lines.every(has);
+    const result = lines.map((line, i) => all
+        ? line.replace(numbered ? /^\d+\. / : prefix, '')
+        : (numbered ? `${i + 1}. ` : prefix) + line.replace(/^(> |- |\d+\. |#{1,6} )/, ''));
+    textarea.setRangeText(result.join('\n'), lineStart, lineEnd, 'select');
+    textarea.focus();
+    textarea.dispatchEvent(new Event('input'));
+}
+
+/** Asks for a link address (and uses the selection, if any, as its text). */
+function askForLink() {
+    const url = window.prompt('Link address:', 'https://');
+    if (!url || url === 'https://') return null;
+    try {
+        const parsed = new URL(url);
+        return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.href : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * A text editor for replies and edits: Markdown with a live preview, or rich text that's turned
+ * into Markdown as you type. Either way `textarea.value` holds the Markdown to send.
+ */
 function markdownEditor(initial, placeholder) {
     const textarea = el('textarea', { placeholder, spellcheck: 'true' });
     textarea.value = initial || '';
     const preview = el('div', { class: 'md preview', hidden: true });
+    const rich = el('div', { class: 'md rich-editor', contenteditable: 'true', spellcheck: 'true', hidden: true,
+        'data-placeholder': placeholder });
+    let mode = 'markdown';
     let timer;
+
     const update = () => {
         const text = textarea.value.trim();
-        preview.hidden = !text;
-        if (text) preview.replaceChildren(el('div', { class: 'preview-label' }, 'Preview'), renderMarkdown(textarea.value));
+        preview.hidden = !text || mode === 'rich'; // rich text is its own preview
+        if (text && mode === 'markdown') preview.replaceChildren(el('div', { class: 'preview-label' }, 'Preview'), renderMarkdown(textarea.value));
     };
     textarea.addEventListener('input', () => {
         clearTimeout(timer);
         timer = setTimeout(update, 120);
     });
-    update();
-    return { textarea, preview };
+
+    // Rich text writes its Markdown back into the textarea (drafts and sending use that).
+    const syncFromRich = () => {
+        const markdown = htmlToMarkdown(rich.innerHTML);
+        if (markdown == null) return;
+        textarea.value = markdown;
+        textarea.dispatchEvent(new Event('input'));
+    };
+    rich.addEventListener('input', syncFromRich);
+    // Pasted web pages arrive as cleaned-up HTML; anything else as plain text.
+    rich.addEventListener('paste', e => {
+        const html = e.clipboardData.getData('text/html');
+        const text = e.clipboardData.getData('text/plain');
+        e.preventDefault();
+        if (html) {
+            const holder = el('div', null, sanitize(html));
+            document.execCommand('insertHTML', false, holder.innerHTML);
+        } else {
+            document.execCommand('insertText', false, text);
+        }
+    });
+
+    const command = (name, value) => {
+        rich.focus();
+        document.execCommand(name, false, value);
+        syncFromRich();
+    };
+    const wrapRich = (tag, className) => {
+        const selection = window.getSelection();
+        if (!selection.rangeCount || selection.isCollapsed || !rich.contains(selection.anchorNode)) return;
+        const range = selection.getRangeAt(0);
+        const wrapper = el(tag, className ? { class: className } : null);
+        wrapper.append(range.extractContents());
+        range.insertNode(wrapper);
+        selection.selectAllChildren(wrapper);
+        syncFromRich();
+    };
+
+    // Each tool: [label, title, markdown action, rich action].
+    const tools = [
+        ['B', 'Bold (Ctrl+B)', () => wrapSelection(textarea, '**', '**', 'bold text'), () => command('bold')],
+        ['I', 'Italic (Ctrl+I)', () => wrapSelection(textarea, '*', '*', 'italic text'), () => command('italic')],
+        ['S', 'Strikethrough', () => wrapSelection(textarea, '~~', '~~', 'struck text'), () => command('strikeThrough')],
+        ['🔗', 'Link (Ctrl+K)', () => {
+            const url = askForLink();
+            if (url) wrapSelection(textarea, '[', `](${url})`, 'link text');
+        }, () => {
+            const url = askForLink();
+            if (url) command('createLink', url);
+        }],
+        ['❝', 'Quote', () => prefixLines(textarea, '> '), () => command('formatBlock', 'blockquote')],
+        ['</>', 'Code', () => wrapSelection(textarea, '`', '`', 'code'), () => wrapRich('code')],
+        ['⚠', 'Spoiler', () => wrapSelection(textarea, '>!', '!<', 'spoiler'), () => wrapRich('span', 'md-spoiler-text')],
+        ['^', 'Superscript', () => wrapSelection(textarea, '^(', ')', 'superscript'), () => command('superscript')],
+        ['•', 'Bulleted list', () => prefixLines(textarea, '- '), () => command('insertUnorderedList')],
+        ['1.', 'Numbered list', () => prefixLines(textarea, '1. '), () => command('insertOrderedList')],
+        ['H', 'Heading', () => prefixLines(textarea, '## '), () => command('formatBlock', 'h2')],
+    ];
+    const toolbar = el('div', { class: 'md-toolbar' });
+    for (const [label, title, markdown, richAction] of tools) {
+        const button = el('button', { type: 'button', title, class: 'tool' }, label);
+        // Keep the selection in the editor when the button is pressed.
+        button.addEventListener('mousedown', e => e.preventDefault());
+        button.onclick = () => (mode === 'rich' ? richAction : markdown)();
+        toolbar.append(button);
+    }
+    const modeSwitch = el('button', { type: 'button', class: 'tool mode', title: 'Switch between Markdown and rich text' });
+    modeSwitch.addEventListener('mousedown', e => e.preventDefault());
+    toolbar.append(el('span', { class: 'spacer' }), modeSwitch);
+
+    const setMode = (next, remember) => {
+        if (next === 'rich' && !window.TurndownService) next = 'markdown'; // converter didn't load (offline)
+        mode = next;
+        if (mode === 'rich') {
+            rich.replaceChildren(textarea.value.trim() ? renderMarkdown(textarea.value) : '');
+            rich.querySelectorAll('.md-spoiler-text').forEach(s => s.classList.add('revealed'));
+        }
+        rich.hidden = mode !== 'rich';
+        textarea.hidden = mode === 'rich';
+        modeSwitch.textContent = mode === 'rich' ? 'Rich text ⇄' : 'Markdown ⇄';
+        modeSwitch.title = mode === 'rich' ? 'Rich text: switch to Markdown' : 'Markdown: switch to rich text';
+        update();
+        if (remember) {
+            try { localStorage.setItem(EDITOR_MODE_KEY, mode); } catch { /* a nicety */ }
+        }
+    };
+    modeSwitch.onclick = () => {
+        setMode(mode === 'rich' ? 'markdown' : 'rich', true);
+        (mode === 'rich' ? rich : textarea).focus();
+    };
+
+    // Ctrl+B / Ctrl+I / Ctrl+K in either mode (Ctrl+K would otherwise open the palette).
+    const shortcuts = e => {
+        if (!e.ctrlKey || e.altKey || e.shiftKey) return;
+        const key = e.key.toLowerCase();
+        const index = key === 'b' ? 0 : key === 'i' ? 1 : key === 'k' ? 3 : -1;
+        if (index < 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        tools[index][mode === 'rich' ? 3 : 2]();
+    };
+    textarea.addEventListener('keydown', shortcuts);
+    rich.addEventListener('keydown', shortcuts);
+
+    let saved = 'markdown';
+    try { saved = localStorage.getItem(EDITOR_MODE_KEY) || 'markdown'; } catch { /* a nicety */ }
+    setMode(saved, false);
+
+    const editor = el('div', { class: 'md-editor' }, toolbar, textarea, rich);
+    // Focusing the editor focuses whichever box is showing.
+    editor.focusInput = () => (mode === 'rich' ? rich : textarea).focus();
+    /** Replaces the text (a restored draft, or clearing after sending) in both views. */
+    editor.setText = markdown => {
+        textarea.value = markdown;
+        if (mode === 'rich') rich.replaceChildren(markdown.trim() ? renderMarkdown(markdown) : '');
+        textarea.dispatchEvent(new Event('input'));
+    };
+    return { textarea, preview, editor };
 }
 
 // ---- Sanitizing Reddit's rendered HTML -------------------------------------------------
@@ -522,19 +731,18 @@ function keepDraft(textarea, key, original = '') {
 
 function replyBox(parentName, onPosted) {
     const draftKey = 'reply:' + parentName;
-    const { textarea, preview } = markdownEditor('', 'Write a reply. Markdown is supported. Ctrl+Enter sends.');
+    const { textarea, preview, editor } = markdownEditor('', 'Write a reply. Ctrl+Enter sends.');
     const status = el('span', { class: 'reply-status' });
     const submit = el('button', { class: 'primary' }, 'Reply');
     const cancel = el('button', null, 'Cancel');
     const box = el('div', { class: 'reply-box', hidden: true },
-        textarea, el('div', { class: 'reply-actions' }, submit, cancel, status), preview);
+        editor, el('div', { class: 'reply-actions' }, submit, cancel, status), preview);
     keepDraft(textarea, draftKey);
 
     // An unsent reply from before: put it back, with the box open so it's noticed.
     const draft = loadDraft(draftKey);
     if (draft) {
-        textarea.value = draft;
-        textarea.dispatchEvent(new Event('input'));
+        editor.setText(draft);
         box.hidden = false;
         status.textContent = 'Your unsent reply, as you left it';
     }
@@ -542,8 +750,7 @@ function replyBox(parentName, onPosted) {
     cancel.onclick = () => {
         box.hidden = true;
         clearDraft(draftKey);
-        textarea.value = '';
-        textarea.dispatchEvent(new Event('input'));
+        editor.setText('');
         status.textContent = '';
     };
     submit.onclick = async () => {
@@ -554,8 +761,7 @@ function replyBox(parentName, onPosted) {
         try {
             const comment = await call('comment', { parent: parentName, text });
             clearDraft(draftKey);
-            textarea.value = '';
-            textarea.dispatchEvent(new Event('input'));
+            editor.setText('');
             clearDraft(draftKey); // the input event above schedules a save of the empty text
             status.textContent = '';
             box.hidden = true;
@@ -566,12 +772,12 @@ function replyBox(parentName, onPosted) {
             submit.disabled = false;
         }
     };
-    textarea.addEventListener('keydown', e => {
+    editor.addEventListener('keydown', e => {
         if (e.key === 'Enter' && e.ctrlKey) submit.click();
     });
     box.open = () => {
         box.hidden = false;
-        textarea.focus();
+        editor.focusInput();
     };
     return box;
 }
@@ -585,14 +791,14 @@ function replyBox(parentName, onPosted) {
 function openEditor(target, initial, save, render, thingName) {
     const draftKey = 'edit:' + thingName;
     const draft = loadDraft(draftKey);
-    const { textarea, preview } = markdownEditor(draft ?? initial, 'Edit. Markdown is supported. Ctrl+Enter saves.');
+    const { textarea, preview, editor: input } = markdownEditor(draft ?? initial, 'Edit. Ctrl+Enter saves.');
     const status = el('span', { class: 'reply-status' }, draft ? 'Your unsaved edit, as you left it' : '');
     const saveButton = el('button', { class: 'primary' }, 'Save edit');
     const cancel = el('button', null, 'Cancel');
-    const editor = el('div', { class: 'reply-box' }, textarea, el('div', { class: 'reply-actions' }, saveButton, cancel, status), preview);
+    const editor = el('div', { class: 'reply-box' }, input, el('div', { class: 'reply-actions' }, saveButton, cancel, status), preview);
     keepDraft(textarea, draftKey, initial);
     target.replaceWith(editor);
-    textarea.focus();
+    input.focusInput();
 
     cancel.onclick = () => {
         clearDraft(draftKey);
@@ -611,7 +817,7 @@ function openEditor(target, initial, save, render, thingName) {
             saveButton.disabled = false;
         }
     };
-    textarea.addEventListener('keydown', e => {
+    input.addEventListener('keydown', e => {
         if (e.key === 'Enter' && e.ctrlKey) saveButton.click();
     });
 }
@@ -973,7 +1179,7 @@ function renderPost(d, settings) {
 }
 
 function commentsSection(d) {
-    const select = el('select', { title: 'Sort comments' },
+    const select = el('select', { class: 'sort-select', title: 'Sort comments' },
         COMMENT_SORTS.map(([value, label]) => el('option', { value, selected: value === state.sort }, label)));
     const list = el('div', { id: 'comments' }, spinner());
     select.onchange = () => {
@@ -994,7 +1200,12 @@ function commentsSection(d) {
                 }, '⟳ Refresh'),
                 el('button', { class: 'action', title: 'Find in thread (Ctrl+F)', onclick: () => openFind() }, '🔍 Find'),
                 el('button', { class: 'action', title: 'Next comment by the original poster (Shift+P)', onclick: () => nextOpComment() }, 'OP ↓'),
+                el('button', { class: 'action', id: 'collapse-all', title: 'Collapse or expand every top-level thread', onclick: () => toggleAllThreads() }, '⊟ Collapse all'),
+                el('select', { id: 'comment-filter', title: 'Show only some comments', onchange: e => filterComments(e.target.value) },
+                    COMMENT_FILTERS.map(([value, label]) => el('option', { value }, label))),
                 select)),
+        el('div', { id: 'highlights', class: 'highlights', hidden: true }),
+        el('div', { id: 'filter-note', class: 'note', hidden: true }),
         el('div', { id: 'new-note', class: 'note', hidden: true }),
         el('div', { id: 'focus-note', class: 'note', hidden: true }),
         list);
@@ -1018,7 +1229,7 @@ function renderThread(m) {
     }
     state.newIndex = state.opIndex = -1;
 
-    const select = root.querySelector('.comments-head select');
+    const select = root.querySelector('.comments-head select.sort-select');
     if (select) select.value = state.sort;
 
     const note = document.getElementById('focus-note');
@@ -1039,9 +1250,14 @@ function renderThread(m) {
 
     const list = document.getElementById('comments');
     const fragment = document.createDocumentFragment();
+    state.commentData = [];
     renderChildren(commentListing.data.children, fragment, 0, post);
     list.replaceChildren(fragment);
     if (!list.children.length) list.append(el('p', { class: 'muted no-comments' }, 'No comments yet.'));
+    showHighlights(post);
+    const filter = document.getElementById('comment-filter');
+    if (filter && filter.value !== 'all') filterComments(filter.value);
+    updateCollapseAllLabel();
 
     const newCount = list.querySelectorAll('.comment.new').length;
     const newNote = document.getElementById('new-note');
@@ -1083,6 +1299,11 @@ function commentNode(c, depth, post) {
     node.classList.toggle('muted', muted);
     node.classList.toggle('new', isNew);
     node.classList.toggle('by-op', !!c.is_submitter);
+    node.classList.toggle('mine', !!state.settings.me && sameUser(c.author, state.settings.me));
+    (state.commentData ||= []).push({
+        id: c.id, author: c.author, score: c.score_hidden ? null : c.score, body: c.body || '', isOp: !!c.is_submitter,
+        depth, replies: c.replies && c.replies.data ? c.replies.data.children.length : 0,
+    });
     // Comments in the "more" stubs don't carry a subreddit; they belong to the post's.
     if (!c.subreddit && post) c.subreddit = post.subreddit;
     const modOn = isModOf(c.subreddit);
@@ -1673,6 +1894,77 @@ function renderConversation(m) {
     if (focused) focused.scrollIntoView({ block: 'center' });
 }
 
+// ---- Community info and wiki ---------------------------------------------------------------
+
+/** A community's page: who it is, its rules, posting guidelines, sidebar and moderators. */
+function renderCommunity(m) {
+    if (m.settings) state.settings = m.settings;
+    clearView();
+    empty.hidden = true;
+    const about = (m.data.about && m.data.about.data) || {};
+    const rules = (m.data.rules && m.data.rules.rules) || [];
+    const mods = (m.data.mods && m.data.mods.data && m.data.mods.data.children) || [];
+    const name = about.display_name || m.name;
+    const icon = (about.community_icon || about.icon_img || '').split('?')[0];
+    const created = about.created_utc ? new Date(about.created_utc * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'long' }) : '';
+
+    const section = (title, ...content) => el('section', { class: 'community-section' }, el('h2', null, title), ...content);
+    root.append(el('article', { class: 'post community' },
+        el('div', { class: 'community-head' },
+            icon ? el('img', { class: 'community-icon', src: icon, alt: '' }) : null,
+            el('div', null,
+                el('h1', null, about.title || 'r/' + name),
+                el('div', { class: 'meta' },
+                    link('r/' + name, '/r/' + name),
+                    about.subscribers != null ? ` · ${count(about.subscribers)} members` : '',
+                    about.active_user_count ? ` · ${count(about.active_user_count)} online` : '',
+                    created ? ` · since ${created}` : '',
+                    about.over18 ? ' · NSFW' : '',
+                    about.subreddit_type && about.subreddit_type !== 'public' ? ` · ${about.subreddit_type}` : ''))),
+        about.public_description ? el('p', { class: 'community-tagline' }, about.public_description) : null,
+        el('div', { class: 'actions' },
+            about.wiki_enabled !== false && action('📖 Wiki', () => openWiki(name, 'index')),
+            action('↗ Open on Reddit', () => send({ type: 'external', url: `https://www.reddit.com/r/${name}/` }))),
+        rules.length ? section(`Rules (${rules.length})`, el('ol', { class: 'rules' }, rules.map(r =>
+            el('li', null, el('details', null,
+                el('summary', null, r.short_name || 'Rule'),
+                r.description_html ? mdNode(r.description_html, 'rule-text') : el('p', { class: 'muted' }, 'No details given.')))))) : null,
+        about.submit_text_html ? section('Before you post', mdNode(about.submit_text_html, 'post-body')) : null,
+        about.description_html ? section('About', mdNode(about.description_html, 'post-body')) : null,
+        mods.length ? section(`Moderators (${mods.length})`, el('div', { class: 'mods' },
+            mods.slice(0, 40).map(mod => link('u/' + mod.name, '/user/' + mod.name)),
+            mods.length > 40 ? el('span', { class: 'muted' }, `and ${mods.length - 40} more`) : null)) : null));
+}
+
+/** Shows a wiki page in the post view (links to other wiki pages stay here too). */
+async function openWiki(sub, page) {
+    clearView();
+    showLoading();
+    try {
+        const wiki = await call('wiki', { sub, page });
+        const data = (wiki && wiki.data) || {};
+        clearView();
+        empty.hidden = true;
+        const by = data.revision_by && data.revision_by.data && data.revision_by.data.name;
+        root.append(el('article', { class: 'post wiki' },
+            el('div', { class: 'actions' },
+                action(`← r/${sub}`, () => send({ type: 'community', sub })),
+                page !== 'index' && action('Wiki home', () => openWiki(sub, 'index')),
+                action('↗ Open on Reddit', () => send({ type: 'external', url: `https://www.reddit.com/r/${sub}/wiki/${page}` }))),
+            el('h1', null, `r/${sub} wiki${page !== 'index' ? ' · ' + page : ''}`),
+            el('div', { class: 'meta' }, data.revision_date ? `Last edited ${age(data.revision_date)} ago` : '', by ? [' by ', link('u/' + by, '/user/' + by)] : ''),
+            data.content_html ? mdNode(data.content_html, 'post-body') : el('p', { class: 'muted' }, 'This wiki page is empty.')));
+    } catch (err) {
+        showError(`Couldn't open the wiki: ${err.message}`);
+    }
+}
+
+/** "/r/name/wiki/page" (or a full reddit.com link to it) → { sub, page }. */
+function wikiLink(href) {
+    const m = /^(?:https?:\/\/(?:[a-z]+\.)?reddit\.com)?\/r\/([A-Za-z0-9_]+)\/wiki\/?([A-Za-z0-9_\/-]*)\/?(?:[?#].*)?$/i.exec(href || '');
+    return m ? { sub: m[1], page: m[2] || 'index' } : null;
+}
+
 // ---- Display and navigation ------------------------------------------------------------
 
 function applyDisplay(m) {
@@ -1681,6 +1973,110 @@ function applyDisplay(m) {
 }
 
 /** Jump to the next/previous top-level comment relative to the top of the viewport. */
+// ---- Comment tools: collapse all, filter, highlights ------------------------------------
+
+const COMMENT_FILTERS = [
+    ['all', 'Show: everyone'], ['op', 'Show: original poster'], ['highlight', 'Show: people you highlight'],
+    ['new', 'Show: new since last visit'], ['mine', 'Show: your comments'],
+];
+
+const topLevelComments = () => [...(document.getElementById('comments')?.children || [])].filter(n => n.classList.contains('comment'));
+
+function updateCollapseAllLabel() {
+    const button = document.getElementById('collapse-all');
+    if (!button) return;
+    const tops = topLevelComments();
+    const allCollapsed = tops.length > 0 && tops.every(n => n.classList.contains('collapsed'));
+    button.textContent = allCollapsed ? '⊞ Expand all' : '⊟ Collapse all';
+}
+
+/** Collapses every top-level thread, or (if they're all collapsed) expands them. */
+function toggleAllThreads() {
+    const tops = topLevelComments();
+    const collapse = !tops.every(n => n.classList.contains('collapsed'));
+    for (const node of tops) {
+        if (node.classList.contains('collapsed') !== collapse && node.toggleCollapse) node.toggleCollapse();
+    }
+    updateCollapseAllLabel();
+    if (collapse) document.querySelector('.comments-head')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+/**
+ * Shows only matching comments (and the threads they're in, so replies keep their context).
+ * 'all' shows everything again.
+ */
+function filterComments(kind) {
+    if (!COMMENT_FILTERS.some(f => f[0] === kind)) kind = 'all';
+    const comments = [...root.querySelectorAll('#comments .comment')];
+    const note = document.getElementById('filter-note');
+    for (const node of comments) node.classList.remove('filtered-out', 'filter-match');
+    if (kind === 'all') {
+        if (note) note.hidden = true;
+        return;
+    }
+    const matches = comments.filter(n => n.classList.contains(kind === 'op' ? 'by-op' : kind === 'highlight' ? 'highlight' : kind));
+    const keep = new Set();
+    for (const match of matches) {
+        match.classList.add('filter-match');
+        expandAncestors(match);
+        for (let c = match; c; c = c.parentElement && c.parentElement.closest('.comment')) keep.add(c);
+    }
+    for (const node of comments) if (!keep.has(node)) node.classList.add('filtered-out');
+    if (note) {
+        note.hidden = false;
+        const label = COMMENT_FILTERS.find(f => f[0] === kind)[1].replace('Show: ', '');
+        note.replaceChildren(
+            matches.length ? `Showing ${matches.length} ${matches.length === 1 ? 'comment' : 'comments'} from ${label}, in their threads. ` : `No comments from ${label} here. `,
+            el('button', { class: 'link', onclick: () => { document.getElementById('comment-filter').value = 'all'; filterComments('all'); } }, 'Show everyone'));
+    }
+}
+
+/** Jumps to a comment: opens its thread, scrolls it into view and flashes it. */
+function jumpToComment(id) {
+    const node = document.getElementById('c_' + id);
+    if (!node) return;
+    expandAncestors(node);
+    if (node.classList.contains('collapsed') && node.toggleCollapse) node.toggleCollapse();
+    node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    node.classList.remove('flash');
+    void node.offsetWidth;
+    node.classList.add('flash');
+}
+
+/** For big threads: the top comments, the most-discussed thread and the original poster's replies. */
+function showHighlights(post) {
+    const box = document.getElementById('highlights');
+    const data = state.commentData || [];
+    if (!box) return;
+    if ((post.num_comments || 0) < 30 || data.length < 10) {
+        box.hidden = true;
+        return;
+    }
+    const snippet = text => {
+        const flat = text.replace(/\s+/g, ' ').trim();
+        return flat.length > 160 ? flat.slice(0, 160) + '…' : flat;
+    };
+    const line = (c, label) => el('button', { class: 'hl-item', onclick: () => jumpToComment(c.id) },
+        el('span', { class: 'hl-label' }, label),
+        el('b', null, c.author), c.score != null ? el('span', { class: 'muted' }, ` · ${count(c.score)} points`) : null,
+        el('div', { class: 'hl-text' }, snippet(c.body)));
+    const top = data.filter(c => c.score != null && c.author !== '[deleted]').sort((a, b) => b.score - a.score).slice(0, 3);
+    const discussed = data.filter(c => c.depth === 0).sort((a, b) => b.replies - a.replies)[0];
+    const op = data.filter(c => c.isOp);
+    box.hidden = false;
+    // (replaceChildren doesn't flatten arrays or skip nulls the way el() does.)
+    box.replaceChildren(...[
+        el('div', { class: 'hl-head' }, el('b', null, 'Highlights'),
+            el('button', { class: 'link', onclick: () => { box.hidden = true; } }, 'Hide')),
+        ...top.map((c, i) => line(c, i === 0 ? '🏆 Top' : '⬆ Top')),
+        discussed && discussed.replies >= 3 && !top.includes(discussed) ? line(discussed, `💬 ${discussed.replies} replies`) : null,
+        op.length ? el('button', { class: 'hl-item op', onclick: () => nextOpComment() },
+            el('span', { class: 'hl-label' }, '🎤 OP'),
+            `The original poster commented ${op.length} ${op.length === 1 ? 'time' : 'times'}. `,
+            el('span', { class: 'muted' }, 'Jump to them (Shift+P)')) : null,
+    ].filter(Boolean));
+}
+
 function navigateComments(direction) {
     const list = document.getElementById('comments');
     if (!list) return;
@@ -1973,6 +2369,12 @@ document.addEventListener('click', e => {
     const anchor = e.target.closest('a[href]');
     if (!anchor) return;
     e.preventDefault();
+    // Wiki pages open here, in the post view.
+    const wiki = wikiLink(anchor.getAttribute('href'));
+    if (wiki) {
+        openWiki(wiki.sub, wiki.page);
+        return;
+    }
     openUrl(anchor.getAttribute('href'));
 });
 

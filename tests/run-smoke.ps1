@@ -94,6 +94,18 @@ $checks = [ordered]@{
     'closing the viewer stops browsing'   = $result.viewerClosed
     'unsent reply comes back'             = $result.draftRestored
     'cancel discards the draft'           = $result.draftCleared
+    'filter shows the OP in its thread'   = $result.filterResult.shown -eq 'c_c1,c_c2' -and $result.filterResult.note -and $result.filterResult.restored
+    'collapse all, then expand all'       = $result.filterResult.collapsed -and $result.filterResult.expanded
+    'highlights for big threads only'     = $result.filterResult.highlights -eq 4 -and $result.filterResult.smallThreadHidden
+    'toolbar bolds and quotes the selection' = $result.toolbar -eq '> **hello** world'
+    'rich text becomes Reddit Markdown'   = $result.richToMarkdown -match '\*\*Bold\*\*' -and $result.richToMarkdown -match '\*it\*' -and
+                                            $result.richToMarkdown -match '~~gone~~' -and $result.richToMarkdown -match '\[link\]\(https://x\.com/\)' -and
+                                            $result.richToMarkdown -match '>!secret!<' -and $result.richToMarkdown -match '\^\(10\)' -and
+                                            $result.richToMarkdown -match '-\s+one' -and $result.richToMarkdown -match '> quoted'
+    'Markdown survives a trip through rich text' = $result.roundTrip -eq '**a** and >!b!<'
+    'wiki links stay in the post view'    = $result.wikiLinks -eq 'aww:faq|aww:index|none'
+    'community page: rules and sections'  = $result.community.title -eq 'Cute things' -and $result.community.rules -eq 2 -and
+                                            $result.community.sections -eq 3 -and $result.community.wikiButton
     'conversation in order, yours marked' = $result.conversation.order -eq 'm_m1,m_m2,m_m3' -and $result.conversation.mine -eq 'm_m2' -and $result.conversation.focused -eq 'm_m3'
 }
 

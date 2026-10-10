@@ -163,6 +163,37 @@ public sealed partial class RedditApi(RedditSession session)
             d.Str("public_description"), d.Bool("user_is_subscriber"));
     }
 
+    /// <summary>
+    /// Everything for a community's info page, as one JSON object: about (Reddit's about data),
+    /// rules, and moderators (left empty where a community hides them).
+    /// </summary>
+    public async Task<string> GetCommunityInfoRawAsync(string name, CancellationToken ct)
+    {
+        if (!NameChars().IsMatch(name)) throw new InvalidOperationException("That isn't a community name.");
+        async Task<string> Optional(string url)
+        {
+            try
+            {
+                return await GetBodyAsync(url, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException and not RedditAuthException)
+            {
+                return "null";
+            }
+        }
+        var about = GetBodyAsync($"{Base}/r/{name}/about.json?raw_json=1", ct);
+        var rules = Optional($"{Base}/r/{name}/about/rules.json?raw_json=1");
+        var mods = Optional($"{Base}/r/{name}/about/moderators.json?raw_json=1");
+        await Task.WhenAll(about, rules, mods);
+        return $$"""{"about":{{about.Result}},"rules":{{rules.Result}},"mods":{{mods.Result}}}""";
+    }
+
+    /// <summary>A community wiki page (Reddit's wikipage JSON).</summary>
+    public Task<string> GetWikiPageRawAsync(string name, string page, CancellationToken ct) =>
+        NameChars().IsMatch(name) && System.Text.RegularExpressions.Regex.IsMatch(page, "^[A-Za-z0-9_/-]{1,100}$")
+            ? GetBodyAsync($"{Base}/r/{name}/wiki/{page}.json?raw_json=1", ct)
+            : throw new InvalidOperationException("That isn't a wiki page.");
+
     public async Task<UserInfo?> GetUserAboutAsync(string name, CancellationToken ct)
     {
         using var doc = await GetJsonAsync($"{Base}/user/{name}/about.json?raw_json=1", ct);

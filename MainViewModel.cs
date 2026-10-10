@@ -131,6 +131,8 @@ public sealed partial class MainViewModel : ObservableObject
         RemoveFromFolderCommand = new RelayCommand(p => { if (p is SidebarItem item) RemoveFromFolder(item); });
         ManageAlertsCommand = new RelayCommand(_ => ShowAlerts());
         ReportProblemCommand = new RelayCommand(_ => ShowReportProblem());
+        RemoveSavedSearchCommand = new RelayCommand(p => { if (p is SidebarItem item) RemoveSavedSearch(item.Spec); });
+        ShowCommunityCommand = new RelayCommand(p => ShowCommunity((p as FeedViewModel ?? SelectedTab)?.Target), _ => _isReady);
         NewMessageCommand = new RelayCommand(p => ShowCompose(p switch
         {
             Post { Author.Length: > 0 } post when post.Author != "[deleted]" => post.Author,
@@ -336,6 +338,17 @@ public sealed partial class MainViewModel : ObservableObject
     public ICommand TagShownCommand { get; }
     public ICommand ManageAlertsCommand { get; }
     public ICommand ReportProblemCommand { get; }
+    public ICommand RemoveSavedSearchCommand { get; }
+    public ICommand ShowCommunityCommand { get; }
+
+    /// <summary>Shows a community's rules, sidebar, moderators and wiki in the post view.</summary>
+    void ShowCommunity(string? name)
+    {
+        if (string.IsNullOrEmpty(name)) return;
+        ShowBrowser = false;
+        if (SelectedTab != null) SelectedTab.SelectedPost = null; // the post view shows the community now
+        _ = _detail.ShowCommunityAsync(name);
+    }
     public ICommand NewMessageCommand { get; }
     public ICommand CommandPaletteCommand { get; }
     public ICommand EditUserNoteCommand { get; }
@@ -649,6 +662,8 @@ public sealed partial class MainViewModel : ObservableObject
         feed.AuthFailed += ex => { if (Tabs.Contains(feed)) _ = HandleAuthFailureAsync(ex); };
         feed.SubscriptionsChanged += () => _ = LoadSubscriptionsAsync();
         feed.ManageAlertsRequested += ShowAlerts;
+        feed.SearchRefined += (tab, spec) => ReplaceTab(tab, spec);
+        feed.SaveSearchRequested += SaveSearch;
         feed.InboxRead += () =>
         {
             UnreadCount = 0;
@@ -806,6 +821,14 @@ public sealed partial class MainViewModel : ObservableObject
             }
         }
 
+        if (Settings.SavedSearches.Count > 0)
+        {
+            var searches = Settings.SavedSearches.Where(s => MatchesFilter(s.Name)).ToList();
+            Section("searches", $"SAVED SEARCHES ({Settings.SavedSearches.Count})", (IsExpanded("searches") || IsFiltering) && searches.Count > 0,
+                "Searches you've saved. Right-click one to remove it.",
+                searches.Select(s => new SidebarItem("🔍 " + s.Name, s.Spec, IsFeed: true, IsSavedSearch: true)));
+        }
+
         var byVisits = Settings.SubscriptionSort == "Visits";
         Section("subscriptions", SubscriptionsHeader, false, "Show or hide", [],
             [
@@ -893,6 +916,32 @@ public sealed partial class MainViewModel : ObservableObject
         _services.SubscriptionCache.Save(Settings.ActiveProfile, _subscriptions);
         Status = $"Unsubscribed from {gone.Count} {(gone.Count == 1 ? "community" : "communities")}.";
         Raise(nameof(SubscriptionsHeader));
+        RefreshSidebar();
+    }
+
+    // ---- Saved searches ---------------------------------------------------------------------------
+
+    void SaveSearch(string spec, string suggestedName)
+    {
+        var dialog = new TextInputWindow("Save search", "Name for this search in the sidebar:", suggestedName)
+        {
+            Owner = Application.Current.MainWindow,
+        };
+        if (dialog.ShowDialog() != true || dialog.Value.Trim().Length == 0) return;
+        var name = dialog.Value.Trim();
+        Settings.SavedSearches.RemoveAll(s => s.Spec.Equals(spec, StringComparison.OrdinalIgnoreCase));
+        Settings.SavedSearches.Add(new SavedSearch { Name = name, Spec = spec });
+        Settings.SavedSearches.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+        Settings.Save();
+        Status = $"Saved the search “{name}” in the sidebar.";
+        RefreshSidebar();
+    }
+
+    void RemoveSavedSearch(string spec)
+    {
+        if (Settings.SavedSearches.RemoveAll(s => s.Spec.Equals(spec, StringComparison.OrdinalIgnoreCase)) == 0) return;
+        Settings.Save();
+        Status = "Removed the saved search.";
         RefreshSidebar();
     }
 
@@ -1570,7 +1619,7 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>Settings arrived from another PC: show them.</summary>
     void OnSyncApplied(IReadOnlyList<string> sections)
     {
-        if (sections.Contains("folders"))
+        if (sections.Contains("folders") || sections.Contains("searches"))
         {
             RefreshSidebar();
             foreach (var tab in Tabs.Where(t => t.Kind == FeedKind.Folder)) tab.MarkStale();
@@ -1676,6 +1725,10 @@ public sealed partial class MainViewModel : ObservableObject
         foreach (var feed in Feeds)
             items.Add(new PaletteItem("", feed.Label, "Feed", () => OpenFeed(feed.Spec, newTab: false)));
         foreach (var name in Favorites) Community("★", name, "Favorite");
+        if (SelectedTab is { HasCommunityInfo: true } current)
+            items.Insert(0, new PaletteItem("ℹ", $"About r/{current.Target}: rules, wiki, moderators", "Community", () => ShowCommunity(current.Target)));
+        foreach (var search in Settings.SavedSearches)
+            items.Add(new PaletteItem("🔍", search.Name, "Saved search", () => OpenFeed(search.Spec, newTab: false)));
         foreach (var folder in Folders)
             items.Add(new PaletteItem("📁", folder.Name, $"Folder · {folder.Subreddits.Count}", () => OpenFeed("folder:" + folder.Name, newTab: false)));
 

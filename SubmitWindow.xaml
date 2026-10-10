@@ -48,11 +48,16 @@
         </StackPanel>
 
         <Grid>
-            <TextBox x:Name="Body" SpellCheck.IsEnabled="True" AcceptsReturn="True" AcceptsTab="True" TextWrapping="Wrap" TextChanged="OnChanged"
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <local:MarkdownToolbar x:Name="Formatting" Target="{Binding ElementName=Body}" />
+            <TextBox Grid.Row="1" x:Name="Body" SpellCheck.IsEnabled="True" AcceptsReturn="True" AcceptsTab="True" TextWrapping="Wrap" TextChanged="OnChanged"
                      VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" />
 
             <!-- Pictures (one, or up to 20 as a gallery) or a single video. -->
-            <DockPanel x:Name="MediaPanel" Visibility="Collapsed">
+            <DockPanel x:Name="MediaPanel" Grid.RowSpan="2" Visibility="Collapsed">
                 <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
                     <Button Content="+ Add pictures or a video…" Click="OnAddMedia" />
                     <TextBlock x:Name="MediaHint" Margin="12,0,0,0" VerticalAlignment="Center" Opacity="0.7" TextWrapping="Wrap"

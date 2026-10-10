@@ -88,6 +88,7 @@ public sealed class SettingsSync(AppSettings settings, UserNotes notes, Action? 
     public Dictionary<string, string> Collect() => new()
     {
         ["folders"] = JsonSerializer.Serialize(settings.SubscriptionFolders),
+        ["searches"] = JsonSerializer.Serialize(settings.SavedSearches),
         ["alerts"] = JsonSerializer.Serialize(new
         {
             interval = settings.AlertIntervalMinutes,
@@ -123,6 +124,9 @@ public sealed class SettingsSync(AppSettings settings, UserNotes notes, Action? 
         {
             case "folders":
                 settings.SubscriptionFolders = data.Deserialize<List<SubscriptionFolder>>() ?? [];
+                break;
+            case "searches":
+                settings.SavedSearches = data.Deserialize<List<SavedSearch>>() ?? [];
                 break;
             case "alerts":
                 settings.AlertIntervalMinutes = data["interval"]?.GetValue<int>() ?? settings.AlertIntervalMinutes;

@@ -21,6 +21,8 @@
 <div id="lightbox" hidden><div class="lb-bar"><span class="lb-title"></span><button class="lb-play"></button><button class="lb-full"></button></div><button class="lb-close"></button><button class="lb-nav lb-prev"></button><div class="lb-stage"><img alt=""></div><button class="lb-nav lb-next"></button><div class="lb-counter"></div></div>
 <div id="toast" hidden></div>
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/turndown@7.2.0/dist/turndown.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/turndown-plugin-gfm@1.0.2/dist/turndown-plugin-gfm.js"></script>
 <script src="../wwwroot/detail.js"></script>
 <script>
 try {
@@ -113,6 +115,26 @@ try {
   // Shift+P: the original poster's comments (c2, inside a collapsed thread).
   nextOpComment();
   const opJump = document.querySelector('.comment.by-op.flash')?.id;
+  // Comment tools: the "original poster" filter keeps c2 and the thread it's in, hides the rest.
+  filterComments('op');
+  const filterResult = {
+    shown: [...document.querySelectorAll('#comments .comment:not(.filtered-out)')].map(n => n.id).join(','),
+    note: !document.getElementById('filter-note').hidden,
+  };
+  filterComments('all');
+  filterResult.restored = document.querySelectorAll('#comments .comment.filtered-out').length === 0;
+  toggleAllThreads();
+  filterResult.collapsed = topLevelComments().every(n => n.classList.contains('collapsed')) && document.getElementById('collapse-all').textContent.includes('Expand');
+  toggleAllThreads();
+  filterResult.expanded = topLevelComments().every(n => !n.classList.contains('collapsed'));
+  // Highlights appear for big threads.
+  const savedData = state.commentData;
+  state.commentData = Array.from({ length: 12 }, (_, i) => ({ id: 'h' + i, author: 'u' + i, score: i * 10, body: 'text ' + i, isOp: i === 3, depth: 0, replies: i }));
+  showHighlights({ num_comments: 40 });
+  filterResult.highlights = document.querySelectorAll('#highlights .hl-item').length;
+  state.commentData = savedData;
+  showHighlights({ num_comments: 3 });
+  filterResult.smallThreadHidden = document.getElementById('highlights').hidden;
   window.scrollTo({ top: 0, behavior: 'instant' }); // cancel find's smooth scroll before measuring
 
   // Click a comment's upvote the way a user would: whatever is on top at that point gets it.
@@ -134,7 +156,7 @@ try {
     inlineImages: document.querySelectorAll('img.md-img').length,
     voteLiked: !!document.querySelector('.vote.large.liked'),
     score: document.querySelector('.vote.large .score')?.textContent,
-    sortOptions: document.querySelectorAll('.comments-head option').length,
+    sortOptions: document.querySelectorAll('.comments-head select.sort-select option').length,
     elementUnderUpvote: hit.tagName + (hit.className ? '.' + hit.className : ''),
     voteMessages,
     newNavigation: [firstNew, secondNew],
@@ -149,6 +171,7 @@ try {
     highlighted,
     findResult,
     opJump,
+    filterResult,
     userTag: document.querySelector('.post .user-tag:not([hidden])')?.textContent,
     visibleTagsOnOthers: document.querySelectorAll('.comment .user-tag:not([hidden])').length,
   };
@@ -162,6 +185,19 @@ try {
   result.draftRestored = !secondBox.hidden && secondBox.querySelector('textarea').value === 'half-written reply';
   secondBox.querySelector('.reply-actions button:nth-child(2)').click(); // Cancel
   result.draftCleared = loadDraft('reply:t1_draft') === null && replyBox('t1_draft', () => {}).hidden;
+  // Formatting toolbar (Markdown) and rich text turned back into Reddit Markdown.
+  const ed = markdownEditor('hello world', 'Write');
+  document.body.append(ed.editor);
+  ed.textarea.setSelectionRange(0, 5);
+  wrapSelection(ed.textarea, '**', '**', 'bold');
+  prefixLines(ed.textarea, '> ');
+  result.toolbar = ed.textarea.value;
+  ed.editor.remove();
+  result.richToMarkdown = htmlToMarkdown('<p><b>Bold</b> <i>it</i> <s>gone</s> <a href="https://x.com/">link</a> ' +
+    '<span class="md-spoiler-text">secret</span> 2<sup>10</sup></p><ul><li>one</li></ul><blockquote><p>quoted</p></blockquote>');
+  const roundTrip = document.createElement('div');
+  roundTrip.append(renderMarkdown('**a** and >!b!<'));
+  result.roundTrip = htmlToMarkdown(roundTrip.innerHTML);
   // Picture viewer: which posts have pictures, and stepping past the last one moves to the next post.
   result.postImages = [
     postImages({ is_gallery: true, gallery_data: { items: [{ media_id: 'a' }, { media_id: 'b' }] },
@@ -190,6 +226,20 @@ try {
     order: [...document.querySelectorAll('.conversation .bubble')].map(b => b.id).join(','),
     mine: [...document.querySelectorAll('.conversation .bubble.mine')].map(b => b.id).join(','),
     focused: document.querySelector('.conversation .bubble.focused')?.id,
+  };
+  // Community info page, and which links count as wiki pages.
+  result.wikiLinks = [wikiLink('/r/aww/wiki/faq'), wikiLink('https://www.reddit.com/r/aww/wiki/'), wikiLink('/r/aww/comments/x')]
+    .map(w => w ? w.sub + ':' + w.page : 'none').join('|');
+  renderCommunity({ name: 'aww', data: {
+    about: { data: { display_name: 'aww', title: 'Cute things', subscribers: 1000, wiki_enabled: true,
+      description_html: '<div class="md"><p>Sidebar text</p></div>', submit_text_html: '<div class="md"><p>Read the rules</p></div>' } },
+    rules: { rules: [{ short_name: 'Be nice', description_html: '<div class="md"><p>Really</p></div>' }, { short_name: 'No spam' }] },
+    mods: null } });
+  result.community = {
+    title: document.querySelector('.community h1')?.textContent,
+    rules: document.querySelectorAll('.community .rules li').length,
+    sections: document.querySelectorAll('.community .community-section').length,
+    wikiButton: [...document.querySelectorAll('.community .actions .action')].some(b => b.textContent.includes('Wiki')),
   };
   // Last, because it clears the page: switching posts closes overlays and drops stale find results.
   openLightbox(['https://example.com/a.png'], 0);

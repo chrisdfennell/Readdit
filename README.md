@@ -35,7 +35,9 @@ Skein is a native Windows app (WPF on .NET 10) for browsing Reddit. It signs in 
 - Tabs that are restored on restart, and a sidebar with your subscriptions and favorites, including community icons. It handles thousands of subscriptions, shows them instantly at launch, and has an A–Z jump bar and a most-visited sort.
 - Folders: group communities your own way, and open a folder as one combined feed.
 - A command palette (<kbd>Ctrl</kbd>+<kbd>K</kbd>) to jump to any community, folder, tab or command.
-- Search with community suggestions as you type, plus user profiles and subreddit info banners.
+- Search with community suggestions as you type. Refine results by author, flair, site, titles only, or text posts versus links, and save searches to the sidebar.
+- Community pages: rules, posting guidelines, sidebar, moderators and the wiki, all inside Skein.
+- User profiles and subreddit info banners.
 - Reading mode for distraction-free reading, with adjustable text size.
 - Hover previews for thumbnails, usernames and image links.
 - An in-app browser for links, signed in to Reddit.
@@ -45,7 +47,8 @@ Skein is a native Windows app (WPF on .NET 10) for browsing Reddit. It signs in 
 - A picture viewer that steps from one post's pictures into the next post's, with a slideshow and full screen (<kbd>F11</kbd>).
 - Collapsible comment threads, "load more replies", and find-in-thread (Ctrl+F) that can load the whole thread.
 - Jump between top-level comments, comments new since your last visit (highlighted), or the original poster's comments.
-- Vote, save, reply, and edit or delete your own posts and comments, with a live formatting preview and spell check. Unsent replies and edits are kept as drafts.
+- Comment tools: collapse or expand every thread, show only the original poster, people you highlight, new comments or your own, and a highlights box (top comments, the busiest thread, the original poster's replies) on big threads.
+- Vote, save, reply, and edit or delete your own posts and comments, with spell check and a formatting toolbar (<kbd>Ctrl</kbd>+<kbd>B</kbd>, <kbd>I</kbd>, <kbd>K</kbd>). Write in Markdown with a live preview, or switch to rich text and Skein turns it into Markdown for you. Unsent replies and edits are kept as drafts.
 - New posts: text, links, a picture, a gallery of up to 20, or a video. Unfinished posts are kept as drafts too.
 
 **Moderation** (for communities you moderate)

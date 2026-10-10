@@ -151,6 +151,10 @@
                                   Visibility="{Binding CanAddToFolder, Converter={StaticResource Vis}}"
                                   Command="{Binding PlacementTarget.Tag.AddToFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding Spec}" />
+                        <MenuItem Header="Remove saved search"
+                                  Visibility="{Binding IsSavedSearch, Converter={StaticResource Vis}}"
+                                  Command="{Binding PlacementTarget.Tag.RemoveSavedSearchCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}" />
                         <MenuItem Header="{Binding Folder}" HeaderStringFormat="Remove from “{0}”"
                                   Visibility="{Binding InFolder, Converter={StaticResource Vis}}"
                                   Command="{Binding PlacementTarget.Tag.RemoveFromFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
@@ -675,6 +679,11 @@
                                     <Button DockPanel.Dock="Right" VerticalAlignment="Top" Margin="10,0,0,0"
                                             Content="{Binding HeaderActionLabel}" Command="{Binding HeaderActionCommand}"
                                             Visibility="{Binding HeaderActionLabel, Converter={StaticResource Vis}}" />
+                                    <Button DockPanel.Dock="Right" VerticalAlignment="Top" Margin="10,0,0,0" Content="ℹ About &amp; rules"
+                                            ToolTip="The community's rules, sidebar, moderators and wiki"
+                                            Command="{Binding DataContext.ShowCommunityCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}"
+                                            Visibility="{Binding HasCommunityInfo, Converter={StaticResource Vis}}" />
                                     <Button DockPanel.Dock="Right" VerticalAlignment="Top" Margin="10,0,0,0" Content="✉ New message"
                                             Command="{Binding DataContext.NewMessageCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                             Visibility="{Binding IsInbox, Converter={StaticResource Vis}}" />
@@ -705,6 +714,37 @@
                                     </StackPanel>
                                 </DockPanel>
                             </Border>
+
+                            <!-- Search: refine (author, flair, site, title only, text posts or links) and save. -->
+                            <StackPanel Grid.Row="1" Margin="10,8" Visibility="{Binding IsSearch, Converter={StaticResource Vis}}">
+                                <StackPanel Orientation="Horizontal">
+                                    <ToggleButton Content="🔧 Refine" IsChecked="{Binding ShowRefine}"
+                                                  ToolTip="Narrow the search by author, flair, site and more" />
+                                    <Button Content="☆ Save search" Margin="6,0,0,0" Command="{Binding SaveSearchCommand}"
+                                            ToolTip="Keep this search in the sidebar" />
+                                </StackPanel>
+                                <WrapPanel Margin="0,8,0,0" Visibility="{Binding ShowRefine, Converter={StaticResource Vis}}">
+                                    <StackPanel Margin="0,0,8,6">
+                                        <TextBlock Text="Author" FontSize="11" Opacity="0.7" />
+                                        <TextBox Width="120" Text="{Binding RefineAuthor}" />
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,8,6">
+                                        <TextBlock Text="Flair" FontSize="11" Opacity="0.7" />
+                                        <TextBox Width="120" Text="{Binding RefineFlair}" />
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,8,6">
+                                        <TextBlock Text="Site (e.g. youtube.com)" FontSize="11" Opacity="0.7" />
+                                        <TextBox Width="140" Text="{Binding RefineSite}" />
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,8,6">
+                                        <TextBlock Text="Posts" FontSize="11" Opacity="0.7" />
+                                        <ComboBox Width="90" ItemsSource="{Binding RefineTypes}" SelectedItem="{Binding RefineType}" />
+                                    </StackPanel>
+                                    <CheckBox Content="Titles only" IsChecked="{Binding RefineTitleOnly}" VerticalAlignment="Bottom" Margin="0,0,10,10" />
+                                    <Button Content="Apply" VerticalAlignment="Bottom" Margin="0,0,0,6" Command="{Binding ApplyRefineCommand}"
+                                            Style="{DynamicResource AccentButtonStyle}" />
+                                </WrapPanel>
+                            </StackPanel>
 
                             <!-- Offline library: full-text search and tag filter. -->
                             <DockPanel Grid.Row="1" Margin="10,8" Visibility="{Binding IsOffline, Converter={StaticResource Vis}}">

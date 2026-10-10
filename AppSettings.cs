@@ -152,6 +152,9 @@ public sealed class AppSettings
     /// <summary>Keep the mini mode window on top of other windows.</summary>
     public bool MiniTopmost { get; set; } = true;
 
+    /// <summary>Searches kept in the sidebar.</summary>
+    public List<SavedSearch> SavedSearches { get; set; } = [];
+
     /// <summary>Keyword alerts, checked in the background.</summary>
     public List<AlertRule> AlertRules { get; set; } = [];
 

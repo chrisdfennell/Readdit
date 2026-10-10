@@ -433,6 +433,55 @@ public class ProblemReportTests
     }
 }
 
+public class SearchQueryTests
+{
+    [Fact]
+    public void Builds_reddit_search_operators()
+    {
+        Assert.Equal("rtx 4090 author:seller flair:\"For Sale\" site:ebay.com self:no",
+            new SearchQuery("rtx 4090", Author: "u/seller", Flair: "For Sale", Site: "ebay.com", Type: "links").Build());
+        Assert.Equal("title:\"best laptop\" self:yes", new SearchQuery("best laptop", Type: "text", TitleOnly: true).Build());
+        Assert.Equal("cats", new SearchQuery("cats").Build());
+    }
+
+    [Fact]
+    public void Parses_what_it_builds()
+    {
+        var original = new SearchQuery("rtx 4090", Author: "seller", Flair: "For Sale", Site: "ebay.com", Type: "links");
+        Assert.Equal(original, SearchQuery.Parse(original.Build()));
+        var titled = new SearchQuery("best laptop", Type: "text", TitleOnly: true);
+        Assert.Equal(titled, SearchQuery.Parse(titled.Build()));
+        Assert.Equal(new SearchQuery("plain words"), SearchQuery.Parse("  plain   words "));
+        Assert.Equal("any", SearchQuery.Parse("x self:maybe").Type);
+        Assert.Equal("text", SearchQuery.Parse("x SELF:TRUE").Type);
+        Assert.False(SearchQuery.Parse("just words").IsRefined);
+        Assert.True(SearchQuery.Parse("words author:bob").IsRefined);
+    }
+}
+
+public class MarkdownEditTests
+{
+    [Fact]
+    public void Wraps_unwraps_and_inserts_examples()
+    {
+        var bold = MarkdownEdits.Wrap("hello world", 0, 5, "**", "**", "bold");
+        Assert.Equal(new MarkdownEdits.Result("**hello** world", 2, 5), bold);
+        Assert.Equal(new MarkdownEdits.Result("hello world", 0, 5),
+            MarkdownEdits.Wrap(bold.Text, bold.SelectionStart, bold.SelectionLength, "**", "**", "bold"));
+        Assert.Equal(new MarkdownEdits.Result("hi >!spoiler!<", 5, 7), MarkdownEdits.Wrap("hi ", 3, 0, ">!", "!<", "spoiler"));
+        Assert.Equal("```\na\nb\n```", MarkdownEdits.Wrap("a\nb", 0, 3, "`", "`", "code").Text);
+    }
+
+    [Fact]
+    public void Prefixes_every_selected_line()
+    {
+        Assert.Equal("> one\n> two\nthree", MarkdownEdits.PrefixLines("one\ntwo\nthree", 1, 5, "> ").Text);
+        Assert.Equal("1. one\n2. two", MarkdownEdits.PrefixLines("one\ntwo", 0, 7, "1. ").Text);
+        Assert.Equal("one\ntwo", MarkdownEdits.PrefixLines("- one\n- two", 0, 11, "- ").Text); // toggles off
+        Assert.Equal("## title", MarkdownEdits.PrefixLines("- title", 3, 0, "## ").Text); // replaces another prefix
+    }
+}
+
 public class SidebarStoreTests : TempFolderTest
 {
     [Fact]

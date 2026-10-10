@@ -396,7 +396,9 @@ public sealed partial class Post : ObservableObject
 /// <summary>An entry in the sidebar: a label, the feed spec it opens, and an optional icon.</summary>
 /// <param name="IsFeed">Built-in feeds (Home, Popular…) carry their own emoji, so no community badge.</param>
 /// <param name="Folder">The folder this row is listed under, if any (offers "Remove from folder").</param>
-public sealed record SidebarItem(string Label, string Spec, string? Icon = null, bool IsFeed = false, string? Folder = null)
+/// <param name="IsSavedSearch">A saved search (offers "Remove saved search").</param>
+public sealed record SidebarItem(string Label, string Spec, string? Icon = null, bool IsFeed = false, string? Folder = null,
+    bool IsSavedSearch = false)
 {
     public bool InFolder => Folder != null;
 

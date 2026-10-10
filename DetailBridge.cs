@@ -188,6 +188,23 @@ public sealed class DetailBridge(WebView2 view, Services services)
         }
     }
 
+    /// <summary>Shows a community's info page (about, rules, sidebar, moderators) in the post view.</summary>
+    public async Task ShowCommunityAsync(string name)
+    {
+        var version = ++_version;
+        _postId = null;
+        Send("""{"type":"loading"}""");
+        try
+        {
+            var raw = await services.Api.GetCommunityInfoRawAsync(name, default);
+            if (version == _version) Send($$"""{"type":"community","name":{{JsonSerializer.Serialize(name)}},"settings":{{SettingsJson}},"data":{{raw}}}""");
+        }
+        catch (Exception ex)
+        {
+            if (version == _version) Send($$"""{"type":"error","message":{{JsonSerializer.Serialize(ex.Message)}}}""");
+        }
+    }
+
     /// <summary>The page asks to write a new private message to someone.</summary>
     public event Action<string>? ComposeRequested;
 
@@ -489,6 +506,13 @@ public sealed class DetailBridge(WebView2 view, Services services)
                     services.Settings.Save();
                     return SettingsJson;
                 }
+
+            case "wiki":
+                return await services.Api.GetWikiPageRawAsync(m.Str("sub"), m.Str("page") is { Length: > 0 } page ? page : "index", default);
+
+            case "community":
+                await ShowCommunityAsync(m.Str("sub"));
+                return null;
 
             case "compose":
                 ComposeRequested?.Invoke(m.Str("to"));

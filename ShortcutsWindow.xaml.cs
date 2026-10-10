@@ -14,6 +14,7 @@ public partial class ShortcutsWindow : Window
             ["Shift+J / K"] = "Next / previous top-level comment",
             ["Shift+N"] = "Next comment that's new since your last visit",
             ["Shift+P"] = "Next comment by the original poster",
+            ["Ctrl+B / I / K"] = "While writing: bold, italic, add a link",
             ["v"] = "Picture viewer: ← → step through pictures and on to the next post, Space for a slideshow",
             ["F11"] = "Full screen (Esc to leave)",
             ["Ctrl+M"] = "Mini mode: a small always-on-top window with the current feed (Ctrl+M again to go back)",

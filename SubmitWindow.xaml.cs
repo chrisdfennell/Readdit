@@ -157,6 +157,7 @@ public partial class SubmitWindow : Window
         };
         Body.AcceptsReturn = kind == "text";
         Body.Visibility = kind == "media" ? Visibility.Collapsed : Visibility.Visible;
+        Formatting.Visibility = kind == "text" ? Visibility.Visible : Visibility.Collapsed;
         MediaPanel.Visibility = kind == "media" ? Visibility.Visible : Visibility.Collapsed;
         OnChanged(sender, e);
     }

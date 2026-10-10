@@ -77,6 +77,7 @@ public sealed class FeedViewModel : ObservableObject
         LoadMoreCommand = new RelayCommand(_ => _ = LoadPageAsync(_cts?.Token ?? default), _ => HasMore && !IsLoading);
         ShowNewCommand = new RelayCommand(_ => _ = ReloadAsync());
         HeaderActionCommand = new RelayCommand(_ => _ = RunHeaderActionAsync(), _ => HeaderActionLabel.Length > 0 && !_headerBusy);
+        if (kind == FeedKind.Search) LoadRefineFields();
     }
 
     public event Action<FeedViewModel, string>? StatusChanged;
@@ -84,6 +85,61 @@ public sealed class FeedViewModel : ObservableObject
     public event Action? SubscriptionsChanged;
     public event Action? InboxRead;
     public event Action? ManageAlertsRequested;
+
+    /// <summary>The search was refined: open this spec in the tab's place.</summary>
+    public event Action<FeedViewModel, string>? SearchRefined;
+
+    /// <summary>"☆ Save search" was clicked: the spec, and a name to suggest.</summary>
+    public event Action<string, string>? SaveSearchRequested;
+
+    // ---- Refining a search (author, flair, site, title only, text posts or links) --------------
+
+    public bool IsSearch => Kind == FeedKind.Search;
+
+    /// <summary>A single community, which has rules, a sidebar and a wiki to show.</summary>
+    public bool HasCommunityInfo => IsSubreddit && !IsAggregate;
+
+    public IReadOnlyList<string> RefineTypes => SearchQuery.Types;
+
+    public string RefineAuthor { get; set; } = "";
+    public string RefineFlair { get; set; } = "";
+    public string RefineSite { get; set; } = "";
+    public string RefineType { get; set; } = "any";
+    public bool RefineTitleOnly { get; set; }
+
+    /// <summary>Shows the refine row (open by default when the search already has refinements).</summary>
+    bool _showRefine;
+    public bool ShowRefine { get => _showRefine; set => Set(ref _showRefine, value); }
+
+    public ICommand ToggleRefineCommand => _toggleRefine ??= new RelayCommand(_ => ShowRefine = !ShowRefine);
+    ICommand? _toggleRefine;
+
+    public ICommand ApplyRefineCommand => _applyRefine ??= new RelayCommand(_ =>
+    {
+        var query = SearchQuery.Parse(Target) with
+        {
+            Author = RefineAuthor,
+            Flair = RefineFlair,
+            Site = RefineSite,
+            Type = RefineType,
+            TitleOnly = RefineTitleOnly,
+        };
+        var built = query.Build();
+        if (built.Length > 0 && built != Target) SearchRefined?.Invoke(this, new FeedSpec(FeedKind.Search, built, Scope).ToString());
+    });
+    ICommand? _applyRefine;
+
+    public ICommand SaveSearchCommand => _saveSearch ??= new RelayCommand(_ =>
+        SaveSearchRequested?.Invoke(Spec, SearchQuery.Parse(Target).Text is { Length: > 0 } words ? words : Target));
+    ICommand? _saveSearch;
+
+    void LoadRefineFields()
+    {
+        var query = SearchQuery.Parse(Target);
+        (RefineAuthor, RefineFlair, RefineSite, RefineType, RefineTitleOnly) =
+            (query.Author, query.Flair, query.Site, query.Type, query.TitleOnly);
+        ShowRefine = query.IsRefined;
+    }
 
     public FeedKind Kind { get; }
     public string Target { get; }
