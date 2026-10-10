@@ -1,14 +1,21 @@
-# Builds and tests every pull request and packages a test installer and portable exe.
-# Pushes to main run this through the Release workflow, so nothing ships without passing it.
+# Builds and tests the app: every pull request, and (through the Release workflow) every push to
+# main. Pull requests also get a test installer and portable exe as artifacts.
 name: CI
 
 on:
   pull_request:
-  workflow_call:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      package:
+        description: 'Also build the installer and portable exe as artifacts'
+        type: boolean
+        default: true
 
+# Newer pushes to a pull request cancel older CI runs; runs called by Release are never cancelled
+# from here (Release manages its own concurrency).
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}', github.ref) || format('ci-{0}', github.run_id) }}
   cancel-in-progress: true
 
 jobs:
@@ -29,18 +36,21 @@ jobs:
         shell: pwsh
         run: ./tests/run-smoke.ps1
 
-      # A throwaway prerelease version so every CI build produces installable artifacts.
+      # A throwaway prerelease version so each CI build produces installable artifacts.
       - name: CI version
+        if: ${{ inputs.package != false }}
         shell: pwsh
         run: |
           $base = dotnet msbuild Readdit.csproj -getProperty:Version
           echo "VERSION=$base-ci.${{ github.run_number }}" >> $env:GITHUB_ENV
 
       - name: Package installer and portable exe
+        if: ${{ inputs.package != false }}
         shell: pwsh
-        run: ./build-installer.ps1 -Version ${{ env.VERSION }}
+        run: ./build-installer.ps1 -Version $env:VERSION
 
       - uses: actions/upload-artifact@v7
+        if: ${{ inputs.package != false }}
         with:
           name: Readdit-${{ env.VERSION }}
           path: |

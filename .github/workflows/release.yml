@@ -1,18 +1,17 @@
-# Publishes a GitHub release with the installer and portable exe; installed and portable copies
-# of Readdit update from these.
+# Tests every push to main and, when it passes, publishes the next release (installer + portable
+# exe). Installed and portable copies of Readdit update from these releases.
 #
-# Automatic: every push to main (except docs-only changes) runs CI and, if it passes, releases
-# the next patch version. Put [skip release] in the commit message to skip one.
-# Manual: Actions → Release → Run workflow for a minor/major bump or an exact version,
-# or push a tag yourself: git tag v1.2.3 && git push origin v1.2.3
-# The version comes from the latest v* tag (the first release uses the one in Readdit.csproj).
+# Automatic: a push to main that changes the app releases the next patch version. Pushes that only
+# touch docs, tests, workflows or tooling are tested but not released. Put [skip release] in any
+# commit message of the push to skip releasing it.
+# Manual: Actions → Release → Run workflow (from main) for a minor/major bump or an exact version,
+# or push a tag for a new version: git tag v1.2.3 && git push origin v1.2.3
 name: Release
 
 on:
   push:
     branches: [main]
     tags: ['v*']
-    paths-ignore: ['**.md', 'LICENSE']
   workflow_dispatch:
     inputs:
       bump:
@@ -27,93 +26,134 @@ on:
 permissions:
   contents: write
 
+# Queued automatic runs for main replace each other (only the newest commit needs releasing).
+# Tag and manual runs get a group of their own so they're never cancelled by a later push.
 concurrency:
-  group: release
+  group: ${{ github.event_name == 'push' && github.ref_type == 'branch' && 'release-auto' || format('release-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
-  version:
-    name: Decide version
-    if: ${{ !contains(github.event.head_commit.message, '[skip release]') }}
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.v.outputs.version }}
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+    with:
+      package: false
+
+  release:
+    name: Release
+    needs: ci
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0   # need tags
+          fetch-depth: 0   # tags and history, to pick the version and see what changed
 
-      - id: v
+      - name: Decide whether and what to release
+        id: plan
         shell: pwsh
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          BEFORE: ${{ github.event.before }}
+          COMMITS: ${{ toJSON(github.event.commits) }}
+          INPUT_BUMP: ${{ inputs.bump }}
+          INPUT_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $bump = if ('${{ inputs.bump }}') { '${{ inputs.bump }}' } else { 'patch' }   # pushes to main bump the patch
-          if ('${{ github.ref_type }}' -eq 'tag') {
-            $version = $env:GITHUB_REF_NAME.TrimStart('v')
-          } elseif ('${{ inputs.version }}') {
-            $version = '${{ inputs.version }}'.TrimStart('v')
-          } else {
+          function Set-Output($name, $value) { "$name=$value" >> $env:GITHUB_OUTPUT }
+          function Skip($why) { Write-Host "Not releasing: $why"; Set-Output release false; exit 0 }
+
+          function Get-NextVersion($bump) {
             $last = git tag --list 'v*' --sort=-v:refname | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' } | Select-Object -First 1
             if (-not $last) {
-              # First release: use the version the project already declares.
-              $version = ([xml](Get-Content Readdit.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
-            } else {
-              $parts = $last.TrimStart('v').Split('.') | ForEach-Object { [int]$_ }
-              switch ($bump) {
-                'major' { $version = "$($parts[0] + 1).0.0" }
-                'minor' { $version = "$($parts[0]).$($parts[1] + 1).0" }
-                default { $version = "$($parts[0]).$($parts[1]).$($parts[2] + 1)" }
-              }
+              # First release: use the version the project declares.
+              return ([xml](Get-Content Readdit.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+            }
+            $p = $last.TrimStart('v').Split('.') | ForEach-Object { [int]$_ }
+            switch ($bump) {
+              'major' { "$($p[0] + 1).0.0" }
+              'minor' { "$($p[0]).$($p[1] + 1).0" }
+              default { "$($p[0]).$($p[1]).$($p[2] + 1)" }
             }
           }
-          if ($version -notmatch '^\d+\.\d+\.\d+([-+].+)?$') { throw "'$version' isn't a version like 1.2.3" }
-          if ('${{ github.ref_type }}' -ne 'tag' -and (git tag --list "v$version")) { throw "v$version already exists" }
+
+          $createTag = $true
+          if ($env:EVENT -eq 'push' -and $env:REF_TYPE -eq 'tag') {
+            $version = $env:REF_NAME.TrimStart('v')
+            $createTag = $false
+          }
+          elseif ($env:EVENT -eq 'workflow_dispatch') {
+            if ($env:REF_TYPE -ne 'branch' -or $env:REF_NAME -ne 'main') { throw 'Run the Release workflow from the main branch.' }
+            $version = if ($env:INPUT_VERSION) { $env:INPUT_VERSION.Trim().TrimStart('v') } else { Get-NextVersion $env:INPUT_BUMP }
+          }
+          else {
+            # Automatic release for a push to main.
+            $messages = @($env:COMMITS | ConvertFrom-Json | ForEach-Object { $_.message }) -join "`n"
+            if ($messages -match '\[skip release\]') { Skip 'a commit in this push says [skip release]' }
+
+            $released = git tag --points-at HEAD --list 'v*' | Select-Object -First 1
+            if ($released) {
+              # Already tagged (e.g. re-running a release that failed after tagging): finish that one.
+              gh release view $released *> $null
+              if ($LASTEXITCODE -eq 0) { Skip "this commit is already released as $released" }
+              $version = $released.TrimStart('v')
+              $createTag = $false
+            }
+            else {
+              if ($env:BEFORE -and $env:BEFORE -notmatch '^0+$') {
+                $appChanges = git diff --name-only $env:BEFORE HEAD |
+                  Where-Object { $_ -notmatch '(\.md$|^LICENSE$|^\.github/|^tests/|^\.gitignore$|^dotnet-tools\.json$)' }
+                if (-not $appChanges) { Skip 'only docs, tests, workflows or tooling changed' }
+              }
+              $version = Get-NextVersion 'patch'
+            }
+          }
+
+          if ($version -notmatch '^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$') { throw "'$version' isn't a version like 1.2.3" }
+          if ($createTag -and (git tag --list "v$version")) { throw "v$version already exists" }
           Write-Host "Releasing $version"
-          echo "version=$version" >> $env:GITHUB_OUTPUT
-
-  ci:
-    name: CI
-    needs: version
-    uses: ./.github/workflows/ci.yml
-
-  release:
-    name: Publish release
-    needs: [version, ci]
-    runs-on: windows-latest
-    env:
-      VERSION: ${{ needs.version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v7
+          Set-Output release true
+          Set-Output version $version
+          Set-Output create_tag $createTag
 
       - uses: actions/setup-dotnet@v6
+        if: steps.plan.outputs.release == 'true'
         with:
           dotnet-version: 10.0.x
 
-      # Unless a tag started this run, create it. (Pushes made with GITHUB_TOKEN don't start new runs.)
-      - name: Tag
-        if: github.ref_type != 'tag'
-        run: |
-          git tag v${{ env.VERSION }}
-          git push origin v${{ env.VERSION }}
-
       - name: Restore tools
+        if: steps.plan.outputs.release == 'true'
         run: dotnet tool restore
 
       # Previous releases let vpk build small delta updates.
       - name: Download previous releases
+        if: steps.plan.outputs.release == 'true'
         run: dotnet vpk download github --repoUrl ${{ github.server_url }}/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }} --outputDir Releases
         continue-on-error: true
 
       - name: Build installer and portable exe
+        if: steps.plan.outputs.release == 'true'
         shell: pwsh
-        run: ./build-installer.ps1 -Version ${{ env.VERSION }}
+        run: ./build-installer.ps1 -Version ${{ steps.plan.outputs.version }}
+
+      # Tag only once the build has succeeded, so a failed build leaves no orphan tag.
+      # (Pushes made with GITHUB_TOKEN don't start new workflow runs.)
+      - name: Tag
+        if: steps.plan.outputs.release == 'true' && steps.plan.outputs.create_tag == 'true'
+        run: |
+          git tag v${{ steps.plan.outputs.version }}
+          git push origin v${{ steps.plan.outputs.version }}
 
       - name: Publish release
+        if: steps.plan.outputs.release == 'true'
         run: >
           dotnet vpk upload github --repoUrl ${{ github.server_url }}/${{ github.repository }}
           --token ${{ secrets.GITHUB_TOKEN }} --outputDir Releases --publish
-          --releaseName "Readdit ${{ env.VERSION }}" --tag v${{ env.VERSION }}
+          --releaseName "Readdit ${{ steps.plan.outputs.version }}" --tag v${{ steps.plan.outputs.version }}
 
       - name: Attach portable exe
+        if: steps.plan.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload v${{ env.VERSION }} Releases/Readdit-Portable.exe --clobber
+        run: gh release upload v${{ steps.plan.outputs.version }} Releases/Readdit-Portable.exe --clobber

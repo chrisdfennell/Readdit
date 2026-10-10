@@ -70,14 +70,11 @@ dotnet run                                # run a development build
 
 Releases are automatic.
 
-- **Every push to `main`** runs [release.yml](.github/workflows/release.yml). It runs CI ([ci.yml](.github/workflows/ci.yml)): a build with warnings treated as errors, the post view smoke test in headless Edge, and packaging of the installer and portable exe. If everything passes, it publishes the next patch release (0.4.0 → 0.4.1 → …). Changes that only touch docs don't release. Add `[skip release]` to a commit message to skip one.
-- **Pull requests** run CI only. Try that exact build from the run's **Artifacts**.
-- **For a minor or major version,** open **Actions → Release → Run workflow** and pick `minor` or `major`, or type an exact version. You can also push a tag yourself:
-
-```powershell
-git tag v0.4.1
-git push origin v0.4.1
-```
+- **Every push to `main`** runs [release.yml](.github/workflows/release.yml). It first runs CI ([ci.yml](.github/workflows/ci.yml)): a build with warnings treated as errors and the post view smoke test in headless Edge. If CI passes and the push changed the app, it builds the installer and portable exe and publishes the next patch release (0.4.0 → 0.4.1 → …).
+  - Pushes that only change docs, tests, workflows or tooling are tested but not released.
+  - To skip releasing a push, put `[skip release]` in any of its commit messages. It's still tested.
+- **Pull requests** run CI and package a test installer and portable exe. Download them from the run's **Artifacts**.
+- **For a minor or major version,** push your commit with `[skip release]`, then open **Actions → Release → Run workflow** on `main` and pick `minor` or `major`, or type an exact version. That way the commit isn't released twice.
 
 **Updates:** installed copies update through Velopack. The portable exe downloads the new `Readdit-Portable.exe` beside itself and swaps it in. Both check every few hours, and install when Readdit closes or when you click **Restart to update**. You can turn this off in Preferences.
 
