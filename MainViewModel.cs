@@ -30,6 +30,7 @@ public sealed partial class MainViewModel : ObservableObject
         _detail = detail;
         _browser = browser;
         _updates = new UpdateService(services.Settings);
+        _ = _updates.WarmUpAsync();
         InstallUpdateCommand = new RelayCommand(_ => InstallUpdate(), _ => _updates.IsUpdateReady);
         _updateTimer.Tick += async (_, _) => await CheckForUpdatesQuietlyAsync();
         _browser.PropertyChanged += (_, e) =>

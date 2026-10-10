@@ -50,7 +50,13 @@ public sealed partial class UpdateService(AppSettings settings)
         }
     }
 
-    bool IsInstalled => Manager()?.IsInstalled == true;
+    bool? _isInstalled;
+
+    // Asking Velopack means locating the install on disk; do it once (WarmUp does it off the UI thread).
+    bool IsInstalled => _isInstalled ??= Manager()?.IsInstalled == true;
+
+    /// <summary>Works out what kind of copy this is in the background, so the UI never waits on it.</summary>
+    public Task WarmUpAsync() => Task.Run(() => _ = IsInstalled);
 
     public string Kind => IsInstalled ? "installed" : IsPortable ? "portable" : "development build";
 
@@ -78,29 +84,41 @@ public sealed partial class UpdateService(AppSettings settings)
     public void Reset()
     {
         _manager = null;
+        _isInstalled = null;
         _velopackUpdate = null;
         _portableDownload = null;
         _readyVersion = null;
     }
 
     /// <summary>Checks for an update and downloads it. Returns a message for the user.</summary>
-    public async Task<string> CheckAsync()
+    Task<string>? _check;
+
+    public Task<string> CheckAsync()
     {
         if (string.IsNullOrWhiteSpace(settings.UpdateUrl))
-            return "Set an update source (a GitHub repository URL) to enable updates.";
-        if (_readyVersion != null) return ReadyMessage;
+            return Task.FromResult("Set an update source (a GitHub repository URL) to enable updates.");
+        if (_readyVersion != null) return Task.FromResult(ReadyMessage);
 
-        try
+        // One check at a time: the timer and "Check now" share the same one.
+        if (_check is { IsCompleted: false }) return _check;
+
+        // Everything runs on a background thread. Velopack does part of its work (finding the
+        // install, checking and verifying downloads of ~80 MB) synchronously, which froze the
+        // window for seconds when it ran on the UI thread.
+        return _check = Task.Run(async () =>
         {
-            if (IsInstalled) return await CheckInstalledAsync();
-            if (IsPortable) return await CheckPortableAsync();
-            return "This is a development build, so it doesn't update itself. " +
-                   "Installed and portable copies from GitHub releases do.";
-        }
-        catch (Exception ex)
-        {
-            return $"Couldn't check for updates: {ex.Message}";
-        }
+            try
+            {
+                if (IsInstalled) return await CheckInstalledAsync().ConfigureAwait(false);
+                if (IsPortable) return await CheckPortableAsync().ConfigureAwait(false);
+                return "This is a development build, so it doesn't update itself. " +
+                       "Installed and portable copies from GitHub releases do.";
+            }
+            catch (Exception ex)
+            {
+                return $"Couldn't check for updates: {ex.Message}";
+            }
+        });
     }
 
     string ReadyMessage => $"Version {_readyVersion} is ready and installs when you restart Readdit.";
