@@ -167,6 +167,30 @@ public sealed class AppSettings
     /// <summary>People whose new posts you're notified about.</summary>
     public List<FollowedUser> FollowedUsers { get; set; } = [];
 
+    /// <summary>Posts you asked to be reminded about.</summary>
+    public List<Reminder> Reminders { get; set; } = [];
+
+    /// <summary>Posts waiting to go out at a set time (this PC only: it posts them while running).</summary>
+    public List<ScheduledPost> ScheduledPosts { get; set; } = [];
+
+    /// <summary>Snippets to drop into replies and posts.</summary>
+    public List<SavedReply> SavedReplies { get; set; } = [];
+
+    /// <summary>Offer to translate posts and comments (sends their text to <see cref="TranslateServer"/>).</summary>
+    public bool TranslateEnabled { get; set; }
+
+    /// <summary>Language to translate into (two letters; empty = Windows' language).</summary>
+    public string TranslateTo { get; set; } = "";
+
+    /// <summary>A LibreTranslate server to use instead of MyMemory (empty = MyMemory).</summary>
+    public string TranslateServer { get; set; } = "";
+
+    /// <summary>The LibreTranslate server's API key, if it needs one.</summary>
+    public string TranslateKey { get; set; } = "";
+
+    /// <summary>Your karma each day Skein ran (for the activity page's chart), per account.</summary>
+    public Dictionary<string, List<KarmaPoint>> KarmaHistory { get; set; } = [];
+
     /// <summary>Keyword alerts, checked in the background.</summary>
     public List<AlertRule> AlertRules { get; set; } = [];
 

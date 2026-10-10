@@ -24,9 +24,10 @@ public static class Program
             .OnBeforeUninstallFastCallback(_ => LinkHandler.UnregisterAll())
             .Run();
 
-        // A link from another app (Skein as the web link handler, or a skein:// link).
-        var url = args.Select(LinkHandler.NormalizeIncoming).FirstOrDefault(u => u != null);
-        if (url != null && !LinkHandler.IsRedditUrl(url))
+        // A link from another app (Skein as the web link handler, or a skein:// link), or
+        // pictures sent from Explorer's Send to menu.
+        var url = args.Select(LinkHandler.NormalizeIncoming).FirstOrDefault(u => u != null) ?? AppCommands.ForFiles(args);
+        if (url != null && !url.StartsWith(AppCommands.FilesPrefix) && !LinkHandler.IsRedditUrl(url))
         {
             // Not Reddit: straight on to the real browser, without starting Skein at all.
             LinkHandler.OpenInFallbackBrowser(url, AppSettings.Load().FallbackBrowserCommand);
@@ -125,8 +126,10 @@ public static class Program
                 pipe.WaitForConnection();
                 using var reader = new StreamReader(pipe);
                 var text = reader.ReadToEnd();
-                // Only ever a web link; anything else is ignored.
-                if (text.Length < 4096 && LinkHandler.NormalizeIncoming(text) is { } link) open(link);
+                // Only ever a web link or shared files; anything else is ignored.
+                if (text.Length >= 8192) continue;
+                if (text.StartsWith(AppCommands.FilesPrefix, StringComparison.Ordinal)) open(text);
+                else if (LinkHandler.NormalizeIncoming(text) is { } link) open(link);
             }
             catch
             {

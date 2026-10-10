@@ -189,7 +189,7 @@ public sealed partial class RedditApi
         {
             var (status, body) = await session.SendAsync("POST", Base + path + RawJson, null, _modhash, default, json: json);
             ApiLog.Write($"POST {path} (json) cookie route -> HTTP {status}: {ApiLog.Clip(body)}");
-            if (status is >= 200 and < 300 && LooksLikeJson(body)) return Checked(body);
+            if (status is >= 200 and < 300 && (LooksLikeJson(body) || body.Trim().Length == 0)) return Checked(OrEmpty(body));
             failures.Add($"cookie route: HTTP {status}");
         }
 
@@ -203,9 +203,12 @@ public sealed partial class RedditApi
             using var response = await Http.SendAsync(request);
             var body = await response.Content.ReadAsStringAsync();
             ApiLog.Write($"POST {path} (json) oauth route -> HTTP {(int)response.StatusCode}: {ApiLog.Clip(body)}");
-            if (response.IsSuccessStatusCode && LooksLikeJson(body)) return Checked(body);
+            if (response.IsSuccessStatusCode && (LooksLikeJson(body) || body.Trim().Length == 0)) return Checked(OrEmpty(body));
             failures.Add($"oauth route: HTTP {(int)response.StatusCode}");
         }
         throw new InvalidOperationException($"Reddit refused the request ({string.Join("; ", failures)}).");
     }
+
+    /// <summary>Some newer endpoints answer success with an empty body.</summary>
+    static string OrEmpty(string body) => body.Trim().Length == 0 ? "{}" : body;
 }

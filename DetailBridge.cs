@@ -90,6 +90,9 @@ public sealed class DetailBridge(WebView2 view, Services services)
         modOf = services.Moderated,
         watched = services.Settings.WatchedThreads.Select(w => w.PostId),
         followed = services.Settings.FollowedUsers.Select(f => f.Name),
+        savedReplies = services.Settings.SavedReplies.Select(r => new { name = r.Name, text = r.Text }),
+        translate = services.Settings.TranslateEnabled,
+        reminded = services.Settings.Reminders.Select(r => r.PostId),
         // Lower-cased names → your tag and note on that user.
         notes = services.UserNotes.All.ToDictionary(n => n.Key.ToLowerInvariant(), n => new { tag = n.Value.Tag, note = n.Value.Note }),
     });
@@ -206,6 +209,27 @@ public sealed class DetailBridge(WebView2 view, Services services)
             if (version == _version) Send($$"""{"type":"error","message":{{JsonSerializer.Serialize(ex.Message)}}}""");
         }
     }
+
+    /// <summary>
+    /// Shows one of Skein's own pages in the post view: "modmail", "activity" or "later"
+    /// (reminders and scheduled posts). The page loads what it needs itself.
+    /// </summary>
+    public void ShowPage(string page)
+    {
+        _version++;
+        _postId = null;
+        Send($$"""{"type":"page","page":{{JsonSerializer.Serialize(page)}},"settings":{{SettingsJson}}}""");
+    }
+
+    /// <summary>The page asks to be reminded about a post: id, title, community, permalink.</summary>
+    public event Action<string, string, string, string>? RemindRequested;
+
+    /// <summary>The page asks to open a post in a window of its own, beside this one.</summary>
+    public event Action<string>? PopOutRequested;
+
+    /// <summary>A reminder or scheduled post was cancelled from the page (or one should go out now).</summary>
+    public event Action? LaterChanged;
+    public event Action<string>? PostNowRequested;
 
     /// <summary>The page asks to watch (or stop watching) a thread: id, title, community, comments, on.</summary>
     public event Action<string, string, string, long, bool>? WatchRequested;
@@ -537,6 +561,79 @@ public sealed class DetailBridge(WebView2 view, Services services)
                 ComposeRequested?.Invoke(m.Str("to"));
                 return null;
 
+            case "remind":
+                RemindRequested?.Invoke(m.Str("id"), m.Str("title"), m.Str("sub"), m.Str("permalink"));
+                return SettingsJson;
+
+            case "popout":
+                PopOutRequested?.Invoke(m.Str("id"));
+                return null;
+
+            case "translate":
+                {
+                    var (text, from) = await services.Translator.TranslateAsync(m.Str("text"), default);
+                    return JsonSerializer.Serialize(new { text, from, to = services.Translator.TargetLanguage });
+                }
+
+            case "savedReply":
+                SavedReplyBook.Handle(services.Settings, m.Str("action"), m.Str("name"), m.Str("text"));
+                return SettingsJson;
+
+            case "removalReasons":
+                if (!services.IsModeratorOf(m.Str("sub"))) throw new InvalidOperationException("You don't moderate that community.");
+                return await services.Api.GetRemovalReasonsRawAsync(m.Str("sub"), default);
+
+            case "removeWithReason":
+                {
+                    var id = m.Str("id");
+                    if (!services.IsModeratorOf(m.Str("sub"))) throw new InvalidOperationException("You don't moderate that community.");
+                    await services.Api.RemoveWithReasonAsync(id, m.Str("reasonId"), m.Str("note"), m.Str("how"), m.Str("title"), m.Str("message"));
+                    ModActionDone?.Invoke(id, "remove");
+                    return null;
+                }
+
+            case "userHistory":
+                if (!services.IsModeratorOf(m.Str("sub"))) throw new InvalidOperationException("You don't moderate that community.");
+                return await services.Api.GetUserHistoryRawAsync(m.Str("name"), m.Str("sub"), default);
+
+            case "modmailList":
+                return await services.Api.GetModmailRawAsync(m.Str("state") is { Length: > 0 } state ? state : "all", default);
+
+            case "modmailConversation":
+                return await services.Api.GetModmailConversationRawAsync(m.Str("id"), default);
+
+            case "modmailReply":
+                return await services.Api.ReplyModmailAsync(m.Str("id"), m.Str("body"), m.Bool("hidden"), m.Bool("internal"));
+
+            case "modmailArchive":
+                await services.Api.ArchiveModmailAsync(m.Str("id"), m.Bool("archive"));
+                return null;
+
+            case "activity":
+                {
+                    var me = services.Api.UserName ?? throw new InvalidOperationException("Skein doesn't know your username yet.");
+                    var raw = await services.Api.GetActivityRawAsync(me, 5, default);
+                    var history = services.Settings.KarmaHistory.GetValueOrDefault(me) ?? [];
+                    return $$"""{"data":{{raw}},"history":{{JsonSerializer.Serialize(history.Select(p => new { day = p.Day, karma = p.Karma }))}}}""";
+                }
+
+            case "later":
+                return LaterJson();
+
+            case "laterCancel":
+                {
+                    var id = m.Str("id");
+                    services.Settings.Reminders.RemoveAll(r => r.Id == id);
+                    services.Settings.ScheduledPosts.RemoveAll(p => p.Id == id);
+                    services.Settings.Save();
+                    LaterChanged?.Invoke();
+                    return LaterJson();
+                }
+
+            case "laterPostNow":
+                PostNowRequested?.Invoke(m.Str("id"));
+                return null;
+
             case "mediaStep":
                 {
                     var found = MediaStepHandler != null && await MediaStepHandler(Math.Sign((int)m.Long("direction")));
@@ -577,6 +674,34 @@ public sealed class DetailBridge(WebView2 view, Services services)
                 return null;
         }
     }
+
+    /// <summary>Your reminders and scheduled posts, soonest first, for the "later" page.</summary>
+    public string LaterJson() => JsonSerializer.Serialize(new
+    {
+        reminders = services.Settings.Reminders.OrderBy(r => r.Due).Select(r => new
+        {
+            id = r.Id,
+            postId = r.PostId,
+            title = r.Title,
+            sub = r.Subreddit,
+            permalink = r.Permalink,
+            due = r.Due,
+        }),
+        scheduled = services.Settings.ScheduledPosts.OrderBy(p => p.Due).Select(p => new
+        {
+            id = p.Id,
+            title = p.Title,
+            sub = p.Subreddit,
+            isLink = p.IsLink,
+            due = p.Due,
+            error = p.Error,
+            user = p.UserName,
+            otherAccount = p.Profile != services.Settings.ActiveProfile,
+        }),
+    });
+
+    /// <summary>Repaints the "later" page if it's showing (after a reminder fires or a post goes out).</summary>
+    public void RefreshLater() => Send($$"""{"type":"later","data":{{LaterJson()}}}""");
 
     public async Task UpdateOfflineCopyAsync(string postId, bool keep)
     {

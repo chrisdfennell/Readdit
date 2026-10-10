@@ -11,6 +11,7 @@
         if (m.type === 'editorInit') {
             document.documentElement.dataset.theme = m.theme;
             if (m.accent) document.documentElement.style.setProperty('--accent', m.accent);
+            state.settings = m.settings || {}; // saved replies for the 💬 menu
             made = markdownEditor(m.text || '', m.placeholder || '');
             mount.replaceChildren(made.editor, made.preview);
             made.textarea.addEventListener('input', () => send({ type: 'editorText', text: made.textarea.value }));

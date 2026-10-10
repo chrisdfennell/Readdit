@@ -133,6 +133,34 @@
                 <TextBlock Text="Save downloaded images and videos to" Margin="0,8,0,4" />
                 <TextBox x:Name="DownloadFolder" />
 
+                <TextBlock Text="Translation" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />
+                <CheckBox x:Name="TranslateEnabled" Margin="0,8,0,0">
+                    <TextBlock TextWrapping="Wrap"
+                               Text="Offer 🌐 Translate on posts and comments. The text you translate is sent to the translation service below." />
+                </CheckBox>
+                <DockPanel Margin="0,8,0,0">
+                    <TextBlock Text="Translate into" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <ComboBox x:Name="TranslateTo" MinWidth="200" HorizontalAlignment="Left" />
+                </DockPanel>
+                <TextBlock TextWrapping="Wrap" Margin="0,8,0,4"
+                           Text="Translation service: MyMemory (free, no account; a few thousand words a day) unless you give a LibreTranslate server here." />
+                <DockPanel>
+                    <TextBox x:Name="TranslateKey" DockPanel.Dock="Right" Width="160" Margin="8,0,0,0" ToolTip="API key, if the server needs one" />
+                    <TextBox x:Name="TranslateServer" ToolTip="e.g. https://libretranslate.example.com (leave empty for MyMemory)" />
+                </DockPanel>
+
+                <TextBlock Text="Share to Skein" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />
+                <CheckBox x:Name="SendTo" Margin="0,8,0,0">
+                    <TextBlock TextWrapping="Wrap"
+                               Text="Add Skein to Explorer's Send to menu (right-click pictures or a video → Send to → Skein starts a new post with them)" />
+                </CheckBox>
+                <DockPanel Margin="0,8,0,0">
+                    <Button DockPanel.Dock="Left" Content="📋 Copy the “Post to Skein” bookmark" Click="OnCopyBookmarklet" />
+                    <TextBlock TextWrapping="Wrap" Opacity="0.7" Margin="12,0,0,0" VerticalAlignment="Center"
+                               Text="Add it to your browser's bookmarks bar (paste it as the bookmark's address). Click it on any page to post that page's link." />
+                </DockPanel>
+                <TextBlock x:Name="ShareStatus" TextWrapping="Wrap" Opacity="0.8" Margin="0,6,0,0" />
+
                 <TextBlock Text="Updates" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />
                 <TextBlock x:Name="VersionText" Opacity="0.75" Margin="0,4,0,0" />
                 <CheckBox x:Name="AutoUpdate" Margin="0,8,0,0"

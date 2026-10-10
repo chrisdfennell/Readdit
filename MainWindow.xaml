@@ -237,6 +237,12 @@
             <MenuItem Header="Copy link"
                       Command="{Binding PlacementTarget.Tag.CopyLinkCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                       CommandParameter="{Binding PermalinkUrl}" />
+            <MenuItem Header="⧉ Open side by side"
+                      Command="{Binding PlacementTarget.Tag.PopOutCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <MenuItem Header="⏰ Remind me about this…"
+                      Command="{Binding PlacementTarget.Tag.RemindCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
             <Separator />
             <MenuItem Header="{Binding Subreddit}" HeaderStringFormat="Open r/{0} in new tab"
                       Command="{Binding PlacementTarget.Tag.OpenPostSubredditCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"

@@ -108,7 +108,17 @@ $checks = [ordered]@{
     'wiki links stay in the post view'    = $result.wikiLinks -eq 'aww:faq|aww:index|none'
     'community page: rules and sections'  = $result.community.title -eq 'Cute things' -and $result.community.rules -eq 2 -and
                                             $result.community.sections -eq 3 -and $result.community.wikiButton
-    'conversation in order, yours marked' = $result.conversation.order -eq 'm_m1,m_m2,m_m3' -and $result.conversation.mine -eq 'm_m2' -and $result.conversation.focused -eq 'm_m3'
+    'mod menu: remove with a reason, history' = ($result.mod.menuItems -join '|') -match 'Remove with a reason' -and ($result.mod.menuItems -join '|') -match 'history here'
+    'poll results, your vote, the leader' = $result.poll.options -eq 2 -and $result.poll.shares -eq '70%,30%' -and $result.poll.chosen -and $result.poll.leading -eq 'Yes'
+    'open poll keeps results hidden'      = $result.poll.openHidesResults
+    'remind me follows the settings'      = $result.reminderOk
+    'translate only when turned on'       = $result.translateToggles
+    'saved replies: listed and inserted'  = $result.savedReplies.names -eq 'Welcome|Rules' -and $result.savedReplies.inserted -eq 'Welcome to the sub!' -and $result.savedReplies.closed
+    'reminders page lists both kinds'     = $result.laterPage.reminders -eq 1 -and $result.laterPage.scheduled -eq 2 -and $result.laterPage.failed -eq 1 -and
+                                            $result.laterPage.buttons -eq 'Open|Cancel|Try again|Cancel|Cancel' -and $result.laterPage.retrySent
+    'activity charts scale'               = $result.activity.points -eq 3 -and $result.activity.tallest -eq '100%' -and $result.activity.half -eq '50%'
+    'modmail conversation'                = $result.modmail.bubbles -eq 2 -and $result.modmail.mine -eq 1 -and $result.modmail.internal -eq 1 -and $result.modmail.replyBox
+    'conversation in order, yours marked' =$result.conversation.order -eq 'm_m1,m_m2,m_m3' -and $result.conversation.mine -eq 'm_m2' -and $result.conversation.focused -eq 'm_m3'
 }
 
 $failed = 0

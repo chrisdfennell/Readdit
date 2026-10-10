@@ -249,6 +249,78 @@ try {
     sections: document.querySelectorAll('.community .community-section').length,
     wikiButton: [...document.querySelectorAll('.community .actions .action')].some(b => b.textContent.includes('Wiki')),
   };
+  // Polls: results when Reddit shares them (your choice and the leader marked); hidden while voting is open.
+  const poll = pollBlock({ total_vote_count: 10, voting_end_timestamp: Date.now() - 1000, user_selection: 'b',
+    options: [{ id: 'a', text: 'Yes', vote_count: 7 }, { id: 'b', text: 'No', vote_count: 3 }] }, 'https://x');
+  const openPoll = pollBlock({ total_vote_count: 4, voting_end_timestamp: Date.now() + 7200000,
+    options: [{ id: 'a', text: 'Yes' }, { id: 'b', text: 'No' }] }, 'https://x');
+  result.poll = {
+    options: poll.querySelectorAll('.poll-option').length,
+    shares: [...poll.querySelectorAll('.poll-share')].map(s => s.textContent).join(','),
+    chosen: poll.querySelector('.poll-option.chosen .poll-text')?.textContent.startsWith('No'),
+    leading: poll.querySelector('.poll-option.leading .poll-text')?.textContent,
+    openHidesResults: openPoll.querySelectorAll('.poll-share').length === 0 && !!openPoll.querySelector('.poll-note button'),
+  };
+  // Remind me follows the settings; Translate shows only when it's turned on.
+  state.settings.reminded = ['abc'];
+  state.settings.translate = false;
+  const translateOff = translateAction(() => null).hidden;
+  state.settings.translate = true;
+  result.reminderOk = remindButton({ id: 'abc' }).textContent.endsWith('Reminder set') &&
+    remindButton({ id: 'zzz' }).textContent.endsWith('Remind me');
+  result.translateToggles = translateOff && !translateAction(() => null).hidden;
+  // Saved replies: the editor's menu lists them and inserts one.
+  state.settings.savedReplies = [{ name: 'Welcome', text: 'Welcome to the sub!' }, { name: 'Rules', text: 'Read the rules.' }];
+  const ed2 = markdownEditor('', 'Write');
+  document.body.append(ed2.editor);
+  ed2.editor.querySelector('.md-toolbar .menu-trigger').click();
+  const replyNames = [...document.querySelectorAll('#menu .saved-reply-use')].map(b => b.textContent).join('|');
+  document.querySelector('#menu .saved-reply-use').click();
+  result.savedReplies = { names: replyNames, inserted: ed2.textarea.value, closed: !document.getElementById('menu') };
+  ed2.editor.remove();
+  // The Reminders page: reminders, scheduled posts (a failed one offers Try again; another account's can't be posted from here).
+  clearView();
+  state.page = 'later';
+  root.append(el('div', { id: 'later-list' }));
+  paintLater({
+    reminders: [{ id: 'r1', title: 'Remember me', sub: 'aww', permalink: 'https://www.reddit.com/r/aww/comments/1/', due: now + 3600 }],
+    scheduled: [
+      { id: 's1', title: 'Later post', sub: 'test', isLink: false, due: now + 7200, error: 'Rate limited', user: 'dave', otherAccount: false },
+      { id: 's2', title: 'Other account', sub: 'test', isLink: true, due: now + 7200, error: null, user: 'erin', otherAccount: true },
+    ],
+  });
+  const laterLists = document.querySelectorAll('#later-list .later-items');
+  result.laterPage = {
+    reminders: laterLists[0]?.children.length,
+    scheduled: laterLists[1]?.children.length,
+    failed: document.querySelectorAll('#later-list li.failed').length,
+    buttons: [...document.querySelectorAll('#later-list .later-actions .action')].map(b => b.textContent).join('|'),
+  };
+  [...document.querySelectorAll('#later-list .action')].find(b => b.textContent === 'Try again').click();
+  result.laterPage.retrySent = window.__sent.some(m => m.type === 'laterPostNow' && m.id === 's1');
+  // Activity page charts.
+  const karmaLine = karmaChart([{ day: '2026-10-01', karma: 100 }, { day: '2026-10-02', karma: 150 }, { day: '2026-10-03', karma: 140 }]);
+  result.activity = {
+    points: karmaLine.querySelector('.chart-line').getAttribute('d').split('L').length,
+    tallest: columnChart([{ label: 'a', value: 2 }, { label: 'b', value: 4 }], 't').querySelectorAll('.column-bar')[1].style.height,
+    half: barList([{ label: 'r/a', value: 5 }, { label: 'r/b', value: 10 }]).querySelectorAll('.bar')[0].style.width,
+  };
+  // A modmail conversation: messages in order (mod actions skipped), yours and private notes marked, a reply box.
+  paintModmail({
+    conversation: { id: 'mm1', subject: 'Appeal', owner: { displayName: 'csharp' }, isInternal: false, state: 1,
+      objIds: [{ id: 'x1', key: 'messages' }, { id: 'a1', key: 'modActions' }, { id: 'x2', key: 'messages' }] },
+    messages: {
+      x1: { body: '<p>Please unban me</p>', author: { name: 'erin' }, date: new Date().toISOString() },
+      x2: { body: '<p>Looking into it</p>', author: { name: 'dave', isMod: true }, isInternal: true, date: new Date().toISOString() },
+    },
+    user: { name: 'erin' },
+  }, 'all');
+  result.modmail = {
+    bubbles: document.querySelectorAll('.modmail .bubble').length,
+    mine: document.querySelectorAll('.modmail .bubble.mine').length,
+    internal: document.querySelectorAll('.modmail .bubble.internal').length,
+    replyBox: !!document.querySelector('.modmail .md-editor textarea'),
+  };
   // Last, because it clears the page: switching posts closes overlays and drops stale find results.
   openLightbox(['https://example.com/a.png'], 0);
   findInput.value = 'comment';

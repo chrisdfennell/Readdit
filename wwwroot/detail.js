@@ -62,6 +62,8 @@ if (host) {
             case 'message': renderMessage(m.data, m.settings); break;
             case 'conversation': renderConversation(m); break;
             case 'community': renderCommunity(m); break;
+            case 'page': renderPage(m); break;
+            case 'later': if (state.page === 'later') paintLater(m.data); break;
             case 'error': showError(m.message); break;
             case 'scroll':
                 window.scrollBy({ top: m.direction * window.innerHeight * 0.85, behavior: 'smooth' });
@@ -96,7 +98,7 @@ if (host) {
             case 'settings':
                 state.settings = m.settings;
                 refreshUserTags();
-                root.querySelectorAll('.watch-button').forEach(b => b.paint && b.paint());
+                root.querySelectorAll('.watch-button, .remind-button, .translate-action').forEach(b => b.paint && b.paint());
                 break;
         }
     });
@@ -361,6 +363,27 @@ function markdownEditor(initial, placeholder) {
         button.onclick = () => (mode === 'rich' ? richAction : markdown)();
         toolbar.append(button);
     }
+    // 💬 Saved replies: drop in a snippet, or keep this text as one.
+    const insertText = text => {
+        if (mode === 'rich') {
+            rich.focus();
+            document.execCommand('insertHTML', false, el('div', null, renderMarkdown(text)).innerHTML);
+            syncFromRich();
+        } else {
+            textarea.focus();
+            textarea.setRangeText(text, textarea.selectionStart, textarea.selectionEnd, 'end');
+            textarea.dispatchEvent(new Event('input'));
+        }
+    };
+    const currentText = () => {
+        const { selectionStart: start, selectionEnd: end, value } = textarea;
+        return mode === 'markdown' && end > start ? value.slice(start, end) : value;
+    };
+    const repliesButton = el('button', { type: 'button', class: 'tool menu-trigger', title: 'Saved replies' }, '💬');
+    repliesButton.addEventListener('mousedown', e => e.preventDefault());
+    repliesButton.onclick = () => openSavedReplies(repliesButton, insertText, currentText);
+    toolbar.append(repliesButton);
+
     const modeSwitch = el('button', { type: 'button', class: 'tool mode', title: 'Switch between Markdown and rich text' });
     modeSwitch.addEventListener('mousedown', e => e.preventDefault());
     toolbar.append(el('span', { class: 'spacer' }), modeSwitch);
@@ -413,6 +436,52 @@ function markdownEditor(initial, placeholder) {
         textarea.dispatchEvent(new Event('input'));
     };
     return { textarea, preview, editor };
+}
+
+/** The 💬 menu: your saved replies to insert (or forget), and "save this text as a reply". */
+function openSavedReplies(anchor, insert, currentText) {
+    closeMenu();
+    const replies = state.settings.savedReplies || [];
+    const save = async (action, name, text) => {
+        try {
+            state.settings = { ...state.settings, ...(await call('savedReply', { action, name, text })) };
+            return true;
+        } catch (err) {
+            showToast(err.message);
+            return false;
+        }
+    };
+    const menu = el('div', { id: 'menu', class: 'saved-replies' },
+        el('div', { class: 'menu-title' }, 'Saved replies'),
+        replies.length
+            ? replies.map(r => el('div', { class: 'saved-reply' },
+                el('button', { class: 'saved-reply-use', title: r.text.slice(0, 400), onclick: () => { closeMenu(); insert(r.text); } }, r.name),
+                el('button', {
+                    class: 'saved-reply-remove', title: `Forget “${r.name}”`,
+                    onclick: async e => {
+                        e.stopPropagation();
+                        if (await save('remove', r.name, '')) openSavedReplies(anchor, insert, currentText);
+                    },
+                }, '✕')))
+            : el('div', { class: 'menu-note muted' }, 'None yet. Write something you send often, then save it here.'),
+        el('button', {
+            onclick: async e => {
+                e.stopPropagation();
+                const text = currentText().trim();
+                if (!text) {
+                    showToast('Write the reply first, then save it here');
+                    return;
+                }
+                const name = window.prompt('A name for this saved reply:', text.split('\n')[0].slice(0, 40));
+                if (!name || !name.trim()) return;
+                if (await save('add', name.trim(), text)) {
+                    closeMenu();
+                    showToast(`Saved “${name.trim()}”`);
+                }
+            },
+        }, '＋ Save this text as a reply…'));
+    document.body.append(menu);
+    positionMenu(menu, anchor);
 }
 
 // ---- Sanitizing Reddit's rendered HTML -------------------------------------------------
@@ -1078,6 +1147,8 @@ function clearView() {
     resetFind();
     state.newIndex = state.opIndex = -1;
     state.post = null;
+    state.page = null;
+    closePanel();
     root.replaceChildren();
     empty.hidden = false;
     window.scrollTo(0, 0);
@@ -1154,12 +1225,16 @@ function renderPost(d, settings) {
                     source !== d ? [' · crossposted from ', link('r/' + source.subreddit, '/r/' + source.subreddit)] : null))),
         mediaFor(source, d),
         body,
+        pollBlock(source.poll_data || d.poll_data, permalink),
         modOn && reportList(d),
         el('div', { class: 'actions' },
             action('💬 Reply', () => box.open()),
             saveButton(d),
             watchButton(d),
+            remindButton(d),
             action('🔊 Read aloud', () => readAloud(), 'Read the post and its comments aloud (Shift+R)'),
+            translateAction(() => article.querySelector('.post-body'), () => d.title),
+            action('⧉ Side by side', () => send({ type: 'popout', id: d.id }), 'Open this post in a window of its own, beside this one'),
             hasDownloadableMedia(d) && action('⬇ Download', () => downloadPost(), 'Save images or video (d)'),
             action('↗ Open on Reddit', () => send({ type: 'external', url: permalink })),
             d.is_self ? null : action('🔗 Open link', () => send({ type: 'external', url: source.url || d.url })),
@@ -1366,6 +1441,7 @@ function commentNode(c, depth, post) {
             body = gone;
         }),
         action('Permalink', () => send({ type: 'external', url: 'https://www.reddit.com' + c.permalink })),
+        translateAction(() => node.querySelector(':scope > .c-content > .c-body'), null, 'Translate'),
         modOn && el('button', {
             class: 'action menu-trigger mod-action', title: 'Moderator actions',
             onclick: e => openModMenu(e.currentTarget, c, 't1', commentBadges, depth),
@@ -1535,6 +1611,7 @@ function openModMenu(anchor, thing, kind, badges, depth) {
     const menu = el('div', { id: 'menu' },
         item('✓ Approve', 'approve'),
         item('✖ Remove', 'remove'),
+        el('button', { onclick: () => openRemoveReasonForm(menu, thing, kind, sub, badges) }, '✖ Remove with a reason…'),
         item('🚫 Remove as spam', 'spam'),
         item(thing.locked ? '🔓 Unlock' : '🔒 Lock', thing.locked ? 'unlock' : 'lock'),
         kind === 't3' && item(thing.stickied ? '📌 Unpin' : '📌 Pin to top', thing.stickied ? 'unsticky' : 'sticky'),
@@ -1543,6 +1620,8 @@ function openModMenu(anchor, thing, kind, badges, depth) {
         mine && item(thing.distinguished ? 'Undistinguish' : 'Distinguish as mod', thing.distinguished ? 'undistinguish' : 'distinguish'),
         mine && kind === 't1' && depth === 0 && item('📌 Distinguish and pin', 'sticky_comment'),
         item(thing.ignore_reports ? 'Stop ignoring reports' : 'Ignore future reports', thing.ignore_reports ? 'unignore_reports' : 'ignore_reports'),
+        thing.author && thing.author !== '[deleted]' && !mine &&
+            el('button', { onclick: () => { closeMenu(); showUserHistory(thing.author, sub); } }, `🔎 u/${thing.author}'s history here…`),
         thing.author && thing.author !== '[deleted]' && !mine &&
             el('button', { onclick: () => openBanForm(menu, thing.author, sub) }, `⛔ Ban u/${thing.author}…`));
     document.body.append(menu);
@@ -2052,6 +2131,570 @@ function updateReaderBar() {
     const total = new Set(reader.parts.map(p => p.node)).size;
     const at = new Set(reader.parts.slice(0, reader.index + 1).map(p => p.node)).size;
     reader.bar.querySelector('.reader-label').textContent = `🔊 Reading aloud · ${at} of ${total}`;
+}
+
+// ---- Reminders ---------------------------------------------------------------------------------
+
+/** ⏰ Remind me: Skein asks when, and brings the post back then. */
+function remindButton(d) {
+    const button = el('button', { class: 'action remind-button' });
+    button.paint = () => {
+        const on = (state.settings.reminded || []).includes(d.id);
+        button.textContent = on ? '⏰ Reminder set' : '⏰ Remind me';
+        button.title = on ? 'Change when you\'re reminded about this post' : 'Be reminded about this post later';
+    };
+    button.onclick = async () => {
+        try {
+            state.settings = await call('remind', { id: d.id, title: d.title, sub: d.subreddit, permalink: d.permalink });
+            button.paint();
+        } catch (err) {
+            showToast(err.message);
+        }
+    };
+    button.paint();
+    return button;
+}
+
+// ---- Translation ---------------------------------------------------------------------------------
+
+/** 🌐 Translate (shown only when translation is turned on in Preferences). */
+function translateAction(target, title, label = '🌐 Translate') {
+    const button = el('button', {
+        class: 'action translate-action',
+        title: 'Translate this. The text goes to the translation service chosen in Preferences.',
+    }, label);
+    button.onclick = () => translateInto(target(), title ? title() : '');
+    button.paint = () => { button.hidden = !state.settings.translate; };
+    button.paint();
+    return button;
+}
+
+function languageName(code) {
+    try {
+        return new Intl.DisplayNames([navigator.language || 'en'], { type: 'language' }).of(code) || code;
+    } catch {
+        return code;
+    }
+}
+
+/** Shows a translation under a post or comment body (or hides it, if it's already showing). */
+async function translateInto(body, title) {
+    if (!body) return;
+    const next = body.nextElementSibling;
+    if (next && next.classList.contains('translation')) {
+        next.remove();
+        return;
+    }
+    const text = [title, body.innerText].filter(t => t && t.trim()).join('\n\n').trim();
+    if (!text) {
+        showToast('There\'s no text to translate');
+        return;
+    }
+    const box = el('div', { class: 'translation' }, el('div', { class: 'translation-label' }, '🌐 Translating…'));
+    body.after(box);
+    try {
+        const result = await call('translate', { text });
+        box.replaceChildren(
+            el('div', { class: 'translation-label' },
+                `🌐 Translated${result.from && result.from !== result.to ? ' from ' + languageName(result.from) : ''}`,
+                el('button', { class: 'link', onclick: () => box.remove() }, 'Hide')),
+            el('div', { class: 'translation-text' }, result.text));
+    } catch (err) {
+        box.remove();
+        showToast('Couldn\'t translate: ' + err.message);
+    }
+}
+
+// ---- Polls -------------------------------------------------------------------------------------
+
+/** Time until a moment (ms): "3h", "2d". */
+function until(ms) {
+    const mins = (ms - Date.now()) / 60000;
+    if (mins < 60) return Math.max(1, Math.round(mins)) + 'm';
+    if (mins < 1440) return Math.round(mins / 60) + 'h';
+    return Math.round(mins / 1440) + 'd';
+}
+
+/** A Reddit poll: its options, and the results once Reddit shows them (after you vote, or when it ends). */
+function pollBlock(p, permalink) {
+    if (!p || !Array.isArray(p.options) || !p.options.length) return null;
+    const total = p.total_vote_count || 0;
+    const ended = !!p.voting_end_timestamp && p.voting_end_timestamp < Date.now();
+    const hasCounts = p.options.some(o => o.vote_count != null);
+    const top = hasCounts ? Math.max(...p.options.map(o => o.vote_count || 0)) : 0;
+    return el('div', { class: 'poll' },
+        el('div', { class: 'poll-head' },
+            el('b', null, p.is_prediction ? '🔮 Prediction' : '📊 Poll'),
+            ` · ${count(total)} ${total === 1 ? 'vote' : 'votes'}`,
+            p.voting_end_timestamp ? (ended ? ' · voting ended' : ` · ends in ${until(p.voting_end_timestamp)}`) : ''),
+        p.options.map(o => {
+            const share = hasCounts && total ? (o.vote_count || 0) / total : null;
+            const bar = el('div', { class: 'poll-bar' });
+            if (share != null) bar.style.width = Math.round(share * 100) + '%';
+            return el('div', {
+                class: 'poll-option' + (p.user_selection === o.id ? ' chosen' : '') + (hasCounts && (o.vote_count || 0) === top && top > 0 ? ' leading' : ''),
+            },
+                bar,
+                el('span', { class: 'poll-text' }, o.text, p.user_selection === o.id ? ' ✓' : ''),
+                share != null && el('span', { class: 'poll-share' }, `${Math.round(share * 100)}%`));
+        }),
+        !hasCounts && el('div', { class: 'poll-note muted' },
+            ended ? 'Reddit hasn\'t shared the results. ' : 'Results show once you\'ve voted. ',
+            !ended && el('button', { class: 'link', onclick: () => send({ type: 'external', url: permalink }) }, 'Vote on Reddit')));
+}
+
+// ---- Panel (a larger pop-up over the post) ---------------------------------------------------------
+
+function closePanel() {
+    document.getElementById('panel')?.remove();
+}
+
+function showPanel(title, ...content) {
+    closePanel();
+    const panel = el('div', { id: 'panel', onclick: e => { if (e.target.id === 'panel') closePanel(); } },
+        el('div', { class: 'panel-box' },
+            el('div', { class: 'panel-head' }, el('h2', null, title), el('button', { class: 'panel-close', title: 'Close (Esc)', onclick: () => closePanel() }, '✕')),
+            el('div', { class: 'panel-body' }, content)));
+    document.body.append(panel);
+    return panel.querySelector('.panel-body');
+}
+
+// ---- Moderation: removal reasons and user history -------------------------------------------------
+
+const wasRemoved = thing => !!(thing.removed || thing.spam || thing.banned_by ||
+    ['moderator', 'automod_filtered', 'reddit', 'anti_evil_ops'].includes(thing.removed_by_category));
+
+/** Keeps a menu that grew into a form on screen. */
+function fitMenu(menu) {
+    const box = menu.getBoundingClientRect();
+    if (box.bottom > window.innerHeight - 8) menu.style.top = Math.max(8, window.innerHeight - box.height - 8) + 'px';
+    if (box.right > window.innerWidth - 8) menu.style.left = Math.max(8, window.innerWidth - box.width - 8) + 'px';
+}
+
+/** Remove with a reason: the community's removal reasons, a message to the author, and how to send it. */
+async function openRemoveReasonForm(menu, thing, kind, sub, badges) {
+    const heading = el('div', { class: 'menu-title' }, `Remove with a reason · r/${sub}`);
+    menu.classList.add('form', 'wide');
+    menu.replaceChildren(heading, spinner());
+    let reasons = [];
+    try {
+        const raw = await call('removalReasons', { sub });
+        const data = (raw && raw.data) || {};
+        reasons = ((raw && raw.order) || Object.keys(data)).map(id => data[id] && { id, ...data[id] }).filter(Boolean);
+    } catch {
+        // None set up (or they couldn't be loaded): write your own.
+    }
+    if (!menu.isConnected) return;
+    const what = kind === 't3' ? 'post' : 'comment';
+    const fill = text => (text || '')
+        .replace(/\{author\}/gi, thing.author || '')
+        .replace(/\{subreddit\}/gi, sub)
+        .replace(/\{kind\}/gi, what)
+        .replace(/\{title\}/gi, thing.title || thing.link_title || '')
+        .replace(/\{url\}/gi, 'https://www.reddit.com' + (thing.permalink || ''));
+    const picker = el('select', null,
+        el('option', { value: '' }, reasons.length ? 'Choose a removal reason…' : 'This community has no removal reasons; write your own'),
+        reasons.map(r => el('option', { value: r.id }, r.title)));
+    const message = el('textarea', { rows: '6', placeholder: `Message to u/${thing.author} (optional)`, spellcheck: 'true' });
+    picker.onchange = () => {
+        const reason = reasons.find(r => r.id === picker.value);
+        if (reason) message.value = fill(reason.message);
+    };
+    const how = el('select', null, [
+        ['public', 'Tell them in a reply (from you)'],
+        ['public_as_subreddit', 'Tell them in a reply (from the mod team)'],
+        ['private', 'Tell them in a private message'],
+        ['', 'Don\'t tell them'],
+    ].map(([value, label]) => el('option', { value }, label)));
+    const note = el('input', { type: 'text', maxlength: '100', placeholder: 'Note for other mods (optional)' });
+    const status = el('div', { class: 'reply-status' });
+    const go = el('button', { class: 'danger' }, `Remove ${what}`);
+    go.onclick = async () => {
+        go.disabled = true;
+        status.textContent = 'Removing…';
+        try {
+            await call('removeWithReason', {
+                id: thing.name, sub, reasonId: picker.value, note: note.value.trim(), how: how.value,
+                title: `Your ${what} in r/${sub} was removed`, message: message.value.trim(),
+            });
+            thing.__removed = true;
+            thing.__approved = false;
+            if (badges) badges.refresh();
+            closeMenu();
+            showToast(how.value && message.value.trim() ? 'Removed, and they were told why' : 'Removed');
+        } catch (err) {
+            status.textContent = err.message;
+            go.disabled = false;
+        }
+    };
+    menu.replaceChildren(heading, picker, message, how, note,
+        el('div', { class: 'reply-actions' }, go, el('button', { onclick: () => closeMenu() }, 'Cancel')), status);
+    fitMenu(menu);
+    picker.focus();
+}
+
+/** What a moderator wants to know about someone, in their community. */
+async function showUserHistory(name, sub) {
+    const body = showPanel(`u/${name} in r/${sub}`, spinner());
+    let h;
+    try {
+        h = await call('userHistory', { name, sub });
+    } catch (err) {
+        body.replaceChildren(el('div', { class: 'error' }, err.message));
+        return;
+    }
+    const about = (h.about && h.about.data) || {};
+    const items = (h.items || []).map(i => ({ kind: i.kind, ...i.data }));
+    const posts = items.filter(i => i.kind === 't3');
+    const comments = items.filter(i => i.kind === 't1');
+    const removed = items.filter(wasRemoved);
+    const bans = (h.banned && h.banned.data && h.banned.data.children) || [];
+    const notes = (h.notes && h.notes.mod_notes) || [];
+    const suspended = about.is_suspended || !about.created_utc;
+    const stat = (value, label, warn) => el('div', { class: 'stat' + (warn ? ' warn' : '') }, el('b', null, value), el('span', { class: 'muted' }, label));
+
+    body.replaceChildren(
+        el('div', { class: 'stats' },
+            suspended ? stat('Suspended', 'account') : stat(age(about.created_utc), 'on Reddit', (Date.now() / 1000 - about.created_utc) < 30 * 86400),
+            !suspended && stat(count(about.total_karma ?? ((about.link_karma || 0) + (about.comment_karma || 0))), 'karma', (about.total_karma ?? 0) < 10),
+            stat(String(posts.length), posts.length === 1 ? 'post here' : 'posts here'),
+            stat(String(comments.length), comments.length === 1 ? 'comment here' : 'comments here'),
+            stat(String(removed.length), 'removed', removed.length > 0)),
+        el('p', { class: 'muted small' }, `From their newest ${h.items ? 'activity (up to 200 posts and comments across Reddit)' : 'activity'}.`),
+        bans.length
+            ? el('div', { class: 'note warn' }, el('b', null, '⛔ Banned here'),
+                bans[0].note ? ` · ${bans[0].note}` : '', bans[0].days_left ? ` · ${bans[0].days_left} days left` : ' · permanent')
+            : null,
+        notes.length ? el('section', null, el('h3', null, `Mod notes (${notes.length})`),
+            el('ul', { class: 'mod-notes' }, notes.slice(0, 10).map(n => {
+                const text = (n.user_note_data && n.user_note_data.note) ||
+                    (n.mod_action_data && [n.mod_action_data.action, n.mod_action_data.details].filter(Boolean).join(': ')) || n.type;
+                return el('li', null,
+                    n.user_note_data && n.user_note_data.label ? el('span', { class: 'tag' }, n.user_note_data.label.replace(/_/g, ' ').toLowerCase()) : null,
+                    ' ', text, el('span', { class: 'muted' }, ` · u/${n.operator} · ${age(n.created_at)} ago`));
+            }))) : null,
+        el('section', null, el('h3', null, items.length ? 'Recent here' : 'Nothing recent here'),
+            el('ul', { class: 'history' }, items.slice(0, 25).map(i => el('li', { class: wasRemoved(i) ? 'removed' : '' },
+                el('span', { class: 'kind' }, i.kind === 't3' ? '📝' : '💬'),
+                el('a', { class: 'plain', href: i.permalink }, i.kind === 't3' ? i.title : (i.body || '').slice(0, 160) || '(no text)'),
+                el('span', { class: 'muted' }, ` · ${count(i.score || 0)} points · ${age(i.created_utc)}`),
+                wasRemoved(i) && el('span', { class: 'badge removed' }, 'REMOVED'))))),
+        el('div', { class: 'actions' },
+            action(`👤 Open u/${name}'s profile`, () => { closePanel(); send({ type: 'open', url: 'https://www.reddit.com/user/' + name }); }),
+            action('✉ Message them', () => { closePanel(); send({ type: 'compose', to: name }); })));
+}
+
+// ---- Skein's own pages: reminders, your activity, modmail ---------------------------------------------
+
+function renderPage(m) {
+    if (m.settings) state.settings = m.settings;
+    clearView();
+    empty.hidden = true;
+    state.page = m.page;
+    if (m.page === 'later') renderLater();
+    else if (m.page === 'activity') renderActivity();
+    else if (m.page === 'modmail') renderModmail('all');
+}
+
+/** A future time as "Today 19:00", "Tomorrow 09:00", "Sat 09:00" or a date. */
+function whenLabel(seconds) {
+    const at = new Date(seconds * 1000);
+    const today = new Date();
+    const days = Math.round((new Date(at.getFullYear(), at.getMonth(), at.getDate()) - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 86400000);
+    const time = at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    if (days === 0) return `Today ${time}`;
+    if (days === 1) return `Tomorrow ${time}`;
+    if (days > 1 && days < 7) return `${at.toLocaleDateString(undefined, { weekday: 'long' })} ${time}`;
+    return at.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+}
+
+function renderLater() {
+    root.append(el('article', { class: 'post page later' },
+        el('h1', null, '⏰ Reminders and scheduled posts'),
+        el('div', { id: 'later-list' }, spinner())));
+    call('later').then(paintLater).catch(err => showError(err.message));
+}
+
+function paintLater(data) {
+    const list = document.getElementById('later-list');
+    if (!list || !data) return;
+    const cancel = id => call('laterCancel', { id }).then(paintLater).catch(err => showToast(err.message));
+    list.replaceChildren(
+        el('section', { class: 'community-section' },
+            el('h2', null, `Reminders (${data.reminders.length})`),
+            data.reminders.length
+                ? el('ul', { class: 'later-items' }, data.reminders.map(r => el('li', null,
+                    el('div', { class: 'later-main' },
+                        el('a', { class: 'plain later-title', href: r.permalink }, r.title || 'A post'),
+                        el('div', { class: 'muted' }, r.sub ? `r/${r.sub} · ` : '', '⏰ ', whenLabel(r.due))),
+                    el('div', { class: 'later-actions' },
+                        action('Open', () => send({ type: 'open', url: r.permalink })),
+                        action('Cancel', () => cancel(r.id))))))
+                : el('p', { class: 'muted' }, 'No reminders. Use ⏰ Remind me on a post (or right-click it in the list) to be reminded about it later.')),
+        el('section', { class: 'community-section' },
+            el('h2', null, `Scheduled posts (${data.scheduled.length})`),
+            data.scheduled.length
+                ? el('ul', { class: 'later-items' }, data.scheduled.map(p => el('li', { class: p.error ? 'failed' : '' },
+                    el('div', { class: 'later-main' },
+                        el('div', { class: 'later-title' }, (p.isLink ? '🔗 ' : '📝 ') + p.title),
+                        el('div', { class: 'muted' }, `r/${p.sub} · 🕒 `, whenLabel(p.due), p.user ? ` · as u/${p.user}` : ''),
+                        p.otherAccount && el('div', { class: 'muted' }, `Waiting for you to switch to u/${p.user}.`),
+                        p.error && el('div', { class: 'error-text' }, `Didn't go out: ${p.error}`)),
+                    el('div', { class: 'later-actions' },
+                        !p.otherAccount && action(p.error ? 'Try again' : 'Post now', () => {
+                            send({ type: 'laterPostNow', id: p.id });
+                            showToast('Posting…');
+                        }),
+                        action('Cancel', () => cancel(p.id))))))
+                : el('p', { class: 'muted' }, 'Nothing scheduled. In New post, use 🕒 Post later… to pick a time. Skein posts it then, as long as it\'s running (the tray counts).')));
+}
+
+// ---- Your activity -----------------------------------------------------------------------------------
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function svg(tag, attrs, ...children) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [key, value] of Object.entries(attrs || {})) node.setAttribute(key, value);
+    for (const child of children.flat()) if (child) node.append(child);
+    return node;
+}
+
+/** A simple line chart of [{day, karma}] (at least two points). */
+function karmaChart(points) {
+    const width = 640, height = 160, pad = 28;
+    const values = points.map(p => p.karma);
+    const min = Math.min(...values), max = Math.max(...values);
+    const span = Math.max(1, max - min);
+    const x = i => pad + (i * (width - pad * 2)) / Math.max(1, points.length - 1);
+    const y = v => height - pad - ((v - min) * (height - pad * 2)) / span;
+    const line = points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.karma).toFixed(1)}`).join(' ');
+    const area = `${line} L${x(points.length - 1).toFixed(1)},${height - pad} L${x(0).toFixed(1)},${height - pad} Z`;
+    return svg('svg', { viewBox: `0 0 ${width} ${height}`, class: 'chart', role: 'img', 'aria-label': 'Karma over time' },
+        svg('path', { d: area, class: 'chart-area' }),
+        svg('path', { d: line, class: 'chart-line' }),
+        svg('text', { x: pad, y: 14, class: 'chart-label' }, count(max)),
+        svg('text', { x: pad, y: height - 8, class: 'chart-label' }, points[0].day),
+        svg('text', { x: width - pad, y: height - 8, class: 'chart-label end' }, points[points.length - 1].day));
+}
+
+/** Labelled horizontal bars: [{label, value, detail}]. */
+function barList(rows) {
+    const top = Math.max(1, ...rows.map(r => r.value));
+    return el('div', { class: 'bars' }, rows.map(r => {
+        const bar = el('div', { class: 'bar' });
+        bar.style.width = Math.max(2, Math.round((r.value / top) * 100)) + '%';
+        return el('div', { class: 'bar-row' },
+            el('div', { class: 'bar-label' }, r.label),
+            el('div', { class: 'bar-track' }, bar),
+            el('div', { class: 'bar-value' }, r.detail ?? count(r.value)));
+    }));
+}
+
+/** Vertical bars for a series (months, hours): [{label, value}]. */
+function columnChart(columns, title) {
+    const top = Math.max(1, ...columns.map(c => c.value));
+    return el('div', { class: 'columns', 'aria-label': title }, columns.map(c => {
+        const bar = el('div', { class: 'column-bar', title: `${c.label}: ${c.value}` });
+        bar.style.height = Math.round((c.value / top) * 100) + '%';
+        return el('div', { class: 'column' }, el('div', { class: 'column-track' }, bar), el('div', { class: 'column-label' }, c.short ?? c.label));
+    }));
+}
+
+async function renderActivity() {
+    const page = el('article', { class: 'post page activity' }, el('h1', null, '📊 Your activity'), spinner());
+    root.append(page);
+    let result;
+    try {
+        result = await call('activity');
+    } catch (err) {
+        page.replaceChildren(el('h1', null, '📊 Your activity'), el('div', { class: 'error' }, err.message));
+        return;
+    }
+    if (state.page !== 'activity') return;
+    const me = (result.data.about && result.data.about.data) || {};
+    const items = result.data.items || [];
+    const posts = items.filter(i => i.kind === 't3');
+    const comments = items.filter(i => i.kind === 't1');
+    const section = (title, ...content) => el('section', { class: 'community-section' }, el('h2', null, title), ...content);
+
+    // Activity by month, the last twelve.
+    const now = new Date();
+    const months = [];
+    for (let back = 11; back >= 0; back--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - back, 1);
+        months.push({ key: `${d.getFullYear()}-${d.getMonth()}`, label: d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }), short: d.toLocaleDateString(undefined, { month: 'narrow' }), value: 0 });
+    }
+    for (const i of items) {
+        const d = new Date(i.created * 1000);
+        const month = months.find(m => m.key === `${d.getFullYear()}-${d.getMonth()}`);
+        if (month) month.value++;
+    }
+    const hours = Array.from({ length: 24 }, (_, h) => ({ label: `${h}:00`, short: h % 6 === 0 ? String(h) : '', value: 0 }));
+    for (const i of items) hours[new Date(i.created * 1000).getHours()].value++;
+
+    // Where: karma per community from Reddit when it shares it, else what's in your recent activity.
+    const karma = (result.data.karma && result.data.karma.data) || [];
+    const where = karma.length
+        ? karma.map(k => ({ label: 'r/' + k.sr, value: (k.link_karma || 0) + (k.comment_karma || 0) }))
+            .sort((a, b) => b.value - a.value).slice(0, 10).map(r => ({ ...r, detail: count(r.value) + ' karma' }))
+        : Object.entries(items.reduce((acc, i) => ((acc[i.sub] = (acc[i.sub] || 0) + 1), acc), {}))
+            .map(([sub, n]) => ({ label: 'r/' + sub, value: n, detail: `${n} ${n === 1 ? 'item' : 'items'}` }))
+            .sort((a, b) => b.value - a.value).slice(0, 10);
+
+    const best = (list, n) => [...list].sort((a, b) => b.score - a.score).slice(0, n);
+    const itemRow = i => el('li', null,
+        el('a', { class: 'plain', href: i.permalink }, i.kind === 't3' ? i.title : i.body || '(no text)'),
+        el('div', { class: 'muted' }, `${count(i.score)} points · r/${i.sub} · ${age(i.created)} ago`,
+            i.kind === 't3' ? ` · ${count(i.comments)} comments` : i.link ? ` · on “${i.link}”` : ''));
+
+    const history = result.history || [];
+    page.replaceChildren(
+        el('h1', null, '📊 Your activity'),
+        el('div', { class: 'stats' },
+            el('div', { class: 'stat' }, el('b', null, count(me.total_karma ?? 0)), el('span', { class: 'muted' }, 'karma')),
+            el('div', { class: 'stat' }, el('b', null, count(me.link_karma ?? 0)), el('span', { class: 'muted' }, 'from posts')),
+            el('div', { class: 'stat' }, el('b', null, count(me.comment_karma ?? 0)), el('span', { class: 'muted' }, 'from comments')),
+            me.created_utc && el('div', { class: 'stat' }, el('b', null, age(me.created_utc)), el('span', { class: 'muted' }, 'on Reddit'))),
+        section('Karma over time',
+            history.length >= 2
+                ? karmaChart(history)
+                : el('p', { class: 'muted' }, 'Reddit doesn\'t keep a history of your karma, so Skein notes it each day it runs. The chart fills in from today.')),
+        section('Your posts and comments, month by month', columnChart(months, 'Posts and comments by month'),
+            el('p', { class: 'muted small' }, `Counted from your newest ${items.length}: ${posts.length} posts and ${comments.length} comments.`)),
+        section('When you post (your time)', columnChart(hours, 'Posts and comments by hour')),
+        where.length ? section(karma.length ? 'Where your karma comes from' : 'Where you\'re active', barList(where)) : null,
+        posts.length ? section('Your best posts lately', el('ul', { class: 'best' }, best(posts, 5).map(itemRow))) : null,
+        comments.length ? section('Your best comments lately', el('ul', { class: 'best' }, best(comments, 5).map(itemRow))) : null);
+}
+
+// ---- Modmail ---------------------------------------------------------------------------------------
+
+const MODMAIL_FOLDERS = [['all', 'All'], ['new', 'New'], ['inprogress', 'In progress'], ['mod', 'Mod discussions'], ['archived', 'Archived']];
+
+const isoSeconds = iso => (iso ? Date.parse(iso) / 1000 : 0);
+
+async function renderModmail(folder) {
+    clearView();
+    empty.hidden = true;
+    state.page = 'modmail';
+    const list = el('div', { class: 'modmail-list' }, spinner());
+    root.append(el('article', { class: 'post page modmail' },
+        el('h1', null, '✉ Modmail'),
+        el('div', { class: 'folder-tabs' }, MODMAIL_FOLDERS.map(([value, label]) =>
+            el('button', { class: 'action' + (value === folder ? ' on' : ''), onclick: () => renderModmail(value) }, label))),
+        list));
+    let data;
+    try {
+        data = await call('modmailList', { state: folder });
+    } catch (err) {
+        list.replaceChildren(el('div', { class: 'error' }, `Couldn't load modmail: ${err.message}`));
+        return;
+    }
+    if (state.page !== 'modmail') return;
+    const conversations = (data.conversationIds || []).map(id => data.conversations[id]).filter(Boolean);
+    if (!conversations.length) {
+        list.replaceChildren(el('p', { class: 'muted' }, 'Nothing here.'));
+        return;
+    }
+    list.replaceChildren(...conversations.map(c => {
+        const lastId = [...(c.objIds || [])].reverse().find(o => o.key === 'messages');
+        const last = lastId && data.messages && data.messages[lastId.id];
+        const who = (c.participant && c.participant.name) || (c.authors && c.authors[0] && c.authors[0].name) || '';
+        return el('button', { class: 'modmail-row' + (c.lastUnread ? ' unread' : ''), onclick: () => openModmail(c.id, folder) },
+            el('div', { class: 'modmail-top' },
+                el('span', { class: 'modmail-sub' }, c.owner && c.owner.displayName ? 'r/' + c.owner.displayName : ''),
+                c.isInternal ? el('span', { class: 'tag' }, 'MOD DISCUSSION') : null,
+                c.isHighlighted ? el('span', { class: 'tag pin' }, 'HIGHLIGHTED') : null,
+                el('span', { class: 'muted modmail-when' }, age(isoSeconds(c.lastUpdated)))),
+            el('div', { class: 'modmail-subject' }, c.subject || '(no subject)'),
+            el('div', { class: 'muted modmail-preview' },
+                who ? `u/${who} · ` : '', `${c.numMessages || 0} ${c.numMessages === 1 ? 'message' : 'messages'}`,
+                last && last.bodyMarkdown ? ` · ${last.bodyMarkdown.replace(/\s+/g, ' ').slice(0, 140)}` : ''));
+    }));
+}
+
+async function openModmail(id, folder) {
+    clearView();
+    empty.hidden = true;
+    state.page = 'modmail';
+    root.append(spinner());
+    let data;
+    try {
+        data = await call('modmailConversation', { id });
+    } catch (err) {
+        showError(`Couldn't open that conversation: ${err.message}`);
+        return;
+    }
+    paintModmail(data, folder);
+}
+
+function paintModmail(data, folder) {
+    clearView();
+    empty.hidden = true;
+    state.page = 'modmail';
+    const c = data.conversation || {};
+    const sub = c.owner && c.owner.displayName;
+    const messages = (c.objIds || []).filter(o => o.key === 'messages').map(o => data.messages && data.messages[o.id]).filter(Boolean);
+    const list = el('div', { class: 'conversation' });
+    const bubble = m => {
+        const author = m.author || {};
+        const mine = sameUser(author.name, state.settings.me);
+        return el('div', { class: 'bubble' + (mine ? ' mine' : '') + (m.isInternal ? ' internal' : '') },
+            el('div', { class: 'meta' },
+                author.name ? link('u/' + author.name, '/user/' + author.name) : 'Reddit',
+                author.isMod && el('span', { class: 'badge mod' }, 'MOD'),
+                author.isAdmin && el('span', { class: 'badge admin' }, 'ADMIN'),
+                author.isHidden && el('span', { class: 'muted' }, ` · as r/${sub}`),
+                m.isInternal && el('span', { class: 'badge internal' }, 'PRIVATE NOTE'),
+                ' · ', el('span', { title: new Date(m.date).toLocaleString() }, age(isoSeconds(m.date)))),
+            mdNode(m.body || '', 'post-body'));
+    };
+    list.append(...messages.map(bubble));
+
+    const { textarea, preview, editor } = markdownEditor('', 'Write a reply…');
+    const hide = el('input', { type: 'checkbox', checked: !c.isInternal });
+    const internal = el('input', { type: 'checkbox', checked: !!c.isInternal });
+    const status = el('div', { class: 'reply-status' });
+    const sendButton = el('button', { class: 'primary' }, 'Send');
+    sendButton.onclick = async () => {
+        const body = textarea.value.trim();
+        if (!body) return;
+        sendButton.disabled = true;
+        status.textContent = 'Sending…';
+        try {
+            const result = await call('modmailReply', { id: c.id, body, hidden: hide.checked, internal: internal.checked });
+            paintModmail(result.conversation ? result : await call('modmailConversation', { id: c.id }), folder);
+            showToast(internal.checked ? 'Note added' : 'Reply sent');
+        } catch (err) {
+            status.textContent = err.message;
+            sendButton.disabled = false;
+        }
+    };
+    const archived = c.state === 2;
+    const user = data.user || {};
+    root.append(el('article', { class: 'post page modmail' },
+        el('div', { class: 'actions' },
+            action('← Modmail', () => renderModmail(folder || 'all')),
+            action(archived ? '📤 Unarchive' : '📥 Archive', async () => {
+                try {
+                    await call('modmailArchive', { id: c.id, archive: !archived });
+                    showToast(archived ? 'Moved back to the inbox' : 'Archived');
+                    renderModmail(folder || 'all');
+                } catch (err) {
+                    showToast(err.message);
+                }
+            }),
+            user.name && action(`🔎 About u/${user.name}`, () => showUserHistory(user.name, sub)),
+            action('↗ Open on Reddit', () => send({ type: 'external', url: `https://mod.reddit.com/mail/all/${c.id}` }))),
+        el('h1', null, c.subject || 'Modmail'),
+        el('div', { class: 'meta' }, sub ? link('r/' + sub, '/r/' + sub) : '', user.name ? [' · with ', link('u/' + user.name, '/user/' + user.name)] : '',
+            ` · ${messages.length} ${messages.length === 1 ? 'message' : 'messages'}`),
+        list,
+        el('div', { class: 'reply-box open' }, editor, preview,
+            el('label', { class: 'check' }, hide, ` Reply as r/${sub || 'the community'} (hide my name)`),
+            el('label', { class: 'check' }, internal, ' Private note for mods only'),
+            el('div', { class: 'reply-actions' }, sendButton), status)));
+    list.lastElementChild?.scrollIntoView({ block: 'nearest' });
 }
 
 // ---- Community info and wiki ---------------------------------------------------------------
@@ -2638,6 +3281,10 @@ document.addEventListener('keydown', e => {
     }
     if (e.key === 'Escape' && document.getElementById('menu')) {
         closeMenu();
+        return;
+    }
+    if (e.key === 'Escape' && document.getElementById('panel')) {
+        closePanel();
         return;
     }
     if (!e.ctrlKey && e.key === 'N') {

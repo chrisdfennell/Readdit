@@ -57,7 +57,7 @@ public static class SyncEngine
 }
 
 /// <summary>
-/// Keeps folders, alerts, user notes, filters and appearance in step between PCs through a file
+/// Keeps folders, alerts, reminders, saved replies, user notes, filters and appearance in step between PCs through a file
 /// in a synced folder (OneDrive, by default).
 /// </summary>
 public sealed class SettingsSync(AppSettings settings, UserNotes notes, Action? save = null)
@@ -89,6 +89,8 @@ public sealed class SettingsSync(AppSettings settings, UserNotes notes, Action? 
     {
         ["folders"] = JsonSerializer.Serialize(settings.SubscriptionFolders),
         ["searches"] = JsonSerializer.Serialize(settings.SavedSearches),
+        ["reminders"] = JsonSerializer.Serialize(settings.Reminders.OrderBy(r => r.Id, StringComparer.Ordinal)),
+        ["replies"] = JsonSerializer.Serialize(settings.SavedReplies),
         ["watching"] = JsonSerializer.Serialize(new
         {
             threads = settings.WatchedThreads.Select(w => new { w.PostId, w.Title, w.Subreddit }),
@@ -148,6 +150,12 @@ public sealed class SettingsSync(AppSettings settings, UserNotes notes, Action? 
                 break;
             case "searches":
                 settings.SavedSearches = data.Deserialize<List<SavedSearch>>() ?? [];
+                break;
+            case "reminders":
+                settings.Reminders = data.Deserialize<List<Reminder>>() ?? [];
+                break;
+            case "replies":
+                settings.SavedReplies = data.Deserialize<List<SavedReply>>() ?? [];
                 break;
             case "alerts":
                 settings.AlertIntervalMinutes = data["interval"]?.GetValue<int>() ?? settings.AlertIntervalMinutes;

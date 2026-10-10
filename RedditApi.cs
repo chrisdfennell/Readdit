@@ -46,6 +46,9 @@ public sealed partial class RedditApi(RedditSession session)
 
     public string? UserName { get; private set; }
 
+    /// <summary>Your total karma, as of the last identity check.</summary>
+    public long? Karma { get; private set; }
+
     static HttpClient CreateHttp()
     {
         var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
@@ -61,6 +64,9 @@ public sealed partial class RedditApi(RedditSession session)
         using var doc = await GetJsonAsync($"{Base}/api/me.json", default);
         var data = doc.RootElement.TryGetProperty("data", out var d) ? d : default;
         UserName = data.Str("name") is { Length: > 0 } n ? n : null;
+        Karma = UserName == null ? null
+            : data.Long("total_karma") is > 0 and var total ? total
+            : data.Long("link_karma") + data.Long("comment_karma");
         var hadModhash = _modhash != null;
         _modhash = data.Str("modhash") is { Length: > 0 } m ? m : null;
         if (hadModhash != (_modhash != null) || !hadModhash)
@@ -408,6 +414,180 @@ public sealed partial class RedditApi(RedditSession session)
         using var _ = await PostAsync($"/r/{subreddit}/api/friend", form);
     }
 
+    /// <summary>A community's removal reasons, as Reddit's JSON ({"data": {id: {title, message}}, "order": [...]}).</summary>
+    public Task<string> GetRemovalReasonsRawAsync(string subreddit, CancellationToken ct) =>
+        NameChars().IsMatch(subreddit)
+            ? GetModApiAsync($"/api/v1/{subreddit}/removal_reasons", ct)
+            : throw new InvalidOperationException("That isn't a community name.");
+
+    /// <summary>
+    /// Removes a post or comment, records the removal reason (if one is picked) and tells the
+    /// author: "public" (a reply from you), "public_as_subreddit" (a reply from the community),
+    /// "private" (a message), or "" (don't tell them).
+    /// </summary>
+    public async Task RemoveWithReasonAsync(string fullName, string reasonId, string modNote, string messageType, string title, string message)
+    {
+        if (!ThingId().IsMatch(fullName)) throw new InvalidOperationException("That isn't a post or comment.");
+        await ModerateAsync("remove", fullName);
+        if (reasonId.Length > 0 || modNote.Length > 0)
+        {
+            using var _ = await PostJsonAsync("/api/v1/modactions/removal_reasons",
+                JsonSerializer.Serialize(new { item_ids = new[] { fullName }, mod_note = modNote, reason_id = reasonId.Length > 0 ? reasonId : null }));
+        }
+        if (messageType is "public" or "public_as_subreddit" or "private" or "private_exposed" && message.Trim().Length > 0)
+        {
+            var path = fullName.StartsWith("t3_") ? "/api/v1/modactions/removal_link_message" : "/api/v1/modactions/removal_comment_message";
+            using var _ = await PostJsonAsync(path,
+                JsonSerializer.Serialize(new { item_id = new[] { fullName }, message, title = title.Length > 0 ? title : "Your submission was removed", type = messageType }));
+        }
+    }
+
+    // ---- Modmail -----------------------------------------------------------------------------------
+
+    static readonly HashSet<string> ModmailStates = ["all", "new", "inprogress", "mod", "archived", "highlighted", "appeals", "notifications", "join_requests"];
+
+    /// <summary>Modmail conversations in a state ("all", "new", "inprogress", "mod", "archived"…), as Reddit's JSON.</summary>
+    public Task<string> GetModmailRawAsync(string state, CancellationToken ct) =>
+        ModmailStates.Contains(state)
+            ? GetModApiAsync($"/api/mod/conversations?limit=50&sort=recent&state={state}", ct)
+            : throw new InvalidOperationException("Unknown modmail folder.");
+
+    /// <summary>One modmail conversation with its messages (marked read).</summary>
+    public Task<string> GetModmailConversationRawAsync(string id, CancellationToken ct) =>
+        ModmailId().IsMatch(id)
+            ? GetModApiAsync($"/api/mod/conversations/{id}?markRead=true", ct)
+            : throw new InvalidOperationException("That isn't a modmail conversation.");
+
+    /// <summary>Replies to a modmail conversation: as yourself, as the community (hidden), or as a private mod note.</summary>
+    public async Task<string> ReplyModmailAsync(string id, string body, bool hideAuthor, bool isInternal)
+    {
+        if (!ModmailId().IsMatch(id)) throw new InvalidOperationException("That isn't a modmail conversation.");
+        using var doc = await PostAsync($"/api/mod/conversations/{id}", new()
+        {
+            ["body"] = body,
+            ["isAuthorHidden"] = hideAuthor ? "true" : "false",
+            ["isInternal"] = isInternal ? "true" : "false",
+        });
+        return doc.RootElement.GetRawText();
+    }
+
+    public async Task ArchiveModmailAsync(string id, bool archive)
+    {
+        if (!ModmailId().IsMatch(id)) throw new InvalidOperationException("That isn't a modmail conversation.");
+        using var _ = await PostAsync($"/api/mod/conversations/{id}/{(archive ? "archive" : "unarchive")}", []);
+    }
+
+    /// <summary>Unread modmail across your communities (new + in progress + mod discussions…).</summary>
+    public async Task<int> GetModmailUnreadAsync(CancellationToken ct)
+    {
+        using var doc = JsonDocument.Parse(await GetModApiAsync("/api/mod/conversations/unread/count", ct));
+        return doc.RootElement.ValueKind == JsonValueKind.Object
+            ? (int)doc.RootElement.EnumerateObject()
+                .Where(p => p.Name is "new" or "inprogress" or "mod" or "highlighted" or "appeals" or "join_requests")
+                .Sum(p => p.Value.ValueKind == JsonValueKind.Number ? p.Value.GetInt64() : 0)
+            : 0;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex("^[a-z0-9]{1,16}$")]
+    private static partial System.Text.RegularExpressions.Regex ModmailId();
+
+    // ---- User history (for moderators) and your activity ----------------------------------------------
+
+    /// <summary>
+    /// What a moderator wants to know about someone in their community: who they are, their recent
+    /// posts and comments there (removed ones included, as mods see them), whether they're banned,
+    /// and the community's mod notes on them. As one JSON object.
+    /// </summary>
+    public async Task<string> GetUserHistoryRawAsync(string user, string subreddit, CancellationToken ct)
+    {
+        if (!NameChars().IsMatch(user) || !NameChars().IsMatch(subreddit)) throw new InvalidOperationException("Invalid name.");
+        async Task<string> Optional(Func<Task<string>> load)
+        {
+            try
+            {
+                return await load();
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException and not RedditAuthException)
+            {
+                return "null";
+            }
+        }
+        var about = Optional(() => GetBodyAsync($"{Base}/user/{user}/about.json?raw_json=1", ct));
+        var banned = Optional(() => GetBodyAsync($"{Base}/r/{subreddit}/about/banned.json?raw_json=1&user={user}", ct));
+        var notes = Optional(() => GetModApiAsync($"/api/mod/notes?subreddit={subreddit}&user={user}&limit=20", ct));
+        var items = new List<string>();
+        string? after = null;
+        for (var page = 0; page < 2; page++)
+        {
+            var url = $"{Base}/user/{user}/overview.json?limit=100&sort=new&raw_json=1" + (after == null ? "" : $"&after={after}");
+            string body;
+            try
+            {
+                body = await GetBodyAsync(url, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException and not RedditAuthException)
+            {
+                break; // suspended or deleted: no history
+            }
+            using var doc = JsonDocument.Parse(body);
+            var data = doc.RootElement.GetProperty("data");
+            foreach (var child in data.GetProperty("children").EnumerateArray())
+                if (child.GetProperty("data").Str("subreddit").Equals(subreddit, StringComparison.OrdinalIgnoreCase))
+                    items.Add(child.GetRawText());
+            after = data.Str("after");
+            if (string.IsNullOrEmpty(after)) break;
+        }
+        await Task.WhenAll(about, banned, notes);
+        return $$"""{"about":{{about.Result}},"banned":{{banned.Result}},"notes":{{notes.Result}},"items":[{{string.Join(",", items)}}]}""";
+    }
+
+    /// <summary>
+    /// For your activity page: your karma per community and your recent posts and comments
+    /// (up to <paramref name="pages"/> × 100), as one JSON object.
+    /// </summary>
+    public async Task<string> GetActivityRawAsync(string me, int pages, CancellationToken ct)
+    {
+        if (!NameChars().IsMatch(me)) throw new InvalidOperationException("That isn't a username.");
+        string karma;
+        try
+        {
+            karma = await GetModApiAsync("/api/v1/me/karma", ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException and not RedditAuthException)
+        {
+            karma = "null";
+        }
+        var about = await GetBodyAsync($"{Base}/user/{me}/about.json?raw_json=1", ct);
+        var items = new List<string>();
+        string? after = null;
+        for (var page = 0; page < pages; page++)
+        {
+            var url = $"{Base}/user/{me}/overview.json?limit=100&sort=new&raw_json=1" + (after == null ? "" : $"&after={after}");
+            using var doc = JsonDocument.Parse(await GetBodyAsync(url, ct));
+            var data = doc.RootElement.GetProperty("data");
+            foreach (var child in data.GetProperty("children").EnumerateArray())
+            {
+                // Just what the page uses, to keep the message small.
+                var d = child.GetProperty("data");
+                items.Add(JsonSerializer.Serialize(new
+                {
+                    kind = child.Str("kind"),
+                    sub = d.Str("subreddit"),
+                    score = d.Long("score"),
+                    created = (long)d.Double("created_utc"),
+                    title = d.Str("title"),
+                    body = d.Str("body") is { Length: > 200 } b ? b[..200] + "…" : d.Str("body"),
+                    link = d.Str("link_title"),
+                    permalink = d.Str("permalink"),
+                    comments = d.Long("num_comments"),
+                }));
+            }
+            after = data.Str("after");
+            if (string.IsNullOrEmpty(after)) break;
+        }
+        return $$"""{"about":{{about}},"karma":{{karma}},"items":[{{string.Join(",", items)}}]}""";
+    }
+
     [System.Text.RegularExpressions.GeneratedRegex("^t[13]_[a-z0-9]+$")]
     private static partial System.Text.RegularExpressions.Regex ThingId();
 
@@ -631,6 +811,32 @@ public sealed partial class RedditApi(RedditSession session)
         if (result != null) return Checked(result);
 
         throw new InvalidOperationException($"Reddit refused the request ({string.Join("; ", failures)}).");
+    }
+
+    /// <summary>
+    /// Reddit's newer APIs (modmail, removal reasons, mod notes, karma) live on oauth.reddit.com:
+    /// ask there with the session's token, then fall back to www.reddit.com with cookies.
+    /// </summary>
+    async Task<string> GetModApiAsync(string pathAndQuery, CancellationToken ct)
+    {
+        var withRaw = pathAndQuery + (pathAndQuery.Contains('?') ? "&" : "?") + "raw_json=1";
+        if (await session.GetCookieAsync("token_v2") is { } token)
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, "https://oauth.reddit.com" + withRaw);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            try
+            {
+                using var res = await Http.SendAsync(req, ct);
+                var body = await res.Content.ReadAsStringAsync(ct);
+                if (res.IsSuccessStatusCode && LooksLikeJson(body)) return body;
+                ApiLog.Write($"GET {pathAndQuery} oauth route -> HTTP {(int)res.StatusCode}: {ApiLog.Clip(body)}");
+            }
+            catch (HttpRequestException ex)
+            {
+                ApiLog.Write($"GET {pathAndQuery} oauth route failed: {ex.Message}");
+            }
+        }
+        return await GetBodyAsync(Base + withRaw, ct);
     }
 
     /// <summary>

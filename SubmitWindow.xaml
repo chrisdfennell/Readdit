@@ -20,6 +20,8 @@
 
         <DockPanel DockPanel.Dock="Bottom" Margin="0,16,0,0">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button x:Name="LaterButton" Content="🕒 Post later…" MinWidth="90" Margin="0,0,8,0" Click="OnPostLater"
+                        ToolTip="Pick a time and Skein posts it then (text and link posts, while Skein is running)" />
                 <Button x:Name="PostButton" Content="Post" MinWidth="90" Click="OnPost"
                         Style="{DynamicResource AccentButtonStyle}" />
                 <Button Content="Cancel" MinWidth="90" Margin="8,0,0,0" IsCancel="True" />
@@ -103,6 +105,9 @@
                         <DataTemplate DataType="{x:Type local:SubmitMedia}">
                             <DockPanel Margin="0,4">
                                 <Button DockPanel.Dock="Right" Content="✕" Padding="8,2" ToolTip="Remove" Click="OnRemoveMedia" Tag="{Binding}" />
+                                <Button DockPanel.Dock="Right" Content="✎ Crop or blur" Padding="8,2" Margin="0,0,6,0" Click="OnEditMedia" Tag="{Binding}"
+                                        ToolTip="Crop, rotate, or blur faces, plates and names before posting"
+                                        Visibility="{Binding CanEdit, Converter={StaticResource VisConverter}}" />
                                 <Border Width="72" Height="54" CornerRadius="4" ClipToBounds="True" Background="#22808080" Margin="0,0,10,0">
                                     <Grid>
                                         <Image Source="{Binding Preview}" Stretch="UniformToFill" />

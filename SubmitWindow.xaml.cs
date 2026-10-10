@@ -14,6 +14,9 @@ public sealed class SubmitMedia(string path, string caption = "") : ObservableOb
     public string Name => System.IO.Path.GetFileName(path);
     public bool IsVideo => RedditApi.IsVideoFile(path);
 
+    /// <summary>Still pictures can be cropped and blurred (not videos or animated GIFs).</summary>
+    public bool CanEdit => ImageEditWindow.CanEdit(path);
+
     string _caption = caption;
     public string Caption { get => _caption; set => Set(ref _caption, value); }
 
@@ -66,7 +69,8 @@ public partial class SubmitWindow : Window
     readonly Services? _services;
 
     /// <param name="services">For the rich editor (it shares the browser profile and theme); without it, a plain text box.</param>
-    public SubmitWindow(RedditApi api, string subreddit, Services? services = null)
+    /// <param name="share">A link, text or files shared to Skein to start with (the saved draft is left alone then).</param>
+    public SubmitWindow(RedditApi api, string subreddit, Services? services = null, SubmitPrefill? share = null)
     {
         InitializeComponent();
         DataContext = this;
@@ -92,7 +96,9 @@ public partial class SubmitWindow : Window
         };
 
         Subreddit.Text = subreddit;
-        if (_drafts.Load() is { } draft) RestoreDraft(draft);
+        LaterButton.Visibility = services == null ? Visibility.Collapsed : Visibility.Visible;
+        if (share != null) Prefill(share);
+        else if (_drafts.Load() is { } draft) RestoreDraft(draft);
 
         Loaded += async (_, _) =>
         {
@@ -120,7 +126,37 @@ public partial class SubmitWindow : Window
 
     void SaveDraft()
     {
-        if (!_restoring && !_posting) _drafts.Save(CurrentDraft());
+        if (!_restoring && !_posting && !_shared) _drafts.Save(CurrentDraft());
+    }
+
+    /// <summary>Started from something shared: the window keeps away from the saved draft.</summary>
+    bool _shared;
+
+    void Prefill(SubmitPrefill share)
+    {
+        _shared = true;
+        _restoring = true;
+        PostTitle.Text = share.Title;
+        if (share.Files.Count > 0)
+        {
+            MediaKind.IsChecked = true;
+            AddFiles(share.Files);
+        }
+        else if (share.Url.Length > 0)
+        {
+            LinkKind.IsChecked = true;
+            Body.Text = share.Url;
+        }
+        else
+        {
+            Body.Text = share.Text;
+        }
+        _restoring = false;
+    }
+
+    void ClearDraft()
+    {
+        if (!_shared) _drafts.Clear();
     }
 
     void RestoreDraft(PostDraft draft)
@@ -231,6 +267,7 @@ public partial class SubmitWindow : Window
                     placeholder = "Write your post. Markdown or rich text, your choice.",
                     theme = _services!.Settings.Theme.ToLowerInvariant(),
                     accent = _services.Settings.Accent,
+                    settings = EditorSettings(),
                 }, always: true);
                 _richReady = true;
                 UpdateEditors();
@@ -239,8 +276,29 @@ public partial class SubmitWindow : Window
                 // The editor's Markdown is the post's text (drafts and posting read it from here).
                 Body.Text = doc.RootElement.Str("text");
                 break;
+            case "savedReply":
+                {
+                    // The editor's 💬 menu: keep or forget a snippet, then hand back the list.
+                    var m = doc.RootElement;
+                    try
+                    {
+                        SavedReplyBook.Handle(_services!.Settings, m.Str("action"), m.Str("name"), m.Str("text"));
+                        SendToEditor(new { type = "reply", reqId = m.Long("reqId"), ok = true, data = EditorSettings() });
+                    }
+                    catch (Exception ex)
+                    {
+                        SendToEditor(new { type = "reply", reqId = m.Long("reqId"), ok = false, error = ex.Message });
+                    }
+                    break;
+                }
         }
     }
+
+    /// <summary>What the editor page needs of the settings: your saved replies.</summary>
+    object EditorSettings() => new
+    {
+        savedReplies = _services!.Settings.SavedReplies.Select(r => new { name = r.Name, text = r.Text }),
+    };
 
     /// <summary>Sends to the editor page (once it's running, unless <paramref name="always"/>).</summary>
     void SendToEditor(object message, bool always = false)
@@ -376,20 +434,74 @@ public partial class SubmitWindow : Window
 
     // ---- Posting ------------------------------------------------------------------------------
 
+    /// <summary>What's wrong with the post as it stands (null if it's ready to go).</summary>
+    string? Problem(string sub, string title, string kind, string content) =>
+        sub.Length == 0 || title.Length == 0 ? "Community and title are required."
+        : kind == "link" && content.Length == 0 ? "Add the URL to post."
+        : kind == "media" && _media.Count == 0 ? "Add a picture or a video."
+        : _postingInfo is { FlairRequired: true } && ChosenFlair.Id.Length == 0 ? $"r/{sub} needs a post flair. Choose one above."
+        : null;
+
+    /// <summary>Set when the post was scheduled rather than posted.</summary>
+    public ScheduledPost? Scheduled { get; private set; }
+
+    void OnPostLater(object sender, RoutedEventArgs e)
+    {
+        if (_services == null) return;
+        var sub = CommunityName;
+        var title = PostTitle.Text.Trim();
+        var kind = Kind;
+        var content = Body.Text.Trim();
+        if (kind == "media")
+        {
+            ErrorText.Text = "Pictures and videos can't be scheduled. Post them now, or schedule a text or link post.";
+            return;
+        }
+        if (Problem(sub, title, kind, content) is { } problem)
+        {
+            ErrorText.Text = problem;
+            return;
+        }
+        var when = new WhenWindow("Post later", $"When should Skein post this to r/{sub}?", title, LaterTimes.ScheduleChoices) { Owner = this };
+        if (when.ShowDialog() != true) return;
+        var flair = ChosenFlair;
+        Scheduled = new ScheduledPost
+        {
+            Profile = _services.Settings.ActiveProfile,
+            UserName = _api.UserName ?? "",
+            Subreddit = sub,
+            Title = title,
+            IsLink = kind == "link",
+            Body = content,
+            Nsfw = Nsfw.IsChecked == true,
+            Spoiler = Spoiler.IsChecked == true,
+            FlairId = flair.Id,
+            FlairText = flair.Text,
+            Due = new DateTimeOffset(when.When).ToUnixTimeSeconds(),
+        };
+        _services.Settings.ScheduledPosts.Add(Scheduled);
+        _services.Settings.Save();
+        ClearDraft();
+        DialogResult = true;
+    }
+
+    void OnEditMedia(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: SubmitMedia media }) return;
+        var editor = new ImageEditWindow(media.Path) { Owner = this };
+        if (editor.ShowDialog() != true || editor.SavedPath is not { } edited) return;
+        var index = _media.IndexOf(media);
+        if (index >= 0) _media[index] = new SubmitMedia(edited, media.Caption);
+    }
+
     async void OnPost(object sender, RoutedEventArgs e)
     {
-        var sub = Subreddit.Text.Trim().TrimStart('/');
-        if (sub.StartsWith("r/", StringComparison.OrdinalIgnoreCase)) sub = sub[2..];
+        var sub = CommunityName;
         var title = PostTitle.Text.Trim();
         var kind = Kind;
         var content = Body.Text.Trim();
 
-        var problem = sub.Length == 0 || title.Length == 0 ? "Community and title are required."
-            : kind == "link" && content.Length == 0 ? "Add the URL to post."
-            : kind == "media" && _media.Count == 0 ? "Add a picture or a video."
-            : _postingInfo is { FlairRequired: true } && ChosenFlair.Id.Length == 0 ? $"r/{sub} needs a post flair. Choose one above."
-            : null;
-        if (problem != null)
+        if (Problem(sub, title, kind, content) is { } problem)
         {
             ErrorText.Text = problem;
             return;
@@ -405,7 +517,7 @@ public partial class SubmitWindow : Window
             PostUrl = kind == "media"
                 ? await PostMediaAsync(sub, title)
                 : await _api.SubmitAsync(sub, title, kind == "link", content, Nsfw.IsChecked == true, Spoiler.IsChecked == true, ChosenFlair);
-            _drafts.Clear();
+            ClearDraft();
             _posting = false;
             DialogResult = true;
         }

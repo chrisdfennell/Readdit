@@ -22,9 +22,17 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        var services = new Services(LoginWebView);
+        var services = _services = new Services(LoginWebView);
         _vm = new MainViewModel(services, new DetailBridge(DetailWebView, services), new InAppBrowser(BrowserWebView));
         DataContext = _vm;
+        _vm.ReminderNotification += OnReminderNotification;
+        _vm.PopOutRequested += PopOut;
+        TaskbarItemInfo = new System.Windows.Shell.TaskbarItemInfo();
+        Loaded += (_, _) =>
+        {
+            TaskbarExtras.SetJumpList();
+            TaskbarExtras.RefreshSendTo();
+        };
         _vm.FocusSearchRequested += () =>
         {
             SearchBox.Focus();
@@ -259,6 +267,32 @@ public partial class MainWindow : Window
     void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MainViewModel.IsReadingMode)) ApplyReadingMode(_vm.IsReadingMode);
+        // The unread count on the taskbar button.
+        if (e.PropertyName == nameof(MainViewModel.UnreadCount)) TaskbarItemInfo.Overlay = TaskbarExtras.Badge(_vm.UnreadCount);
+    }
+
+    readonly Services _services;
+
+    void OnReminderNotification(string title, string text, string target)
+    {
+        // Reminders are asked for, so they show even while Skein is in front.
+        _tray.Notify(title, text, () =>
+        {
+            BringToFront();
+            _vm.OpenNotificationTarget(target);
+        });
+        FlashTaskbar();
+    }
+
+    /// <summary>Opens a post in its own window and puts the two side by side.</summary>
+    void PopOut(string postId)
+    {
+        var window = new PostWindow(_services, _vm, postId);
+        if (_vm.IsFullscreen) SetFullscreen(false);
+        // Placed before it's shown, so it never appears on another screen first.
+        window.WindowStartupLocation = WindowStartupLocation.Manual;
+        TaskbarExtras.SideBySide(this, window);
+        window.Show();
     }
 
     /// <summary>Reading mode collapses the sidebar and post list so the post fills the window.</summary>

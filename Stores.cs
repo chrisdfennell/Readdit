@@ -590,7 +590,10 @@ public sealed class Services
         Settings = AppSettings.Load();
         Session = new RedditSession(sessionView, Settings.ActiveProfile);
         Api = new RedditApi(Session);
+        Translator = new Translator(Settings);
     }
+
+    public Translator Translator { get; }
 
     public RedditSession Session { get; }
     public RedditApi Api { get; }

@@ -76,6 +76,12 @@ public sealed partial class MainViewModel : ObservableObject
         _detail.ComposeRequested += to => ShowCompose(to);
         _detail.WatchRequested += SetWatching;
         _detail.FollowRequested += SetFollowing;
+        _detail.RemindRequested += (id, title, sub, permalink) => Remind(id, title, sub, permalink);
+        _detail.PopOutRequested += id => PopOutRequested?.Invoke(id);
+        _detail.LaterChanged += () => Status = "Cancelled.";
+        _detail.PostNowRequested += id => _ = PostScheduledAsync(id, now: true);
+        _laterTimer.Tick += async (_, _) => await CheckLaterAsync();
+        _laterTimer.Start();
         _detail.MediaStepHandler = StepToPicturesAsync;
         _detail.FullscreenRequested += on => FullscreenRequested?.Invoke(on);
         _detail.ThreadVisited += postId =>
@@ -149,6 +155,15 @@ public sealed partial class MainViewModel : ObservableObject
         FollowAuthorCommand = new RelayCommand(p =>
         {
             if (p is Post post) SetFollowing(post.Author, !IsFollowing(post.Author));
+        });
+        PopOutCommand = new RelayCommand(p =>
+        {
+            if ((p as Post ?? SelectedPost) is { Kind: ItemKind.Link or ItemKind.Comment, Id.Length: > 0 } post) PopOutRequested?.Invoke(post.Id);
+        });
+        RemindCommand = new RelayCommand(p =>
+        {
+            if ((p as Post ?? SelectedPost) is { Kind: ItemKind.Link or ItemKind.Comment, Id.Length: > 0 } post)
+                Remind(post.Id, post.Title, post.Subreddit, post.PermalinkUrl);
         });
         ShowCommunityCommand = new RelayCommand(p => ShowCommunity((p as FeedViewModel ?? SelectedTab)?.Target), _ => _isReady);
         NewMessageCommand = new RelayCommand(p => ShowCompose(p switch
@@ -327,8 +342,25 @@ public sealed partial class MainViewModel : ObservableObject
         new("✉ Inbox", "inbox"),
         new("📥 Offline library", "offline"),
         new("🔔 Alerts", "alerts"),
+        new("⏰ Reminders", "later"),
         new("👤 My profile", "u/me"),
+        new("📊 My activity", "activity"),
     ];
+
+    /// <summary>Skein's own pages, shown in the post view rather than as a tab.</summary>
+    bool ShowPage(string spec)
+    {
+        if (spec is not ("later" or "activity" or "modmail")) return false;
+        ShowBrowser = false;
+        if (SelectedTab != null) SelectedTab.SelectedPost = null; // the post view shows the page now
+        _detail.ShowPage(spec);
+        if (spec == "modmail" && _modmailUnread > 0)
+        {
+            _modmailUnread = 0; // you're looking at it
+            RefreshSidebar();
+        }
+        return true;
+    }
 
     public ICommand GoCommand { get; }
     public ICommand RefreshCommand { get; }
@@ -361,6 +393,16 @@ public sealed partial class MainViewModel : ObservableObject
     public ICommand ShowCommunityCommand { get; }
     public ICommand WatchPostCommand { get; }
     public ICommand FollowAuthorCommand { get; }
+    public ICommand PopOutCommand { get; }
+    public ICommand RemindCommand { get; }
+
+    /// <summary>Raised to open a post (by id) in a window of its own, side by side with this one.</summary>
+    public event Action<string>? PopOutRequested;
+
+    public void PopOut(string postId) => PopOutRequested?.Invoke(postId);
+
+    /// <summary>Raised when a reminder is due: title, text, and the post's link.</summary>
+    public event Action<string, string, string>? ReminderNotification;
 
     /// <summary>Shows a community's rules, sidebar, moderators and wiki in the post view.</summary>
     void ShowCommunity(string? name)
@@ -429,6 +471,24 @@ public sealed partial class MainViewModel : ObservableObject
     // ---- Moderation -------------------------------------------------------------------------
 
     List<SubredditRef> _moderated = [];
+    int _modmailUnread;
+
+    /// <summary>Unread modmail, shown on the sidebar's Modmail entry (checked with the inbox).</summary>
+    async Task RefreshModmailCountAsync()
+    {
+        if (!HasModeration) return;
+        try
+        {
+            var unread = await _services.Api.GetModmailUnreadAsync(default);
+            if (unread == _modmailUnread) return;
+            _modmailUnread = unread;
+            RefreshSidebar();
+        }
+        catch
+        {
+            // A count is a nicety.
+        }
+    }
 
     public bool HasModeration => _moderated.Count > 0;
 
@@ -437,6 +497,7 @@ public sealed partial class MainViewModel : ObservableObject
         _moderated.Count == 0
             ? []
             : [new SidebarItem("🛡 Mod queue (all)", "mod:mod"),
+               new SidebarItem(_modmailUnread > 0 ? $"✉ Modmail ({_modmailUnread})" : "✉ Modmail", "modmail", IsFeed: true),
                .. _moderated.Where(s => MatchesFilter(s.Name)).Select(s => new SidebarItem("r/" + s.Name, "mod:" + s.Name, s.Icon))];
 
     async Task LoadModeratedAsync()
@@ -703,6 +764,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     void OpenFeed(string spec, bool newTab)
     {
+        if (ShowPage(spec)) return;
         if (spec is "u/me" or "saved" && _services.Api.UserName == null)
         {
             // "u/me" would otherwise open the profile of a real user called "me".
@@ -1412,6 +1474,16 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>Opens Reddit links inside Skein and everything else in the default browser.</summary>
     public void OpenUrl(string url)
     {
+        if (url.StartsWith(AppCommands.FilesPrefix, StringComparison.Ordinal))
+        {
+            if (AppCommands.FilesFrom(url) is { Count: > 0 } files) ShowSubmit(new SubmitPrefill("", "", "", files));
+            return;
+        }
+        if (AppCommands.Parse(url) is { } command)
+        {
+            RunAppCommand(command.Command, command.Args);
+            return;
+        }
         switch (RedditLinks.Classify(url))
         {
             case ThreadLink thread:
@@ -1424,6 +1496,17 @@ public sealed partial class MainViewModel : ObservableObject
             case WebLink web:
                 OpenLink(web.Url);
                 break;
+        }
+    }
+
+    /// <summary>The jump list's and the "Post to Skein" bookmark's commands.</summary>
+    void RunAppCommand(string command, Dictionary<string, string> args)
+    {
+        switch (command)
+        {
+            case "submit": ShowSubmit(AppCommands.PrefillFrom(args)); break;
+            case "home": OpenFeed("home", newTab: false); break;
+            default: OpenFeed(command, newTab: false); break; // inbox, later, activity, modmail
         }
     }
 
@@ -1537,6 +1620,11 @@ public sealed partial class MainViewModel : ObservableObject
         {
             var (name, count) = await _services.Api.RefreshIdentityAsync();
             if (name != null) UserName = name;
+            // A point a day for the activity page's karma chart.
+            if (name != null && _services.Api.Karma is { } karma &&
+                KarmaHistory.Record(Settings.KarmaHistory, name, DateTime.Now, karma))
+                Settings.Save();
+            _ = RefreshModmailCountAsync();
             if (!_inboxPrimed)
             {
                 // First check after launch: remember what's already unread rather than announcing it.
@@ -1676,7 +1764,9 @@ public sealed partial class MainViewModel : ObservableObject
                 post.AuthorTag = _services.UserNotes.Get(post.Author)?.Tag ?? "";
         if (sections.Contains("filters"))
             foreach (var tab in Tabs.Where(t => t != SelectedTab)) tab.MarkStale();
-        if (sections.Contains("notes") || sections.Contains("filters")) _detail.RefreshSettings();
+        if (sections.Contains("notes") || sections.Contains("filters") || sections.Contains("replies") || sections.Contains("reminders"))
+            _detail.RefreshSettings();
+        if (sections.Contains("reminders")) _detail.RefreshLater();
         if (sections.Contains("appearance"))
         {
             ApplyAppearance();
@@ -1747,6 +1837,102 @@ public sealed partial class MainViewModel : ObservableObject
         Status = updates.Count == 1 ? $"{count} new comments in “{thread.Title}”." : $"New comments in {updates.Count} watched threads.";
         foreach (var copy in Tabs.SelectMany(t => t.Posts).Where(p => p.Id == thread.PostId)) copy.NewComments += count;
         AlertNotification?.Invoke(title, text, post);
+    }
+
+    // ---- Reminders and scheduled posts ----------------------------------------------------------
+
+    readonly DispatcherTimer _laterTimer = new() { Interval = TimeSpan.FromSeconds(30) };
+    bool _postingScheduled;
+
+    Window ActiveWindow => Application.Current.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive) ?? Application.Current.MainWindow;
+
+    /// <summary>Asks when, then reminds you about a post at that time (even after a restart).</summary>
+    public void Remind(string postId, string title, string subreddit, string permalink)
+    {
+        if (postId.Length == 0) return;
+        var existing = Settings.Reminders.FirstOrDefault(r => r.PostId == postId);
+        var prompt = existing == null
+            ? "Remind me about this post:"
+            : $"You'll be reminded {LaterTimes.Describe(DateTimeOffset.FromUnixTimeSeconds(existing.Due).LocalDateTime, DateTime.Now)}. Change it to:";
+        var window = new WhenWindow("Remind me", prompt, title, LaterTimes.ReminderChoices) { Owner = ActiveWindow };
+        if (window.ShowDialog() != true) return;
+        Settings.Reminders.RemoveAll(r => r.PostId == postId);
+        Settings.Reminders.Add(new Reminder
+        {
+            PostId = postId,
+            Title = title,
+            Subreddit = subreddit,
+            Permalink = permalink.StartsWith('/') ? "https://www.reddit.com" + permalink : permalink,
+            Due = new DateTimeOffset(window.When).ToUnixTimeSeconds(),
+        });
+        Settings.Save();
+        Status = $"Reminder set for {LaterTimes.Describe(window.When, DateTime.Now)}. See them all under ⏰ Reminders.";
+        _detail.RefreshSettings();
+        _detail.RefreshLater();
+    }
+
+    /// <summary>Every half minute: due reminders pop up, due scheduled posts go out.</summary>
+    async Task CheckLaterAsync()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var due = Settings.Reminders.Where(r => r.Due <= now).OrderBy(r => r.Due).ToList();
+        if (due.Count > 0)
+        {
+            Settings.Reminders.RemoveAll(r => r.Due <= now);
+            Settings.Save();
+            foreach (var reminder in due.Take(3))
+                ReminderNotification?.Invoke("⏰ Reminder" + (reminder.Subreddit.Length > 0 ? $" · r/{reminder.Subreddit}" : ""),
+                    reminder.Title, reminder.Permalink);
+            Status = due.Count == 1 ? $"⏰ Reminder: {due[0].Title}" : $"⏰ {due.Count} reminders are due.";
+            _detail.RefreshSettings();
+            _detail.RefreshLater();
+        }
+        if (!_isReady) return;
+        foreach (var post in Settings.ScheduledPosts.Where(p => p.Due <= now && p.Error == null && p.Profile == Settings.ActiveProfile).ToList())
+            await PostScheduledAsync(post.Id, now: false);
+    }
+
+    /// <summary>Posts a scheduled post (when due, or straight away from the Reminders page).</summary>
+    async Task PostScheduledAsync(string id, bool now)
+    {
+        var post = Settings.ScheduledPosts.FirstOrDefault(p => p.Id == id);
+        if (post == null || _postingScheduled) return;
+        if (post.Profile != Settings.ActiveProfile)
+        {
+            if (now) Status = $"That post is for u/{post.UserName}. Switch to that account and it'll go out.";
+            return;
+        }
+        if (!_isReady) return;
+        _postingScheduled = true;
+        try
+        {
+            Status = $"Posting your scheduled post “{post.Title}”…";
+            var url = await _services.Api.SubmitAsync(post.Subreddit, post.Title, post.IsLink, post.Body, post.Nsfw, post.Spoiler,
+                new FlairChoice(post.FlairId, post.FlairText));
+            Settings.ScheduledPosts.Remove(post);
+            Status = $"Posted “{post.Title}” to r/{post.Subreddit}.";
+            ReminderNotification?.Invoke("✅ Your scheduled post is up", $"r/{post.Subreddit}: {post.Title}",
+                url.Length > 0 ? url : $"https://www.reddit.com/user/{post.UserName}/submitted/");
+        }
+        catch (Exception ex)
+        {
+            post.Error = ex.Message;
+            Status = $"Couldn't post “{post.Title}”: {ex.Message}";
+            ReminderNotification?.Invoke("⚠ Your scheduled post didn't go out", $"{post.Title}: {ex.Message}", "later");
+        }
+        finally
+        {
+            _postingScheduled = false;
+            Settings.Save();
+            _detail.RefreshLater();
+        }
+    }
+
+    /// <summary>A notification was clicked: a link, or "later" for the Reminders page.</summary>
+    public void OpenNotificationTarget(string target)
+    {
+        if (target == "later") OpenFeed("later", newTab: false);
+        else OpenUrl(target);
     }
 
     // ---- Alerts --------------------------------------------------------------------------------
@@ -1836,6 +2022,8 @@ public sealed partial class MainViewModel : ObservableObject
             new PaletteItem("⤢", IsReadingMode ? "Leave reading mode" : "Reading mode", "F", () => IsReadingMode = !IsReadingMode),
             new PaletteItem("▣", "Mini mode", "Ctrl+M", () => MiniModeRequested?.Invoke(true)),
             new PaletteItem("🔊", "Read aloud (or stop)", "Shift+R", () => _detail.ReadAloud()),
+            new PaletteItem("⏰", "Remind me about this post", "Reminders", () => RemindCommand.Execute(null)),
+            new PaletteItem("⧉", "Open this post side by side", "Window", () => PopOutCommand.Execute(null)),
             new PaletteItem("▤", "Layout: Compact", "1", () => LayoutMode = "Compact"),
             new PaletteItem("▦", "Layout: Cards", "2", () => LayoutMode = "Cards"),
             new PaletteItem("▩", "Layout: Grid", "3", () => LayoutMode = "Grid"),
@@ -1846,6 +2034,7 @@ public sealed partial class MainViewModel : ObservableObject
         foreach (var account in Accounts.Where(a => a.Profile != ActiveProfile && a.UserName.Length > 0))
             items.Add(new PaletteItem("👤", $"Switch to u/{account.UserName}", "Account", () => SwitchAccount(account.Profile)));
 
+        if (HasModeration) items.Add(new PaletteItem("✉", "Modmail", "Moderation", () => OpenFeed("modmail", newTab: false)));
         if (HasModeration)
             foreach (var sub in _moderated)
                 items.Add(new PaletteItem("🛡", $"Mod queue: r/{sub.Name}", "Moderation", () => OpenFeed("mod:" + sub.Name, newTab: false)));
@@ -1973,6 +2162,7 @@ public sealed partial class MainViewModel : ObservableObject
         Settings.Save();
         ApplyAppearance();
         _detail.SetDisplay(ReadingFontSize, IsReadingMode);
+        _detail.RefreshSettings(); // translation on or off
         Raise(nameof(ReadingFontSize));
         // Filters changed: reload this tab now, and the others when they're next opened.
         foreach (var tab in Tabs.Where(t => t != SelectedTab)) tab.MarkStale();
@@ -1995,13 +2185,21 @@ public sealed partial class MainViewModel : ObservableObject
         AppearanceChanged?.Invoke();
     }
 
-    void ShowSubmit()
+    /// <param name="share">Something shared to Skein to start the post with (a link, text or files).</param>
+    void ShowSubmit(SubmitPrefill? share = null)
     {
         var defaultSub = SelectedTab?.IsSubreddit == true && !FeedViewModel.IsAggregateName(SelectedTab.Target)
             ? SelectedTab.Target
             : "";
-        var window = new SubmitWindow(_services.Api, defaultSub, _services) { Owner = Application.Current.MainWindow };
+        var window = new SubmitWindow(_services.Api, defaultSub, _services, share) { Owner = Application.Current.MainWindow };
         if (window.ShowDialog() != true) return;
+        if (window.Scheduled is { } scheduled)
+        {
+            Status = $"Scheduled for {LaterTimes.Describe(DateTimeOffset.FromUnixTimeSeconds(scheduled.Due).LocalDateTime, DateTime.Now)}. " +
+                     "Skein posts it then, as long as it's running (the tray counts). See ⏰ Reminders.";
+            _detail.RefreshLater();
+            return;
+        }
         if (window.PostUrl is { Length: > 0 } url)
         {
             Status = "Posted!";

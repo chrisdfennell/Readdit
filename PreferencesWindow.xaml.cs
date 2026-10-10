@@ -80,6 +80,40 @@ public partial class PreferencesWindow : Window
             : syncStatus;
         // Coming back from Windows' settings: show whether Skein was picked.
         Activated += (_, _) => ShowLinkHandlerStatus();
+
+        TranslateEnabled.IsChecked = settings.TranslateEnabled;
+        var windows = System.Globalization.CultureInfo.CurrentUICulture;
+        TranslateTo.Items.Add(new ComboBoxItem { Content = $"Windows' language ({windows.Parent.EnglishName})", Tag = "" });
+        foreach (var (code, name) in Languages)
+            TranslateTo.Items.Add(new ComboBoxItem { Content = name, Tag = code });
+        TranslateTo.SelectedItem = TranslateTo.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == settings.TranslateTo)
+                                   ?? TranslateTo.Items[0];
+        TranslateServer.Text = settings.TranslateServer;
+        TranslateKey.Text = settings.TranslateKey;
+        SendTo.IsChecked = TaskbarExtras.IsInSendTo;
+    }
+
+    static readonly (string Code, string Name)[] Languages =
+    [
+        ("ar", "Arabic"), ("zh", "Chinese"), ("cs", "Czech"), ("da", "Danish"), ("nl", "Dutch"), ("en", "English"),
+        ("fi", "Finnish"), ("fr", "French"), ("de", "German"), ("el", "Greek"), ("he", "Hebrew"), ("hi", "Hindi"),
+        ("hu", "Hungarian"), ("id", "Indonesian"), ("it", "Italian"), ("ja", "Japanese"), ("ko", "Korean"),
+        ("no", "Norwegian"), ("pl", "Polish"), ("pt", "Portuguese"), ("ro", "Romanian"), ("ru", "Russian"),
+        ("es", "Spanish"), ("sv", "Swedish"), ("th", "Thai"), ("tr", "Turkish"), ("uk", "Ukrainian"), ("vi", "Vietnamese"),
+    ];
+
+    void OnCopyBookmarklet(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Clipboard.SetText(AppCommands.Bookmarklet);
+            ShareStatus.Text = "✓ Copied. In your browser, add a bookmark and paste this as its address (URL). " +
+                               "The first time you click it, the browser asks whether to open Skein.";
+        }
+        catch (Exception ex)
+        {
+            ShareStatus.Text = $"Couldn't copy it: {ex.Message}";
+        }
     }
 
     void OnBrowseSyncFolder(object sender, RoutedEventArgs e)
@@ -239,6 +273,21 @@ public partial class PreferencesWindow : Window
         _settings.KeywordFilters = Lines(Keywords.Text);
         _settings.DomainFilters = Lines(Domains.Text);
         _settings.SubredditFilters = Lines(Subreddits.Text);
+        _settings.TranslateEnabled = TranslateEnabled.IsChecked == true;
+        _settings.TranslateTo = (TranslateTo.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
+        _settings.TranslateServer = TranslateServer.Text.Trim();
+        _settings.TranslateKey = TranslateKey.Text.Trim();
+        if (SendTo.IsChecked != TaskbarExtras.IsInSendTo)
+        {
+            try
+            {
+                TaskbarExtras.SetSendTo(SendTo.IsChecked == true);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Couldn't change the Send to menu: {ex.Message}", "Share to Skein", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
         ApplyAppearanceAndUpdateFields();
         DialogResult = true;
     }

@@ -1,0 +1,38 @@
+<Window x:Class="Skein.ImageEditWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Crop or blur" Width="980" Height="760" MinWidth="560" MinHeight="420"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <DockPanel Margin="16">
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+            <StackPanel Orientation="Horizontal">
+                <RadioButton x:Name="CropTool" Content="✂ Crop" IsChecked="True" Margin="0,0,14,0" Checked="OnToolChanged" />
+                <RadioButton x:Name="BlurTool" Content="▦ Blur" Margin="0,0,14,0" Checked="OnToolChanged" />
+                <RadioButton x:Name="BoxTool" Content="■ Black box" Margin="0,0,20,0" Checked="OnToolChanged" />
+                <Button Content="⟳ Rotate" Click="OnRotate" Margin="0,0,6,0" />
+                <Button x:Name="UndoButton" Content="↶ Undo" Click="OnUndo" Margin="0,0,6,0" IsEnabled="False" />
+                <Button Content="Start over" Click="OnReset" />
+            </StackPanel>
+        </DockPanel>
+        <TextBlock x:Name="Hint" DockPanel.Dock="Top" Opacity="0.7" TextWrapping="Wrap" Margin="0,0,0,10" />
+
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button Content="Use this picture" MinWidth="120" IsDefault="True" Click="OnSave" Style="{DynamicResource AccentButtonStyle}" />
+                <Button Content="Cancel" MinWidth="90" Margin="8,0,0,0" IsCancel="True" />
+            </StackPanel>
+            <TextBlock x:Name="Info" VerticalAlignment="Center" Opacity="0.7" TextWrapping="Wrap"
+                       Text="The edited copy leaves out hidden details such as where the photo was taken. Your original isn't changed." />
+        </DockPanel>
+
+        <Border Background="#22808080" CornerRadius="6" ClipToBounds="True">
+            <Grid x:Name="Surface" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="8" Cursor="Cross" Background="Transparent"
+                  MouseLeftButtonDown="OnMouseDown" MouseMove="OnMouseMove" MouseLeftButtonUp="OnMouseUp">
+                <Image x:Name="Picture" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" />
+                <Canvas IsHitTestVisible="False">
+                    <Rectangle x:Name="Selection" Stroke="White" StrokeThickness="2" StrokeDashArray="4 2" Fill="#33FFFFFF" Visibility="Collapsed" />
+                </Canvas>
+            </Grid>
+        </Border>
+    </DockPanel>
+</Window>
