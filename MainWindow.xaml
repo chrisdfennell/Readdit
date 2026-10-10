@@ -36,7 +36,10 @@
         <Style x:Key="SectionToggle" TargetType="ToggleButton">
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Margin" Value="2,10,2,2" />
-            <Setter Property="Opacity" Value="0.85" />
+            <Setter Property="Opacity" Value="0.8" />
+            <!-- Follow the window's themed text colour. Without this, WPF's built-in control
+                 defaults paint the text black, which vanished on the dark theme. -->
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Window}}" />
             <Setter Property="FocusVisualStyle" Value="{x:Null}" />
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="HorizontalContentAlignment" Value="Left" />
@@ -76,6 +79,7 @@
         <!-- Bare glyph button for vote arrows and tab close boxes. -->
         <Style x:Key="GlyphButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Window}}" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Padding" Value="4,1" />
             <Setter Property="Opacity" Value="0.65" />
