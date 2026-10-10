@@ -67,6 +67,7 @@ You need the [.NET 10 SDK](https://dotnet.microsoft.com/download).
 
 ```powershell
 dotnet run                                # run a development build
+dotnet test tests/Readdit.Tests           # unit tests: parsing, media, links, updates, storage
 ./tests/run-smoke.ps1                     # post view smoke test (needs Edge or Chrome)
 ./build-installer.ps1 -Version 0.4.0      # build the installer and Readdit-Portable.exe into Releases/
 ```
@@ -75,7 +76,7 @@ dotnet run                                # run a development build
 
 Releases are automatic.
 
-- **Every push to `main`** runs [release.yml](.github/workflows/release.yml). It first runs CI ([ci.yml](.github/workflows/ci.yml)): a build with warnings treated as errors and the post view smoke test in headless Edge. If CI passes and the push changed the app, it builds the installer and portable exe and publishes the next patch release (0.4.0 → 0.4.1 → …).
+- **Every push to `main`** runs [release.yml](.github/workflows/release.yml). It first runs CI ([ci.yml](.github/workflows/ci.yml)): a build with warnings treated as errors, the unit tests, and the post view smoke test in headless Edge. If CI passes and the push changed the app, it builds the installer and portable exe and publishes the next patch release (0.4.0 → 0.4.1 → …).
   - Pushes that only change docs, tests, workflows or tooling are tested but not released.
   - To skip releasing a push, put `[skip release]` in any of its commit messages. It's still tested.
 - **Pull requests** run CI and package a test installer and portable exe. Download them from the run's **Artifacts**.

@@ -159,6 +159,45 @@ try {
   document.body.setAttribute('data-result', JSON.stringify({ threw: err.message + ' ' + err.stack }));
 }
 
+// Sanitizer: hostile markup in a comment body must come out inert.
+(() => {
+  const out = {};
+  try {
+    const hostile = [
+      '<a href="javascript:alert(1)">js</a>',
+      '<a href="  JaVaScRiPt:alert(1)">mixed case</a>',
+      '<a href="java\tscript:alert(1)">tab inside</a>',
+      '<a href="data:text/html,<script>alert(1)<\/script>">data</a>',
+      '<img src="x" onerror="alert(1)">',
+      '<img srcset="javascript:alert(1) 1x">',
+      '<svg onload="alert(1)"><circle/></svg>',
+      '<math><mi xlink:href="javascript:alert(1)">m</mi></math>',
+      '<iframe src="https://evil.example"></iframe>',
+      '<object data="evil.swf"></object>',
+      '<embed src="evil.swf">',
+      '<form action="https://evil.example"><button formaction="javascript:alert(1)">b</button></form>',
+      '<details open ontoggle="alert(1)"><summary>s</summary></details>',
+      '<style>body{display:none}</style>',
+      '<p style="background:url(https://tracker.example/pixel)">styled</p>',
+      '<script>alert(1)<\/script>',
+      '<base href="https://evil.example/">',
+      '<meta http-equiv="refresh" content="0;url=https://evil.example">',
+    ].join('');
+    const box = document.createElement('div');
+    box.append(sanitize('<div class="md">' + hostile + '</div>', null));
+    const all = [...box.querySelectorAll('*')];
+    const urlAttrs = all.flatMap(n => [...n.attributes].filter(a => /^(href|src|srcset|action|formaction|xlink:href|data)$/i.test(a.name)));
+    out.eventHandlers = all.flatMap(n => [...n.attributes].map(a => a.name)).filter(n => /^on/i.test(n));
+    out.dangerousTags = all.map(n => n.tagName).filter(t => /^(SCRIPT|IFRAME|OBJECT|EMBED|FORM|BUTTON|SVG|MATH|STYLE|BASE|META)$/i.test(t));
+    out.scriptUrls = urlAttrs.map(a => a.value).filter(v => /^(javascript|data|vbscript):/i.test(v.replace(/[\u0000- ]/g, '')));
+    out.inlineStyles = all.filter(n => n.hasAttribute('style')).length;
+    out.keptText = box.textContent.includes('mixed case') && box.textContent.includes('styled');
+  } catch (err) {
+    out.threw = err.message;
+  }
+  document.body.setAttribute('data-sanitizer', JSON.stringify(out));
+})();
+
 // Middle-click auto-scroll needs a few animation frames, so it reports separately.
 (async () => {
   const out = {};

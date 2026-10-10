@@ -151,7 +151,7 @@ public sealed partial class UpdateService(AppSettings settings)
     }
 
     /// <summary>"1.2.3-beta.1+abc" → (1.2.3, "beta.1").</summary>
-    static (Version Number, string Prerelease) ParseVersion(string text)
+    internal static (Version Number, string Prerelease) ParseVersion(string text)
     {
         var core = text.Trim().TrimStart('v').Split('+')[0];
         var parts = core.Split('-', 2);
@@ -160,7 +160,7 @@ public sealed partial class UpdateService(AppSettings settings)
     }
 
     /// <summary>Newer number, or the same number as a final release when we're on a prerelease of it.</summary>
-    static bool IsNewer(string latest, string current)
+    internal static bool IsNewer(string latest, string current)
     {
         var (l, lPre) = ParseVersion(latest);
         var (c, cPre) = ParseVersion(current);

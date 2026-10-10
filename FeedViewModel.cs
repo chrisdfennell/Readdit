@@ -5,6 +5,53 @@ namespace Readdit;
 
 public enum FeedKind { Home, Subreddit, Search, User, Saved, Inbox, Offline, ModQueue }
 
+/// <summary>
+/// A feed's identity as text, used to save open tabs and in sidebar links: "home", "r/name",
+/// "u/name", "search:scope:query" (empty scope = all of Reddit), "saved", "inbox", "offline",
+/// "mod:name" ("mod:mod" = every community you moderate).
+/// </summary>
+public readonly record struct FeedSpec(FeedKind Kind, string Target = "", string? Scope = null)
+{
+    public static FeedSpec? Parse(string spec)
+    {
+        spec = spec.Trim();
+        if (spec.StartsWith("search:"))
+        {
+            var rest = spec["search:".Length..];
+            var colon = rest.IndexOf(':');
+            if (colon < 0 || colon == rest.Length - 1) return null;
+            var scope = rest[..colon];
+            return new FeedSpec(FeedKind.Search, rest[(colon + 1)..], scope.Length > 0 ? scope : null);
+        }
+        if (spec.StartsWith("mod:", StringComparison.OrdinalIgnoreCase))
+            return spec.Length > 4 ? new FeedSpec(FeedKind.ModQueue, spec[4..]) : null;
+        if (spec.StartsWith("r/", StringComparison.OrdinalIgnoreCase))
+            return spec.Length > 2 ? new FeedSpec(FeedKind.Subreddit, spec[2..]) : null;
+        if (spec.StartsWith("u/", StringComparison.OrdinalIgnoreCase))
+            return spec.Length > 2 ? new FeedSpec(FeedKind.User, spec[2..]) : null;
+        return spec switch
+        {
+            "home" => new FeedSpec(FeedKind.Home),
+            "saved" => new FeedSpec(FeedKind.Saved),
+            "inbox" => new FeedSpec(FeedKind.Inbox),
+            "offline" => new FeedSpec(FeedKind.Offline),
+            _ => null,
+        };
+    }
+
+    public override string ToString() => Kind switch
+    {
+        FeedKind.Home => "home",
+        FeedKind.Subreddit => "r/" + Target,
+        FeedKind.Search => $"search:{Scope}:{Target}",
+        FeedKind.User => "u/" + Target,
+        FeedKind.Saved => "saved",
+        FeedKind.Inbox => "inbox",
+        FeedKind.ModQueue => "mod:" + Target,
+        _ => "offline",
+    };
+}
+
 /// <summary>One tab: a listing (subreddit, search, profile, inbox…) and its loaded posts.</summary>
 public sealed class FeedViewModel : ObservableObject
 {
@@ -42,44 +89,10 @@ public sealed class FeedViewModel : ObservableObject
     public ICommand HeaderActionCommand { get; }
 
     /// <summary>Serialized form used to restore tabs and route sidebar clicks.</summary>
-    public string Spec => Kind switch
-    {
-        FeedKind.Home => "home",
-        FeedKind.Subreddit => "r/" + Target,
-        FeedKind.Search => $"search:{Scope}:{Target}",
-        FeedKind.User => "u/" + Target,
-        FeedKind.Saved => "saved",
-        FeedKind.Inbox => "inbox",
-        FeedKind.ModQueue => "mod:" + Target,
-        _ => "offline",
-    };
+    public string Spec => new FeedSpec(Kind, Target, Scope).ToString();
 
-    public static FeedViewModel? FromSpec(Services services, string spec)
-    {
-        spec = spec.Trim();
-        if (spec.StartsWith("search:"))
-        {
-            var rest = spec["search:".Length..];
-            var colon = rest.IndexOf(':');
-            if (colon < 0) return null;
-            var scope = rest[..colon];
-            return new FeedViewModel(services, FeedKind.Search, rest[(colon + 1)..], scope.Length > 0 ? scope : null);
-        }
-        if (spec.StartsWith("mod:", StringComparison.OrdinalIgnoreCase) && spec.Length > 4)
-            return new FeedViewModel(services, FeedKind.ModQueue, spec[4..]);
-        if (spec.StartsWith("r/", StringComparison.OrdinalIgnoreCase))
-            return new FeedViewModel(services, FeedKind.Subreddit, spec[2..]);
-        if (spec.StartsWith("u/", StringComparison.OrdinalIgnoreCase))
-            return new FeedViewModel(services, FeedKind.User, spec[2..]);
-        return spec switch
-        {
-            "home" => new FeedViewModel(services, FeedKind.Home),
-            "saved" => new FeedViewModel(services, FeedKind.Saved),
-            "inbox" => new FeedViewModel(services, FeedKind.Inbox),
-            "offline" => new FeedViewModel(services, FeedKind.Offline),
-            _ => null,
-        };
-    }
+    public static FeedViewModel? FromSpec(Services services, string spec) =>
+        FeedSpec.Parse(spec) is { } parsed ? new FeedViewModel(services, parsed.Kind, parsed.Target, parsed.Scope) : null;
 
     public string Title => Kind switch
     {

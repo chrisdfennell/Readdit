@@ -796,20 +796,15 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
-        var target = SubredditOrUser().Match(input);
-        if (target.Success)
+        if (RedditLinks.ParseFeedInput(input) is { } feed)
         {
-            var prefix = target.Groups[1].Value.ToLowerInvariant() == "r" ? "r/" : "u/";
-            OpenFeed(prefix + target.Groups[2].Value, newTab: false);
+            OpenFeed(feed, newTab: false);
             return;
         }
 
         var scope = SearchInSubreddit && CanSearchInSubreddit ? SelectedTab!.Target : "";
         OpenFeed($"search:{scope}:{input}", newTab: true);
     }
-
-    [GeneratedRegex(@"^/?(r|u|user)/([A-Za-z0-9_+-]+)/?$", RegexOptions.IgnoreCase)]
-    private static partial Regex SubredditOrUser();
 
     // ---- Votes and saves from the post list ---------------------------------------------------
 
@@ -895,46 +890,20 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>Opens Reddit links inside Readdit and everything else in the default browser.</summary>
     public void OpenUrl(string url)
     {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return;
-        var host = uri.Host.ToLowerInvariant();
-
-        if (host == "redd.it" && uri.AbsolutePath.Trim('/') is { Length: > 0 } shortId)
+        switch (RedditLinks.Classify(url))
         {
-            ShowBrowser = false;
-            _ = _detail.OpenThreadAsync(shortId, null);
-            return;
-        }
-
-        if (host == "reddit.com" || host.EndsWith(".reddit.com"))
-        {
-            var path = uri.AbsolutePath;
-            var thread = RedditThread().Match(path);
-            if (thread.Success)
-            {
+            case ThreadLink thread:
                 ShowBrowser = false;
-                var comment = thread.Groups[2].Success ? thread.Groups[2].Value : null;
-                _ = _detail.OpenThreadAsync(thread.Groups[1].Value, comment);
-                return;
-            }
-            var feed = RedditFeedPath().Match(path);
-            if (feed.Success)
-            {
-                var prefix = feed.Groups[1].Value.ToLowerInvariant() == "r" ? "r/" : "u/";
-                OpenFeed(prefix + feed.Groups[2].Value, newTab: true);
-                return;
-            }
+                _ = _detail.OpenThreadAsync(thread.PostId, thread.CommentId);
+                break;
+            case FeedLink feed:
+                OpenFeed(feed.Spec, newTab: true);
+                break;
+            case WebLink web:
+                OpenLink(web.Url);
+                break;
         }
-
-        OpenLink(url);
     }
-
-    [GeneratedRegex(@"/comments/([a-z0-9]+)(?:/[^/]*/([a-z0-9]+))?", RegexOptions.IgnoreCase)]
-    private static partial Regex RedditThread();
-
-    /// <summary>Subreddit or profile pages, including sorted/sub-pages like /r/x/top or /user/x/submitted.</summary>
-    [GeneratedRegex(@"^/(r|u|user)/([A-Za-z0-9_+-]+)(?:/(?:hot|new|top|rising|controversial|best|submitted|comments|overview|about)/?)?/?$",
-        RegexOptions.IgnoreCase)]
-    private static partial Regex RedditFeedPath();
 
     void OpenExternal(string? url)
     {

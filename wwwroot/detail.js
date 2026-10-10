@@ -189,6 +189,18 @@ const BLOCKED_TAGS = new Set([
     'TEXTAREA', 'SELECT', 'LINK', 'META', 'BASE', 'SVG', 'MATH',
 ]);
 
+/** Attributes that hold a URL a browser might load or navigate to. */
+const URL_ATTRIBUTES = new Set(['href', 'src', 'action', 'formaction', 'xlink:href', 'data', 'poster', 'background', 'cite']);
+
+/**
+ * True for javascript:, vbscript: and data: URLs. Browsers ignore tabs, newlines and other
+ * control characters inside a URL (so "java\tscript:" still runs), so strip them before checking.
+ */
+function isScriptUrl(value) {
+    const normalized = value.replace(/[\u0000- \u007f-\u009f]/g, '').toLowerCase();
+    return /^(javascript|vbscript|data):/.test(normalized);
+}
+
 function sanitize(html, mediaMetadata) {
     const tpl = document.createElement('template');
     tpl.innerHTML = html || '';
@@ -200,8 +212,9 @@ function sanitize(html, mediaMetadata) {
             }
             for (const attr of [...child.attributes]) {
                 const name = attr.name.toLowerCase();
-                if (name.startsWith('on') || name === 'style' || name === 'srcdoc') child.removeAttribute(attr.name);
-                else if ((name === 'href' || name === 'src') && /^\s*(javascript|data|vbscript):/i.test(attr.value))
+                if (name.startsWith('on') || name === 'style' || name === 'srcdoc' || name === 'srcset')
+                    child.removeAttribute(attr.name);
+                else if (URL_ATTRIBUTES.has(name) && isScriptUrl(attr.value))
                     child.removeAttribute(attr.name);
             }
             walk(child);

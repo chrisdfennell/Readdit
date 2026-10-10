@@ -24,13 +24,16 @@ static class Paths
     /// Moves data from the old location (shared with the install folder) to <see cref="Local"/>.
     /// Runs at startup before anything opens these files.
     /// </summary>
-    public static void MigrateLocalData()
+    public static void MigrateLocalData() => MigrateLocalData(OldLocal, Local, TimeSpan.FromMilliseconds(500));
+
+    /// <summary>The migration between any two folders (tests use temporary ones).</summary>
+    public static void MigrateLocalData(string oldLocal, string newLocal, TimeSpan retryDelay)
     {
         string[] entries = ["WebView2", "offline", "read.txt", "visits.json", "api.log", "crash.log"];
-        if (!Directory.Exists(OldLocal)) return;
+        if (!Directory.Exists(oldLocal)) return;
         try
         {
-            Directory.CreateDirectory(Local);
+            Directory.CreateDirectory(newLocal);
         }
         catch
         {
@@ -39,8 +42,8 @@ static class Paths
 
         foreach (var name in entries)
         {
-            var from = Path.Combine(OldLocal, name);
-            var to = Path.Combine(Local, name);
+            var from = Path.Combine(oldLocal, name);
+            var to = Path.Combine(newLocal, name);
             if (!Path.Exists(from) || Path.Exists(to)) continue;
 
             // Each entry on its own, so one locked item doesn't strand the rest. Right after an
@@ -56,11 +59,11 @@ static class Paths
                 }
                 catch (IOException) when (attempt < 11)
                 {
-                    Thread.Sleep(500);
+                    Thread.Sleep(retryDelay);
                 }
                 catch (UnauthorizedAccessException) when (attempt < 11)
                 {
-                    Thread.Sleep(500);
+                    Thread.Sleep(retryDelay);
                 }
                 catch
                 {

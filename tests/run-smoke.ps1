@@ -16,21 +16,37 @@ $page = (Resolve-Path (Join-Path $PSScriptRoot 'detail-smoke.html')).Path
 $url = 'file:///' + ($page -replace '\\', '/' -replace '#', '%23')
 $profileDir = Join-Path ([IO.Path]::GetTempPath()) "readdit-smoke-$([guid]::NewGuid().ToString('N'))"
 
-# The browser logs harmless noise to stderr (sync, GPU...). With 'Stop', Windows PowerShell 5.1
-# turns any stderr line from a native program into a terminating error, so relax it here.
-$ErrorActionPreference = 'Continue'
+# Run the browser directly (not through PowerShell's pipeline, which turns its harmless stderr
+# noise into errors) and give up after 90 seconds so a stuck page can't hang CI.
+# (Plain Arguments string and Kill() so this works in Windows PowerShell 5.1 as well as pwsh.)
+$start = New-Object System.Diagnostics.ProcessStartInfo $browser
+$start.Arguments = (@('--headless=new', '--disable-gpu', '--no-first-run', '--disable-sync', '--allow-file-access-from-files',
+                      "--user-data-dir=$profileDir", '--virtual-time-budget=5000', '--dump-dom', $url) |
+                    ForEach-Object { '"' + $_ + '"' }) -join ' '
+$start.UseShellExecute = $false
+$start.RedirectStandardOutput = $true
+$start.RedirectStandardError = $true
 try {
-    $dom = & $browser --headless=new --disable-gpu --no-first-run --disable-sync --allow-file-access-from-files `
-        --user-data-dir="$profileDir" --virtual-time-budget=5000 --dump-dom $url 2>$null | Out-String
+    $process = [System.Diagnostics.Process]::Start($start)
+    $stdout = $process.StandardOutput.ReadToEndAsync()
+    $null = $process.StandardError.ReadToEndAsync()
+    if (-not $process.WaitForExit(90000)) {
+        $process.Kill()
+        Get-CimInstance Win32_Process -Filter "Name='msedge.exe' OR Name='chrome.exe'" |
+            Where-Object { $_.CommandLine -like "*$profileDir*" } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        throw 'The smoke page did not finish within 90 seconds.'
+    }
+    $dom = $stdout.Result
 } finally {
     Remove-Item $profileDir -Recurse -Force -ErrorAction SilentlyContinue
-    $ErrorActionPreference = 'Stop'
 }
 
 if ($dom -notmatch 'data-result="([^"]*)"') { throw "The smoke page produced no result. Output:`n$dom" }
 $result = [Net.WebUtility]::HtmlDecode($Matches[1]) | ConvertFrom-Json
 if ($result.threw) { throw "The smoke page threw: $($result.threw)" }
 $auto = if ($dom -match 'data-autoscroll="([^"]*)"') { [Net.WebUtility]::HtmlDecode($Matches[1]) | ConvertFrom-Json } else { $null }
+$san = if ($dom -match 'data-sanitizer="([^"]*)"') { [Net.WebUtility]::HtmlDecode($Matches[1]) | ConvertFrom-Json } else { $null }
 
 $checks = [ordered]@{
     'no script errors'                    = $result.errors.Count -eq 0
@@ -57,6 +73,11 @@ $checks = [ordered]@{
     'report count and reasons shown'      = $result.mod.postReportBadge -eq '2 REPORTS' -and $result.mod.reportText -match 'Spam' -and $result.mod.reportText -match 'Off topic'
     'mod menu offers the actions'         = ($result.mod.menuItems -join '|') -match 'Approve' -and ($result.mod.menuItems -join '|') -match 'Ban u/alice'
     'approve sends a mod request'         = $result.mod.sent -contains 'approve:t3_abc:csharp'
+    'sanitizer: no event handlers'        = $san -and -not $san.threw -and @($san.eventHandlers).Count -eq 0
+    'sanitizer: no dangerous elements'    = $san -and @($san.dangerousTags).Count -eq 0
+    'sanitizer: no script/data URLs'      = $san -and @($san.scriptUrls).Count -eq 0
+    'sanitizer: no inline styles'         = $san -and $san.inlineStyles -eq 0
+    'sanitizer: keeps the readable text'  = $san -and $san.keptText
     'middle-click on a link still opens'  = $auto -and -not $auto.linkStarts
     'middle-click auto-scroll scrolls'    = $auto -and $auto.started -and $auto.scrolledDown
     'next click stops auto-scroll'        = $auto -and $auto.stoppedByClick

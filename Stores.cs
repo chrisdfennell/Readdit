@@ -8,11 +8,15 @@ namespace Readdit;
 public sealed class ReadTracker
 {
     const int MaxEntries = 20_000;
-    readonly string _file = Path.Combine(Paths.Local, "read.txt");
+    readonly string _file;
     readonly HashSet<string> _ids = [];
 
-    public ReadTracker()
+    public ReadTracker() : this(Path.Combine(Paths.Local, "read.txt")) { }
+
+    /// <summary>Uses <paramref name="file"/> for storage (tests use a temporary one).</summary>
+    public ReadTracker(string file)
     {
+        _file = file;
         try
         {
             if (!File.Exists(_file)) return;
@@ -34,7 +38,7 @@ public sealed class ReadTracker
         if (!_ids.Add(fullName)) return;
         try
         {
-            Directory.CreateDirectory(Paths.Local);
+            Directory.CreateDirectory(Path.GetDirectoryName(_file)!);
             File.AppendAllText(_file, fullName + "\n");
         }
         catch
@@ -50,7 +54,7 @@ public sealed class ReadTracker
 /// </summary>
 public sealed partial class OfflineStore
 {
-    readonly string _dir = Path.Combine(Paths.Local, "offline");
+    readonly string _dir;
     readonly Dictionary<string, Entry> _index;
     readonly Dictionary<string, string> _searchText = [];
 
@@ -60,8 +64,12 @@ public sealed partial class OfflineStore
         public long SavedAt { get; set; }
     }
 
-    public OfflineStore()
+    public OfflineStore() : this(Path.Combine(Paths.Local, "offline")) { }
+
+    /// <summary>Uses <paramref name="dir"/> for storage (tests use a temporary one).</summary>
+    public OfflineStore(string dir)
     {
+        _dir = dir;
         try
         {
             _index = File.Exists(IndexFile)
@@ -293,13 +301,17 @@ public sealed partial class OfflineStore
 public sealed class VisitStore
 {
     const int MaxEntries = 3000;
-    readonly string _file = Path.Combine(Paths.Local, "visits.json");
+    readonly string _file;
     readonly Dictionary<string, Visit> _visits;
 
     public sealed record Visit(long At, long CommentCount);
 
-    public VisitStore()
+    public VisitStore() : this(Path.Combine(Paths.Local, "visits.json")) { }
+
+    /// <summary>Uses <paramref name="file"/> for storage (tests use a temporary one).</summary>
+    public VisitStore(string file)
     {
+        _file = file;
         try
         {
             _visits = File.Exists(_file)
@@ -322,7 +334,7 @@ public sealed class VisitStore
                 _visits.Remove(old.Key);
         try
         {
-            Directory.CreateDirectory(Paths.Local);
+            Directory.CreateDirectory(Path.GetDirectoryName(_file)!);
             File.WriteAllText(_file, JsonSerializer.Serialize(_visits));
         }
         catch

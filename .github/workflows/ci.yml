@@ -32,6 +32,9 @@ jobs:
       - name: Build
         run: dotnet build Readdit.csproj -c Release -p:TreatWarningsAsErrors=true
 
+      - name: Unit tests
+        run: dotnet test tests/Readdit.Tests/Readdit.Tests.csproj -c Release --logger "console;verbosity=normal"
+
       - name: Post view smoke test
         shell: pwsh
         run: ./tests/run-smoke.ps1

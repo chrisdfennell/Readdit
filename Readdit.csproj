@@ -24,6 +24,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The unit tests are their own project under tests/; don't compile them into the app. -->
+    <Compile Remove="tests\**" />
+    <Page Remove="tests\**" />
+    <None Remove="tests\**" />
+    <InternalsVisibleTo Include="Readdit.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Keep WinForms/Drawing out of global scope so WPF type names stay unambiguous. -->
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />
