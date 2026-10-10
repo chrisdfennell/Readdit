@@ -11,7 +11,10 @@ public sealed class TrayIcon : IDisposable
     public event Action? OpenRequested;
     public event Action? InboxRequested;
     public event Action? ExitRequested;
-    public event Action? NotificationClicked;
+
+    // What clicking the most recent notification does (inbox for messages, nothing special for hints).
+    Action? _onNotificationClick;
+    bool _disposed;
 
     public TrayIcon()
     {
@@ -31,15 +34,21 @@ public sealed class TrayIcon : IDisposable
         {
             if (e.Button == Forms.MouseButtons.Left) OpenRequested?.Invoke();
         };
-        _icon.BalloonTipClicked += (_, _) => NotificationClicked?.Invoke();
+        _icon.BalloonTipClicked += (_, _) => _onNotificationClick?.Invoke();
     }
 
     /// <summary>Shows a Windows notification (rendered as a toast on Windows 10/11).</summary>
-    public void Notify(string title, string text) =>
+    public void Notify(string title, string text, Action? onClick = null)
+    {
+        if (_disposed) return;
+        _onNotificationClick = onClick;
         _icon.ShowBalloonTip(6000, title, text.Length > 0 ? text : " ", Forms.ToolTipIcon.None);
+    }
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         _icon.Visible = false;
         _icon.Dispose();
     }

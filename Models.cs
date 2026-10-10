@@ -39,7 +39,16 @@ public sealed partial class Post : ObservableObject
     public bool Over18 { get; init; }
     public bool Spoiler { get; init; }
     public bool Stickied { get; init; }
-    public bool IsUnread { get; init; }
+    bool _isUnread;
+    /// <summary>Unread inbox item; cleared when opened or marked read.</summary>
+    public bool IsUnread
+    {
+        get => _isUnread;
+        set
+        {
+            if (Set(ref _isUnread, value)) Raise(nameof(Tags));
+        }
+    }
     public string? Thumbnail { get; init; }
 
     /// <summary>Card/grid-sized image (≤640px wide) for image-led layouts and hover previews.</summary>

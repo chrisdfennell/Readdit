@@ -49,9 +49,14 @@ public sealed class InAppBrowser(WebView2 view) : ObservableObject
             Raise(nameof(CanGoBack));
             Raise(nameof(CanGoForward));
         };
-        // Keep target=_blank links in this pane instead of spawning bare windows.
         core.NewWindowRequested += (_, e) =>
         {
+            // Script pop-ups (window.open() with no URL yet) and sign-in windows need a real
+            // window that stays linked to this page, so let WebView2 open one.
+            if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http") ||
+                IsSignInHost(uri.Host))
+                return;
+            // Ordinary target=_blank links open in this pane rather than a bare window.
             e.Handled = true;
             core.Navigate(e.Uri);
         };
@@ -70,8 +75,13 @@ public sealed class InAppBrowser(WebView2 view) : ObservableObject
         _pending = null;
         Url = url;
         Title = "Loading…";
-        Core!.Navigate(url);
+        Core!.IsMuted = false;
+        Core.Navigate(url);
     }
+
+    static bool IsSignInHost(string host) =>
+        host is "accounts.google.com" or "appleid.apple.com" or "login.microsoftonline.com" or "login.live.com" ||
+        host.EndsWith(".facebook.com") || host == "github.com";
 
     public void ApplyTheme(string theme) => Appearance.ApplyToWebView(Core, theme);
 
@@ -79,9 +89,14 @@ public sealed class InAppBrowser(WebView2 view) : ObservableObject
     public void GoForward() { if (CanGoForward) Core!.GoForward(); }
     public void Reload() => Core?.Reload();
 
-    /// <summary>Stops media and frees the page when the pane closes.</summary>
+    /// <summary>
+    /// Silences the page when the pane closes. (Navigating to about:blank instead added a blank
+    /// entry to Back history.)
+    /// </summary>
     public void Unload()
     {
-        if (_initialized) Core!.Navigate("about:blank");
+        if (!_initialized) return;
+        Core!.IsMuted = true;
+        _ = Core.ExecuteScriptAsync("document.querySelectorAll('video,audio').forEach(m => m.pause())");
     }
 }

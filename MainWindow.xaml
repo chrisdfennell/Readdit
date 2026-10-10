@@ -383,9 +383,30 @@
         </Grid.RowDefinitions>
 
         <!-- Toolbar -->
-        <DockPanel Margin="10,8" LastChildFill="False"
+        <!-- Right-hand buttons are docked first so they always keep their room; the left-hand
+             controls wrap onto a second row on narrow windows instead of being clipped. -->
+        <DockPanel Margin="10,6"
                    Visibility="{Binding ShowLogin, Converter={StaticResource InvVis}}">
-            <Grid DockPanel.Dock="Left" Width="340">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,2">
+                <Button Content="✏ New post" Margin="6,0,0,0"
+                        Command="{Binding SubmitCommand}" ToolTip="New post (n)" />
+                <Button Content="{Binding InboxLabel}" Margin="6,0,0,0" MinWidth="44"
+                        Command="{Binding OpenFeedCommand}" CommandParameter="inbox" ToolTip="Inbox (i)" />
+                <Button Content="⌨" Margin="6,0,0,0" MinWidth="40"
+                        Command="{Binding ShortcutsCommand}" ToolTip="Keyboard shortcuts (?)" />
+                <Button Content="⚙" Margin="6,0,0,0" MinWidth="40"
+                        Command="{Binding PreferencesCommand}" ToolTip="Preferences and filters" />
+                <Button Content="{Binding UpdateButtonLabel}" Margin="6,0,0,0"
+                        Style="{DynamicResource AccentButtonStyle}"
+                        ToolTip="Restart Readdit now to install the new version (or it installs when you close Readdit)"
+                        Command="{Binding InstallUpdateCommand}"
+                        Visibility="{Binding UpdateReady, Converter={StaticResource Vis}}" />
+                <Button Content="{Binding AccountLabel}" Margin="6,0,0,0"
+                        Click="OnAccountButtonClick" ToolTip="Switch or add accounts" />
+            </StackPanel>
+
+            <WrapPanel VerticalAlignment="Center">
+            <Grid Width="340" Margin="0,2">
                 <TextBox x:Name="SearchBox" VerticalContentAlignment="Center"
                          Text="{Binding SearchInput, UpdateSourceTrigger=PropertyChanged}"
                          ToolTip="Search Reddit, or type r/name, u/name or a reddit link (/ or Ctrl+L)"
@@ -415,51 +436,36 @@
                     </Border>
                 </Popup>
             </Grid>
-            <CheckBox DockPanel.Dock="Left" Margin="10,0,0,0" VerticalAlignment="Center"
+            <CheckBox Margin="10,2,0,2" VerticalAlignment="Center"
                       Content="{Binding SearchScopeLabel}" IsChecked="{Binding SearchInSubreddit}"
                       Visibility="{Binding CanSearchInSubreddit, Converter={StaticResource Vis}}" />
 
-            <ComboBox DockPanel.Dock="Left" Margin="14,0,0,0" MinWidth="120" ToolTip="Sort posts"
+            <ComboBox Margin="14,2,0,2" MinWidth="120" ToolTip="Sort posts"
                       ItemsSource="{Binding SelectedTab.Sorts}" SelectedItem="{Binding SelectedTab.Sort}"
                       Visibility="{Binding SelectedTab.HasSorts, Converter={StaticResource Vis}, FallbackValue=Collapsed}" />
-            <ComboBox DockPanel.Dock="Left" Margin="6,0,0,0" MinWidth="100" ToolTip="Time range"
+            <ComboBox Margin="6,2,0,2" MinWidth="100" ToolTip="Time range"
                       ItemsSource="{Binding SelectedTab.TimeFilters}" SelectedItem="{Binding SelectedTab.TimeFilter}"
                       Visibility="{Binding SelectedTab.UsesTimeFilter, Converter={StaticResource Vis}, FallbackValue=Collapsed}" />
-            <Button DockPanel.Dock="Left" Content="⟳" Margin="6,0,0,0" MinWidth="40"
+            <Button Content="⟳" Margin="6,2,0,2" MinWidth="40"
                     Command="{Binding RefreshCommand}" ToolTip="Refresh (r / F5)" />
-            <Button DockPanel.Dock="Left" Content="{Binding FavoriteLabel}" Margin="6,0,0,0"
+            <Button Content="{Binding FavoriteLabel}" Margin="6,2,0,2"
                     Command="{Binding ToggleFavoriteCommand}"
                     Visibility="{Binding SelectedTab.IsSubreddit, Converter={StaticResource Vis}, FallbackValue=Collapsed}" />
-            <ComboBox DockPanel.Dock="Left" Margin="14,0,0,0" MinWidth="110" ToolTip="Layout (1 / 2 / 3)"
+            <ComboBox Margin="14,2,0,2" MinWidth="110" ToolTip="Layout (1 / 2 / 3)"
                       ItemsSource="{Binding LayoutModes}" SelectedItem="{Binding LayoutMode}" />
-            <Button DockPanel.Dock="Left" Content="{Binding ReadingModeLabel}" Margin="6,0,0,0"
+            <Button Content="{Binding ReadingModeLabel}" Margin="6,2,0,2"
                     Command="{Binding ToggleReadingModeCommand}" ToolTip="Reading mode (f, Esc to exit)" />
-
-            <Button DockPanel.Dock="Right" Content="{Binding AccountLabel}" Margin="6,0,0,0"
-                    Click="OnAccountButtonClick" ToolTip="Switch or add accounts" />
-            <Button DockPanel.Dock="Right" Content="{Binding UpdateButtonLabel}" Margin="6,0,0,0"
-                    Style="{DynamicResource AccentButtonStyle}"
-                    ToolTip="Restart Readdit now to install the new version (or it installs when you close Readdit)"
-                    Command="{Binding InstallUpdateCommand}"
-                    Visibility="{Binding UpdateReady, Converter={StaticResource Vis}}" />
-            <Button DockPanel.Dock="Right" Content="⚙" Margin="6,0,0,0" MinWidth="40"
-                    Command="{Binding PreferencesCommand}" ToolTip="Preferences and filters" />
-            <Button DockPanel.Dock="Right" Content="⌨" Margin="6,0,0,0" MinWidth="40"
-                    Command="{Binding ShortcutsCommand}" ToolTip="Keyboard shortcuts (?)" />
-            <Button DockPanel.Dock="Right" Content="{Binding InboxLabel}" Margin="6,0,0,0" MinWidth="44"
-                    Command="{Binding OpenFeedCommand}" CommandParameter="inbox" ToolTip="Inbox (i)" />
-            <Button DockPanel.Dock="Right" Content="✏ New post" Margin="6,0,0,0"
-                    Command="{Binding SubmitCommand}" ToolTip="New post (n)" />
+            </WrapPanel>
         </DockPanel>
 
         <!-- Main content -->
         <Grid Grid.Row="1" Visibility="{Binding ShowLogin, Converter={StaticResource InvVis}}">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition x:Name="SidebarColumn" Width="230" MinWidth="140" />
+                <ColumnDefinition x:Name="SidebarColumn" Width="230" MinWidth="120" />
                 <ColumnDefinition x:Name="SidebarSplitColumn" Width="Auto" />
-                <ColumnDefinition x:Name="ListColumn" Width="2*" MinWidth="340" />
+                <ColumnDefinition x:Name="ListColumn" Width="2*" MinWidth="280" />
                 <ColumnDefinition x:Name="ListSplitColumn" Width="Auto" />
-                <ColumnDefinition Width="3*" MinWidth="340" />
+                <ColumnDefinition Width="3*" MinWidth="280" />
             </Grid.ColumnDefinitions>
 
             <!-- Sidebar -->
@@ -631,6 +637,9 @@
                    Visibility="{Binding ShowLogin, Converter={StaticResource Vis}}">
             <DockPanel DockPanel.Dock="Top" Margin="16,12">
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                    <Button Content="{Binding BackToAccountLabel}" Margin="0,0,8,0" Command="{Binding BackToAccountCommand}"
+                            ToolTip="Leave this sign-in and go back to the account you were using"
+                            Visibility="{Binding CanGoBackToAccount, Converter={StaticResource Vis}}" />
                     <Button Content="Continue anyway" Margin="0,0,8,0" Command="{Binding ContinueAnywayCommand}"
                             Visibility="{Binding ShowContinueAnyway, Converter={StaticResource Vis}}" />
                     <Button Content="Continue" MinWidth="100" Command="{Binding ContinueCommand}"

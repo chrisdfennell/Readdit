@@ -27,22 +27,46 @@ static class Paths
     public static void MigrateLocalData()
     {
         string[] entries = ["WebView2", "offline", "read.txt", "visits.json", "api.log", "crash.log"];
+        if (!Directory.Exists(OldLocal)) return;
         try
         {
-            if (!Directory.Exists(OldLocal)) return;
             Directory.CreateDirectory(Local);
-            foreach (var name in entries)
-            {
-                var from = Path.Combine(OldLocal, name);
-                var to = Path.Combine(Local, name);
-                if (Path.Exists(to)) continue;
-                if (Directory.Exists(from)) Directory.Move(from, to);
-                else if (File.Exists(from)) File.Move(from, to);
-            }
         }
         catch
         {
-            // Worst case Readdit starts fresh (sign in again); never block startup over it.
+            return;
+        }
+
+        foreach (var name in entries)
+        {
+            var from = Path.Combine(OldLocal, name);
+            var to = Path.Combine(Local, name);
+            if (!Path.Exists(from) || Path.Exists(to)) continue;
+
+            // Each entry on its own, so one locked item doesn't strand the rest. Right after an
+            // update the previous version's browser processes can hold the WebView2 folder for a
+            // few seconds, so retry briefly.
+            for (var attempt = 0; attempt < 12; attempt++)
+            {
+                try
+                {
+                    if (Directory.Exists(from)) Directory.Move(from, to);
+                    else File.Move(from, to);
+                    break;
+                }
+                catch (IOException) when (attempt < 11)
+                {
+                    Thread.Sleep(500);
+                }
+                catch (UnauthorizedAccessException) when (attempt < 11)
+                {
+                    Thread.Sleep(500);
+                }
+                catch
+                {
+                    break; // Give up on this entry; it's retried on the next launch.
+                }
+            }
         }
     }
 }
@@ -120,6 +144,9 @@ public sealed class AppSettings
 
     /// <summary>Browser profile of the active account ("" = the original default profile).</summary>
     public string ActiveProfile { get; set; } = "";
+
+    /// <summary>The profile we last switched away from.</summary>
+    public string PreviousProfile { get; set; } = "";
 
     public List<string> KeywordFilters { get; set; } = [];
     public List<string> DomainFilters { get; set; } = [];

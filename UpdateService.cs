@@ -53,7 +53,11 @@ public sealed partial class UpdateService(AppSettings settings)
     bool? _isInstalled;
 
     // Asking Velopack means locating the install on disk; do it once (WarmUp does it off the UI thread).
-    bool IsInstalled => _isInstalled ??= Manager()?.IsInstalled == true;
+    // Without an update source there's no manager to ask, so fall back to Velopack's layout:
+    // <install>\Update.exe next to <install>\current\Readdit.exe.
+    bool IsInstalled => _isInstalled ??= Manager() is { } manager
+        ? manager.IsInstalled
+        : File.Exists(Path.Combine(Path.GetDirectoryName(Environment.ProcessPath) ?? "", "..", "Update.exe"));
 
     /// <summary>Works out what kind of copy this is in the background, so the UI never waits on it.</summary>
     public Task WarmUpAsync() => Task.Run(() => _ = IsInstalled);
@@ -65,6 +69,7 @@ public sealed partial class UpdateService(AppSettings settings)
         Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "dev";
 
     public bool IsUpdateReady => _readyVersion != null;
+    public bool IsInstalledCopy => _velopackUpdate != null;
     public string? ReadyVersion => _readyVersion;
 
     UpdateManager? Manager()
@@ -83,12 +88,19 @@ public sealed partial class UpdateService(AppSettings settings)
     /// <summary>Forget cached state after the update source changes.</summary>
     public void Reset()
     {
+        // A check still running for the old source must not deliver its result afterwards.
+        Interlocked.Increment(ref _generation);
+        _check = null;
         _manager = null;
         _isInstalled = null;
         _velopackUpdate = null;
         _portableDownload = null;
         _readyVersion = null;
     }
+
+    int _generation;
+
+    bool IsCurrent(int generation) => generation == Volatile.Read(ref _generation);
 
     /// <summary>Checks for an update and downloads it. Returns a message for the user.</summary>
     Task<string>? _check;
@@ -105,12 +117,13 @@ public sealed partial class UpdateService(AppSettings settings)
         // Everything runs on a background thread. Velopack does part of its work (finding the
         // install, checking and verifying downloads of ~80 MB) synchronously, which froze the
         // window for seconds when it ran on the UI thread.
+        var generation = Volatile.Read(ref _generation);
         return _check = Task.Run(async () =>
         {
             try
             {
-                if (IsInstalled) return await CheckInstalledAsync().ConfigureAwait(false);
-                if (IsPortable) return await CheckPortableAsync().ConfigureAwait(false);
+                if (IsInstalled) return await CheckInstalledAsync(generation).ConfigureAwait(false);
+                if (IsPortable) return await CheckPortableAsync(generation).ConfigureAwait(false);
                 return "This is a development build, so it doesn't update itself. " +
                        "Installed and portable copies from GitHub releases do.";
             }
@@ -123,18 +136,42 @@ public sealed partial class UpdateService(AppSettings settings)
 
     string ReadyMessage => $"Version {_readyVersion} is ready and installs when you restart Readdit.";
 
-    async Task<string> CheckInstalledAsync()
+    const string SourceChanged = "The update source changed; check again.";
+
+    async Task<string> CheckInstalledAsync(int generation)
     {
         var manager = Manager()!;
         var update = await manager.CheckForUpdatesAsync();
         if (update == null) return $"You're up to date (version {CurrentVersion}).";
         await manager.DownloadUpdatesAsync(update);
+        if (!IsCurrent(generation)) return SourceChanged;
         _velopackUpdate = update;
         _readyVersion = update.TargetFullRelease.Version.ToString();
         return ReadyMessage;
     }
 
-    async Task<string> CheckPortableAsync()
+    /// <summary>"1.2.3-beta.1+abc" → (1.2.3, "beta.1").</summary>
+    static (Version Number, string Prerelease) ParseVersion(string text)
+    {
+        var core = text.Trim().TrimStart('v').Split('+')[0];
+        var parts = core.Split('-', 2);
+        var number = Version.TryParse(parts[0], out var v) ? new Version(v.Major, v.Minor, Math.Max(0, v.Build)) : new Version(0, 0, 0);
+        return (number, parts.Length > 1 ? parts[1] : "");
+    }
+
+    /// <summary>Newer number, or the same number as a final release when we're on a prerelease of it.</summary>
+    static bool IsNewer(string latest, string current)
+    {
+        var (l, lPre) = ParseVersion(latest);
+        var (c, cPre) = ParseVersion(current);
+        return l > c || (l == c && cPre.Length > 0 && lPre.Length == 0);
+    }
+
+    static string RunningVersion =>
+        Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ??
+        Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "0.0.0";
+
+    async Task<string> CheckPortableAsync(int generation)
     {
         var repo = RepoPath().Match(settings.UpdateUrl.Trim());
         if (!repo.Success) return "The update source must be a GitHub repository URL.";
@@ -144,10 +181,8 @@ public sealed partial class UpdateService(AppSettings settings)
         res.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
         var tag = doc.RootElement.Str("tag_name").TrimStart('v');
-        if (!Version.TryParse(tag.Split('-')[0], out var latest)) return $"Couldn't read the latest release version ({tag}).";
-        var current = Assembly.GetEntryAssembly()?.GetName().Version ?? new Version(0, 0);
-        if (latest <= new Version(current.Major, current.Minor, Math.Max(0, current.Build)))
-            return $"You're up to date (version {CurrentVersion}).";
+        if (!Version.TryParse(tag.Split('-')[0], out _)) return $"Couldn't read the latest release version ({tag}).";
+        if (!IsNewer(tag, RunningVersion)) return $"You're up to date (version {CurrentVersion}).";
 
         var asset = doc.RootElement.GetProperty("assets").EnumerateArray()
             .FirstOrDefault(a => a.Str("name") == PortableAssetName);
@@ -168,6 +203,11 @@ public sealed partial class UpdateService(AppSettings settings)
             return $"Version {tag} is out, but Readdit can't write to its folder. Download it from the releases page.";
         }
 
+        if (!IsCurrent(generation))
+        {
+            File.Delete(target);
+            return SourceChanged;
+        }
         _portableDownload = target;
         _readyVersion = tag;
         return ReadyMessage;
@@ -228,7 +268,11 @@ public sealed partial class UpdateService(AppSettings settings)
     {
         try
         {
-            if (Environment.ProcessPath is { } exe && File.Exists(exe + ".old")) File.Delete(exe + ".old");
+            if (Environment.ProcessPath is not { } exe) return;
+            if (File.Exists(exe + ".old")) File.Delete(exe + ".old");
+            // A download from a previous session that was never applied (~80 MB); a fresh check
+            // fetches it again if it's still the latest.
+            if (File.Exists(exe + ".new")) File.Delete(exe + ".new");
         }
         catch
         {

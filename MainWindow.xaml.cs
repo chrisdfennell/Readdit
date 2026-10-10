@@ -37,7 +37,6 @@ public partial class MainWindow : Window
 
         _tray.OpenRequested += BringToFront;
         _tray.InboxRequested += OpenInbox;
-        _tray.NotificationClicked += OpenInbox;
         _tray.ExitRequested += () =>
         {
             _exiting = true;
@@ -50,23 +49,32 @@ public partial class MainWindow : Window
             Hide();
             if (_vm.TakeTrayHint())
                 _tray.Notify("Readdit is still running",
-                    "It'll let you know about new messages. Right-click the tray icon to exit, or turn this off in Preferences.");
+                    "It'll let you know about new messages. Right-click the tray icon to exit, or turn this off in Preferences.",
+                    BringToFront);
         };
         Closed += (_, _) =>
         {
             _tray.Dispose();
-            _vm.OnExit();
+            // A restart is already starting the next copy; installing an update now would swap
+            // files under it.
+            if (!_restarting) _vm.OnExit();
         };
         _vm.RestartRequested += () =>
         {
-            System.Diagnostics.Process.Start(Environment.ProcessPath!);
+            _restarting = true;
             _exiting = true;
+            // The new copy waits for this one to exit (single-instance mutex) before starting.
+            System.Diagnostics.Process.Start(Environment.ProcessPath!, Program.RestartArgument);
             Application.Current.Shutdown();
         };
+        // Velopack exits the process itself to install an update; don't leave a ghost tray icon.
+        _vm.ExitingForUpdate += () => _tray.Dispose();
         Application.Current.SessionEnding += (_, _) => _exiting = true;
     }
 
-    void BringToFront()
+    bool _restarting;
+
+    public void BringToFront()
     {
         Show();
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
@@ -81,7 +89,7 @@ public partial class MainWindow : Window
 
     void OnInboxNotification(string title, string text)
     {
-        if (!IsVisible || !IsActive) _tray.Notify(title, text);
+        if (!IsVisible || !IsActive) _tray.Notify(title, text, OpenInbox);
         FlashTaskbar();
     }
 
@@ -228,6 +236,9 @@ public partial class MainWindow : Window
                      Keyboard.FocusedElement is ComboBox { IsDropDownOpen: true } ||
                      SuggestionList.IsKeyboardFocusWithin;
         if (typing && key != Key.Escape) return;
+        // Esc in the search box closes its suggestions first (its own handler does that).
+        if (key == Key.Escape && (SearchBox.IsKeyboardFocusWithin || SuggestionList.IsKeyboardFocusWithin) && _vm.ShowSuggestions)
+            return;
 
         var name = KeyName(key, shift);
         if (name != null && _vm.HandleKey(name, ctrl, shift)) e.Handled = true;

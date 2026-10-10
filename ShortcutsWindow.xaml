@@ -12,7 +12,7 @@
                             <ColumnDefinition Width="130" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="{Binding Key}" FontFamily="Consolas" FontWeight="Bold" Foreground="#FF4500" />
+                        <TextBlock Text="{Binding Key}" FontFamily="Consolas" FontWeight="Bold" Foreground="{DynamicResource Accent}" />
                         <TextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap" />
                     </Grid>
                 </DataTemplate>

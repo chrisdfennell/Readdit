@@ -191,10 +191,7 @@ const BLOCKED_TAGS = new Set([
 
 function sanitize(html, mediaMetadata) {
     const tpl = document.createElement('template');
-    // Reddit leaves media markdown like ![gif](giphy|abc123) or ![img](id) as text in body_html;
-    // turn it into a link the media step below understands.
-    tpl.innerHTML = (html || '').replace(/!\[(?:gif|img)\]\(([^)\s]+)\)/gi,
-        (_, key) => `<a href="reddit-media:${encodeURIComponent(key)}">${key}</a>`);
+    tpl.innerHTML = html || '';
     const walk = node => {
         for (const child of [...node.children]) {
             if (BLOCKED_TAGS.has(child.tagName.toUpperCase())) {
@@ -212,9 +209,52 @@ function sanitize(html, mediaMetadata) {
     };
     walk(tpl.content);
 
+    linkMediaMarkdown(tpl.content);
     inlineMedia(tpl.content, mediaMetadata);
     return tpl.content;
 }
+
+/**
+ * Reddit leaves media markdown like ![gif](giphy|abc123) or ![img](id) as plain text in
+ * body_html. Turn those into links the media step understands, but only in ordinary text
+ * (not code, where someone may be explaining the syntax, and not inside existing links).
+ */
+function linkMediaMarkdown(root) {
+    const pattern = /!\[(?:gif|img)\]\(([^)\s]+)\)/gi;
+    const hits = [];
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (n.parentElement && n.parentElement.closest('code, pre, a')) continue;
+        pattern.lastIndex = 0;
+        if (pattern.test(n.nodeValue)) hits.push(n);
+    }
+    for (const node of hits) {
+        const text = node.nodeValue;
+        const parts = document.createDocumentFragment();
+        let last = 0;
+        pattern.lastIndex = 0; // test() above moved it past the match, and matchAll starts from there
+        for (const match of text.matchAll(pattern)) {
+            parts.append(text.slice(last, match.index));
+            const link = document.createElement('a');
+            link.setAttribute('href', 'reddit-media:' + encodeURIComponent(match[1]));
+            link.textContent = match[1];
+            parts.append(link);
+            last = match.index + match[0].length;
+        }
+        parts.append(text.slice(last));
+        node.replaceWith(parts);
+    }
+}
+
+/** Inline GIF videos only play while on screen, so a thread full of them stays light. */
+const gifObserver = 'IntersectionObserver' in window
+    ? new IntersectionObserver(entries => {
+        for (const entry of entries) {
+            if (entry.isIntersecting) entry.target.play().catch(() => {});
+            else entry.target.pause();
+        }
+    }, { rootMargin: '300px 0px' })
+    : null;
 
 // ---- Inline GIFs and images in comments, post text and messages --------------------------
 
@@ -278,10 +318,17 @@ function inlineMedia(fragment, meta) {
     for (const a of fragment.querySelectorAll('a[href]')) {
         if (added >= MAX_INLINE_MEDIA) break;
         const media = linkedMedia(a.getAttribute('href'), meta);
-        if (!media) continue;
+        if (!media) {
+            // Media Reddit didn't describe: show a label rather than a dead "reddit-media:" link.
+            if (a.getAttribute('href').startsWith('reddit-media:'))
+                a.replaceWith(el('span', { class: 'muted' }, /giphy/i.test(a.textContent) ? '[GIF]' : '[image]'));
+            continue;
+        }
 
+        // Videos start when scrolled into view (see gifObserver), not all at once.
         const node = media.video
-            ? el('video', { src: mapUrl(media.video), class: 'md-gif', autoplay: true, loop: true, muted: true, playsinline: true, preload: 'metadata' })
+            ? el('video', { src: mapUrl(media.video), class: 'md-gif', loop: true, muted: true, playsinline: true, preload: 'none',
+                autoplay: !gifObserver })
             : el('img', { src: mapUrl(media.image), class: 'md-img', loading: 'lazy', alt: '' });
         if (media.video) node.muted = true;
 
@@ -299,6 +346,7 @@ function inlineMedia(fragment, meta) {
 function mdNode(html, cls, mediaMetadata) {
     const node = el('div', { class: 'md ' + (cls || '') });
     node.append(sanitize(html, mediaMetadata));
+    if (gifObserver) for (const video of node.querySelectorAll('video.md-gif')) gifObserver.observe(video);
     return node;
 }
 
@@ -485,7 +533,10 @@ function hasDownloadableMedia(d) {
 }
 
 async function downloadPost() {
-    if (!state.post) return;
+    if (!state.post) {
+        showToast('Wait for the post to finish loading, then try again');
+        return;
+    }
     if (!hasDownloadableMedia(state.post)) {
         showToast('This post has no images or video to download');
         return;
@@ -1315,8 +1366,8 @@ async function showUserCard(anchor, name) {
             info.icon ? el('img', { src: info.icon, class: 'hc-avatar', alt: '' }) : el('div', { class: 'hc-avatar blank' }),
             el('div', null,
                 el('div', { class: 'hc-name' }, 'u/' + info.name),
-                el('div', { class: 'muted' }, `Redditor for ${age(info.created)}`))),
-        el('div', { class: 'hc-stats' },
+                el('div', { class: 'muted' }, info.suspended ? 'Suspended account' : `Redditor for ${age(info.created)}`))),
+        info.suspended ? null : el('div', { class: 'hc-stats' },
             el('div', null, el('b', null, count(info.karma)), el('span', { class: 'muted' }, ' karma')),
             el('div', null, el('b', null, count(info.linkKarma)), el('span', { class: 'muted' }, ' post')),
             el('div', null, el('b', null, count(info.commentKarma)), el('span', { class: 'muted' }, ' comment'))));

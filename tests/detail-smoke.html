@@ -53,7 +53,8 @@ try {
           id: 'c4', name: 't1_c4', author: 'erin', body: '', score: 2, created_utc: now - 30,
           permalink: '/r/csharp/comments/abc/test/c4', parent_id: 't3_abc', replies: '',
           body_html: '<div class="md"><p>![gif](giphy|abc123XYZ)</p><p><a href="https://i.imgur.com/xyz.gifv">funny</a></p>' +
-                     '<p><a href="https://example.com/cat.gif">https://example.com/cat.gif</a></p></div>',
+                     '<p><a href="https://example.com/cat.gif">https://example.com/cat.gif</a></p>' +
+                     '<p>Syntax: <code>![gif](giphy|abc123XYZ)</code> and ![img](missingKey)</p></div>',
           media_metadata: { 'giphy|abc123XYZ': { status: 'valid', e: 'AnimatedImage',
             s: { gif: 'https://media.giphy.com/media/abc123XYZ/giphy.gif', mp4: 'https://media.giphy.com/media/abc123XYZ/giphy.mp4' } } },
         } },
@@ -77,7 +78,10 @@ try {
     videos: [...c4.querySelectorAll('video.md-gif')].map(v => v.getAttribute('src')),
     images: [...c4.querySelectorAll('img.md-img')].map(i => i.getAttribute('src')),
     keptLinkText: [...c4.querySelectorAll('a')].map(a => a.textContent),
-    leftoverMarkdown: c4.textContent.includes('![gif]'),
+    leftoverMarkdown: [...c4.childNodes].map(n => n.textContent).join('').replace(c4.querySelector('code').textContent, '').includes('!['),
+    codeLeftAlone: c4.querySelector('code')?.textContent === '![gif](giphy|abc123XYZ)',
+    unresolvedLabel: c4.textContent.includes('[image]') && !c4.querySelector('a[href^="reddit-media:"]'),
+    lazyVideos: [...c4.querySelectorAll('video.md-gif')].every(v => !v.hasAttribute('autoplay') && v.getAttribute('preload') === 'none'),
   };
   const newBadges = document.querySelectorAll('.comment.new').length;
   const mutedCollapsed = document.querySelectorAll('.comment.muted.collapsed').length;

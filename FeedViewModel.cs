@@ -90,7 +90,15 @@ public sealed class FeedViewModel : ObservableObject
     /// <summary>r/all, r/popular, multireddits, home and search mix many communities.</summary>
     bool IsAggregate =>
         Kind is FeedKind.Home or FeedKind.Search ||
-        (Kind == FeedKind.Subreddit && (Target is "all" or "popular" || Target.Contains('+')));
+        (Kind == FeedKind.Subreddit && IsAggregateName(Target));
+
+    /// <summary>r/all, r/popular (any case), r/all-excluded or a multireddit like a+b.</summary>
+    public static bool IsAggregateName(string name) =>
+        name.Equals("all", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("popular", StringComparison.OrdinalIgnoreCase) ||
+        name.StartsWith("all-", StringComparison.OrdinalIgnoreCase) ||
+        name.StartsWith("popular-", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains('+');
 
     public bool IsSubreddit => Kind == FeedKind.Subreddit && !Target.Contains('+');
 
@@ -349,7 +357,9 @@ public sealed class FeedViewModel : ObservableObject
             FeedKind.Search => (Scope == null ? "/search.json?" : $"/r/{Scope}/search.json?restrict_sr=on&") +
                                $"q={Uri.EscapeDataString(Target)}&sort={Sort}&{time}",
             FeedKind.User => $"/user/{Target}/overview.json?sort={Sort}&{time}",
-            FeedKind.Saved => $"/user/{_services.Api.UserName}/saved.json",
+            FeedKind.Saved => _services.Api.UserName is { } me
+                ? $"/user/{me}/saved.json"
+                : throw new InvalidOperationException("Readdit doesn't know your username yet. Refresh in a moment."),
             FeedKind.Inbox => "/message/inbox.json",
             _ => throw new InvalidOperationException(),
         };
@@ -399,7 +409,9 @@ public sealed class FeedViewModel : ObservableObject
                     var user = await _services.Api.GetUserAboutAsync(Target, ct);
                     if (user == null || ct.IsCancellationRequested) return;
                     HeaderTitle = "u/" + user.Name;
-                    HeaderText = $"{Format.Count(user.Karma)} karma · Redditor for {Format.Age(user.Created)}";
+                    HeaderText = user.Suspended
+                        ? "This account has been suspended."
+                        : $"{Format.Count(user.Karma)} karma · Redditor for {Format.Age(user.Created)}";
                     break;
 
                 case FeedKind.Search:

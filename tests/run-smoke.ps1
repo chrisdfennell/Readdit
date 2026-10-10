@@ -16,11 +16,15 @@ $page = (Resolve-Path (Join-Path $PSScriptRoot 'detail-smoke.html')).Path
 $url = 'file:///' + ($page -replace '\\', '/' -replace '#', '%23')
 $profileDir = Join-Path ([IO.Path]::GetTempPath()) "readdit-smoke-$([guid]::NewGuid().ToString('N'))"
 
+# The browser logs harmless noise to stderr (sync, GPU...). With 'Stop', Windows PowerShell 5.1
+# turns any stderr line from a native program into a terminating error, so relax it here.
+$ErrorActionPreference = 'Continue'
 try {
-    $dom = & $browser --headless=new --disable-gpu --no-first-run --allow-file-access-from-files `
+    $dom = & $browser --headless=new --disable-gpu --no-first-run --disable-sync --allow-file-access-from-files `
         --user-data-dir="$profileDir" --virtual-time-budget=5000 --dump-dom $url 2>$null | Out-String
 } finally {
     Remove-Item $profileDir -Recurse -Force -ErrorAction SilentlyContinue
+    $ErrorActionPreference = 'Stop'
 }
 
 if ($dom -notmatch 'data-result="([^"]*)"') { throw "The smoke page produced no result. Output:`n$dom" }
@@ -45,6 +49,9 @@ $checks = [ordered]@{
     'Giphy GIF plays inline (Reddit mp4)' = $result.gifs.videos -contains 'https://media.giphy.com/media/abc123XYZ/giphy.mp4' -and -not $result.gifs.leftoverMarkdown
     'imgur gifv plays inline, text kept'  = $result.gifs.videos -contains 'https://i.imgur.com/xyz.mp4' -and $result.gifs.keptLinkText -contains 'funny'
     'linked .gif shows inline'            = $result.gifs.images -contains 'https://example.com/cat.gif'
+    'GIF markdown in code left alone'     = $result.gifs.codeLeftAlone
+    'unresolved media shows a label'      = $result.gifs.unresolvedLabel
+    'GIF videos wait until on screen'     = $result.gifs.lazyVideos
     'muted user collapsed'                = $result.mutedCollapsed -eq 1
     'highlighted user'                    = $result.highlighted -eq 1
     'find counts each match once'         = $result.findResult -eq '1 / 1'

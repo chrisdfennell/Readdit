@@ -9,7 +9,7 @@ public sealed class RedditAuthException(string message) : Exception(message);
 public sealed record SubredditInfo(string Name, string Title, long Subscribers, string Description, bool IsSubscribed);
 
 public sealed record UserInfo(
-    string Name, long Karma, long LinkKarma, long CommentKarma, DateTimeOffset Created, string? Icon);
+    string Name, long Karma, long LinkKarma, long CommentKarma, DateTimeOffset Created, string? Icon, bool Suspended = false);
 
 /// <summary>Reddit's JSON API, called through the user's browser session.</summary>
 public sealed class RedditApi(RedditSession session)
@@ -126,8 +126,10 @@ public sealed class RedditApi(RedditSession session)
         using var doc = await GetJsonAsync($"{Base}/user/{name}/about.json?raw_json=1", ct);
         var d = doc.RootElement.GetProperty("data");
         var icon = d.Str("snoovatar_img") is { Length: > 0 } s ? s : d.Str("icon_img");
+        // Suspended accounts come back with just a name: no karma or creation date.
         return new UserInfo(d.Str("name"), d.Long("total_karma"), d.Long("link_karma"), d.Long("comment_karma"),
-            DateTimeOffset.FromUnixTimeSeconds((long)d.Double("created_utc")), icon.StartsWith("http") ? icon : null);
+            DateTimeOffset.FromUnixTimeSeconds((long)d.Double("created_utc")), icon.StartsWith("http") ? icon : null,
+            d.Bool("is_suspended") || d.Double("created_utc") == 0);
     }
 
     public async Task<List<string>> SearchSubredditsAsync(string query, CancellationToken ct)
@@ -200,6 +202,12 @@ public sealed class RedditApi(RedditSession session)
     {
         var (items, _) = await GetListingAsync("/message/unread.json", null, default);
         return items;
+    }
+
+    /// <summary>Marks inbox items (messages or comment replies) as read.</summary>
+    public async Task MarkReadAsync(string fullName)
+    {
+        using var _ = await PostAsync("/api/read_message", new() { ["id"] = fullName });
     }
 
     public async Task MarkAllReadAsync()

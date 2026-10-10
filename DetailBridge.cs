@@ -34,9 +34,10 @@ public sealed class DetailBridge(WebView2 view, Services services)
 
     CoreWebView2 Core => view.CoreWebView2;
 
-    public async Task InitializeAsync(CoreWebView2Environment environment)
+    /// <param name="options">The active account's profile, so embeds and media use that account.</param>
+    public async Task InitializeAsync(CoreWebView2Environment environment, CoreWebView2ControllerOptions options)
     {
-        await view.EnsureCoreWebView2Async(environment);
+        await view.EnsureCoreWebView2Async(environment, options);
         Core.SetVirtualHostNameToFolderMapping(AppHost, Path.Combine(AppContext.BaseDirectory, "wwwroot"),
             CoreWebView2HostResourceAccessKind.DenyCors);
         Core.Settings.AreDevToolsEnabled = true;
@@ -95,8 +96,13 @@ public sealed class DetailBridge(WebView2 view, Services services)
     string? _visitPostId;
     long? _previousVisitAt;
 
-    long? TakeVisit(string postId, string raw)
+    /// <param name="record">
+    /// False for partial or stale views (a single focused comment thread, an offline copy):
+    /// they show the badges but mustn't count as having seen the whole thread.
+    /// </param>
+    long? TakeVisit(string postId, string raw, bool record)
     {
+        if (!record) return services.Visits.Get(postId)?.At;
         if (_visitPostId == postId) return _previousVisitAt;
         _visitPostId = postId;
         _previousVisitAt = services.Visits.Get(postId)?.At;
@@ -139,11 +145,21 @@ public sealed class DetailBridge(WebView2 view, Services services)
 
         // Show the post right away from the listing; comments follow when they arrive.
         if (item.Kind == ItemKind.Link)
-            Send($$"""{"type":"post","settings":{{SettingsJson}},"localMedia":{{LocalMediaJson(item.Id)}},"data":{{item.RawJson}}}""");
+            Send($$"""{"type":"post","settings":{{SettingsJson}},"localMedia":null,"data":{{item.RawJson}}}""");
         else
             Send("""{"type":"loading"}""");
 
         await ShowThreadAsync(item.Id, item.CommentId);
+    }
+
+    /// <summary>
+    /// Opens a thread from a link: clears the current post first, so a failure isn't shown
+    /// under the previous post's header.
+    /// </summary>
+    public Task OpenThreadAsync(string postId, string? focusCommentId)
+    {
+        Send("""{"type":"loading"}""");
+        return ShowThreadAsync(postId, focusCommentId);
     }
 
     public async Task ShowThreadAsync(string postId, string? focusCommentId)
@@ -175,11 +191,14 @@ public sealed class DetailBridge(WebView2 view, Services services)
         }
 
         if (version != _version) return;
-        var lastVisit = TakeVisit(postId, raw);
+        var lastVisit = TakeVisit(postId, raw, record: !offline && focusCommentId == null);
+        // Offline copies use their saved media. Online, always use Reddit's: the saved video has
+        // no sound track, so using it would silence a video that plays fine online.
+        var localMedia = offline ? LocalMediaJson(postId) : "null";
         Send($$"""
             {"type":"thread","sort":{{JsonSerializer.Serialize(_commentSort)}},
              "focus":{{JsonSerializer.Serialize(focusCommentId)}},"offline":{{(offline ? "true" : "false")}},
-             "lastVisit":{{(lastVisit?.ToString() ?? "null")}},"localMedia":{{LocalMediaJson(postId)}},
+             "lastVisit":{{(lastVisit?.ToString() ?? "null")}},"localMedia":{{localMedia}},
              "settings":{{SettingsJson}},"data":{{raw}}}
             """);
     }
@@ -407,6 +426,7 @@ public sealed class DetailBridge(WebView2 view, Services services)
                             commentKarma = user.CommentKarma,
                             created = user.Created.ToUnixTimeSeconds(),
                             icon = user.Icon,
+                            suspended = user.Suspended,
                         });
                 }
 
@@ -436,17 +456,7 @@ public sealed class DetailBridge(WebView2 view, Services services)
             var raw = await services.Api.GetThreadRawAsync(postId, "confidence", null, default);
             services.Offline.Save(postId, raw);
             // Media can be large; fetch it in the background.
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await services.Offline.SaveMediaAsync(postId, raw);
-                }
-                catch
-                {
-                    // Text and comments are already saved; media is a bonus.
-                }
-            });
+            services.Offline.StartMediaDownload(postId, raw);
         }
         catch (Exception ex)
         {

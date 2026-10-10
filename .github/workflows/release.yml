@@ -101,21 +101,29 @@ jobs:
               $createTag = $false
             }
             else {
-              if ($env:BEFORE -and $env:BEFORE -notmatch '^0+$') {
-                $appChanges = git diff --name-only $env:BEFORE HEAD |
+              # Compare with the last release rather than this push's "before": a queued run that
+              # was replaced by a newer push, or a force push, would otherwise hide app changes.
+              $lastTag = git tag --list 'v*' --sort=-v:refname | Select-Object -First 1
+              if ($lastTag) {
+                $appChanges = git diff --name-only $lastTag HEAD |
                   Where-Object { $_ -notmatch '(\.md$|^LICENSE$|^\.github/|^\.vscode/|^tests/|^\.gitignore$|^dotnet-tools\.json$|\.slnx?$)' }
-                if (-not $appChanges) { Skip 'only docs, tests, workflows or tooling changed' }
+                if ($LASTEXITCODE -ne 0) { throw "Couldn't compare with $lastTag" }
+                if (-not $appChanges) { Skip "only docs, tests, workflows or tooling changed since $lastTag" }
               }
               $version = Get-NextVersion 'patch'
             }
           }
 
-          if ($version -notmatch '^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$') { throw "'$version' isn't a version like 1.2.3" }
+          if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw "'$version' isn't a version like 1.2.3 or 1.2.3-beta.1" }
           if ($createTag -and (git tag --list "v$version")) { throw "v$version already exists" }
           Write-Host "Releasing $version"
           Set-Output release true
           Set-Output version $version
           Set-Output create_tag $createTag
+          Set-Output prerelease ($version -match '-')
+          # GitHub's pwsh wrapper exits with the last native exit code; an earlier probe such as
+          # `gh release view` for a missing release must not fail the step.
+          $global:LASTEXITCODE = 0
 
       - uses: actions/setup-dotnet@v6
         if: steps.plan.outputs.release == 'true'
@@ -151,6 +159,7 @@ jobs:
           dotnet vpk upload github --repoUrl ${{ github.server_url }}/${{ github.repository }}
           --token ${{ secrets.GITHUB_TOKEN }} --outputDir Releases --publish
           --releaseName "Readdit ${{ steps.plan.outputs.version }}" --tag v${{ steps.plan.outputs.version }}
+          ${{ steps.plan.outputs.prerelease == 'True' && '--pre' || '' }}
 
       - name: Attach portable exe
         if: steps.plan.outputs.release == 'true'

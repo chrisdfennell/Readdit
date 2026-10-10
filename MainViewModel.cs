@@ -113,6 +113,7 @@ public sealed partial class MainViewModel : ObservableObject
             OpenFeed(spec, newTab: false);
         });
         EditTagsCommand = new RelayCommand(p => EditTags(p as Post ?? SelectedPost));
+        BackToAccountCommand = new RelayCommand(_ => { if (PreviousAccount is { } a) SwitchAccount(a.Profile); });
         DownloadCommand = new RelayCommand(p =>
         {
             // The page downloads whatever post it shows, so show the right-clicked one first.
@@ -242,10 +243,14 @@ public sealed partial class MainViewModel : ObservableObject
         if (UpdateReady && !wasReady) Status = message;
     }
 
+    /// <summary>Raised just before Velopack exits the process to install an update.</summary>
+    public event Action? ExitingForUpdate;
+
     void InstallUpdate()
     {
         try
         {
+            if (_updates.IsInstalledCopy) ExitingForUpdate?.Invoke();
             // Portable: files are swapped, so restart into the new exe. Installed: Velopack restarts itself.
             if (_updates.Apply()) RestartRequested?.Invoke();
         }
@@ -262,6 +267,7 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     public ICommand EditTagsCommand { get; }
+    public ICommand BackToAccountCommand { get; }
     public ICommand DownloadCommand { get; }
     public ICommand BiggerTextCommand { get; }
     public ICommand SmallerTextCommand { get; }
@@ -359,7 +365,23 @@ public sealed partial class MainViewModel : ObservableObject
             post.IsRead = true;
             _services.Read.Mark(post.FullName);
         }
+        if (post is { IsUnread: true }) _ = MarkInboxItemReadAsync(post);
         _ = ShowAndPrefetchAsync(post);
+    }
+
+    /// <summary>Opening an unread inbox item marks it read on Reddit, like reddit.com does.</summary>
+    async Task MarkInboxItemReadAsync(Post item)
+    {
+        item.IsUnread = false;
+        UnreadCount = Math.Max(0, UnreadCount - 1);
+        try
+        {
+            await _services.Api.MarkReadAsync(item.FullName);
+        }
+        catch
+        {
+            // Harmless: it stays unread on Reddit and the next inbox poll corrects the count.
+        }
     }
 
     async Task ShowAndPrefetchAsync(Post? post)
@@ -382,7 +404,11 @@ public sealed partial class MainViewModel : ObservableObject
         feed.StatusChanged += (f, status) => { if (f == SelectedTab) Status = status; };
         feed.AuthFailed += ex => { if (Tabs.Contains(feed)) _ = HandleAuthFailureAsync(ex); };
         feed.SubscriptionsChanged += () => _ = LoadSubscriptionsAsync();
-        feed.InboxRead += () => { UnreadCount = 0; };
+        feed.InboxRead += () =>
+        {
+            UnreadCount = 0;
+            foreach (var item in feed.Posts) item.IsUnread = false;
+        };
         Tabs.Add(feed);
         if (select) SelectedTab = feed;
         SaveTabs();
@@ -391,7 +417,14 @@ public sealed partial class MainViewModel : ObservableObject
 
     void OpenFeed(string spec, bool newTab)
     {
-        if (spec == "u/me") spec = "u/" + (_services.Api.UserName ?? "me");
+        if (spec is "u/me" or "saved" && _services.Api.UserName == null)
+        {
+            // "u/me" would otherwise open the profile of a real user called "me".
+            Status = "Readdit doesn't know your username yet. Try again in a moment.";
+            _ = RefreshInboxAsync(); // also refreshes the identity
+            return;
+        }
+        if (spec == "u/me") spec = "u/" + _services.Api.UserName;
 
         // Reuse an existing tab for the same feed rather than piling up duplicates.
         var existing = Tabs.FirstOrDefault(t => t.Spec.Equals(spec, StringComparison.OrdinalIgnoreCase));
@@ -519,8 +552,18 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>Stars or unstars a community on Reddit, updating the sidebar straight away.</summary>
     async Task SetFavoriteAsync(string name, bool favorite)
     {
-        var existing = Favorites.FirstOrDefault(f => f.Equals(name, StringComparison.OrdinalIgnoreCase));
+        string? Find() => Favorites.FirstOrDefault(f => f.Equals(name, StringComparison.OrdinalIgnoreCase));
+        var existing = Find();
         if (favorite == (existing != null)) return;
+
+        // Reddit's favorites are a flag on communities you've joined, so a favorite of an unjoined
+        // community wouldn't survive the next sync.
+        if (favorite && _subscriptions.Count > 0 &&
+            !_subscriptions.Any(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+        {
+            Status = $"Join r/{name} first. Reddit only keeps favorites for communities you've joined.";
+            return;
+        }
 
         if (favorite) Favorites.Add(name);
         else Favorites.Remove(existing!);
@@ -532,9 +575,9 @@ public sealed partial class MainViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            // Put it back the way Reddit has it.
-            if (favorite) Favorites.Remove(Favorites.First(f => f.Equals(name, StringComparison.OrdinalIgnoreCase)));
-            else Favorites.Add(existing!);
+            // Put it back the way Reddit has it (a subscriptions reload may already have).
+            if (favorite && Find() is { } added) Favorites.Remove(added);
+            else if (!favorite && Find() == null) Favorites.Add(existing!);
             SaveFavorites();
             Status = $"Couldn't update favorites on Reddit: {ex.Message}";
         }
@@ -648,7 +691,7 @@ public sealed partial class MainViewModel : ObservableObject
         if (post == null || !post.CanVote) return;
         var previous = post.Likes;
         bool? target = up ? (previous == true ? null : true) : (previous == false ? null : false);
-        post.ApplyVote(target);
+        foreach (var copy in CopiesOf(post)) copy.ApplyVote(target);
         _detail.InvalidatePrefetch(post.Id);
         if (SelectedPost == post) _detail.SyncPostState(post);
         try
@@ -657,17 +700,21 @@ public sealed partial class MainViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            post.ApplyVote(previous);
+            foreach (var copy in CopiesOf(post)) copy.ApplyVote(previous);
             if (SelectedPost == post) _detail.SyncPostState(post);
             Status = $"Vote failed: {ex.Message}";
         }
     }
 
+    /// <summary>The same post can be loaded in several tabs (Home and its subreddit, say).</summary>
+    IEnumerable<Post> CopiesOf(Post post) =>
+        Tabs.SelectMany(t => t.Posts).Where(p => p.FullName == post.FullName).Append(post).Distinct().ToList();
+
     async Task ToggleSaveAsync(Post? post)
     {
         if (post == null || post.Kind == ItemKind.Message) return;
         var save = !post.Saved;
-        post.Saved = save;
+        foreach (var copy in CopiesOf(post)) copy.Saved = save;
         _detail.InvalidatePrefetch(post.Id);
         if (SelectedPost == post) _detail.SyncPostState(post);
         try
@@ -676,7 +723,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            post.Saved = !save;
+            foreach (var copy in CopiesOf(post)) copy.Saved = !save;
             if (SelectedPost == post) _detail.SyncPostState(post);
             Status = $"Save failed: {ex.Message}";
             return;
@@ -727,7 +774,7 @@ public sealed partial class MainViewModel : ObservableObject
         if (host == "redd.it" && uri.AbsolutePath.Trim('/') is { Length: > 0 } shortId)
         {
             ShowBrowser = false;
-            _ = _detail.ShowThreadAsync(shortId, null);
+            _ = _detail.OpenThreadAsync(shortId, null);
             return;
         }
 
@@ -739,7 +786,7 @@ public sealed partial class MainViewModel : ObservableObject
             {
                 ShowBrowser = false;
                 var comment = thread.Groups[2].Success ? thread.Groups[2].Value : null;
-                _ = _detail.ShowThreadAsync(thread.Groups[1].Value, comment);
+                _ = _detail.OpenThreadAsync(thread.Groups[1].Value, comment);
                 return;
             }
             var feed = RedditFeedPath().Match(path);
@@ -875,9 +922,10 @@ public sealed partial class MainViewModel : ObservableObject
                 _inboxPrimed = true;
                 return;
             }
-            var increased = count > UnreadCount;
             UnreadCount = count;
-            if (increased && Settings.InboxNotifications) await NotifyNewMessagesAsync(count);
+            // Compare actual unread items, not the count: reading one message while another
+            // arrives leaves the count unchanged but is still news.
+            if (count > 0) await NotifyNewMessagesAsync(count);
         }
         catch
         {
@@ -887,17 +935,20 @@ public sealed partial class MainViewModel : ObservableObject
 
     async Task NotifyNewMessagesAsync(int count)
     {
-        Status = count == 1 ? "You have a new message." : $"You have {count} unread messages.";
         try
         {
+            // Always record what's been seen, so turning notifications back on doesn't announce old items.
             var fresh = (await _services.Api.GetUnreadAsync()).Where(m => _notified.Add(m.FullName)).ToList();
-            if (fresh.Count == 0) return;
+            if (fresh.Count == 0 || !Settings.InboxNotifications) return;
+            Status = count == 1 ? "You have a new message." : $"You have {count} unread messages.";
             var first = fresh[0];
+            // Modmail and subreddit messages have no author; Author is then "r/name".
+            var from = first.Author.StartsWith("r/") ? first.Author : "u/" + first.Author;
             var title = fresh.Count > 1
                 ? $"{fresh.Count} new messages on Reddit"
                 : first.Kind == ItemKind.Comment
-                    ? $"u/{first.Author} replied" + (first.Title.Length > 0 ? $" in “{first.Title}”" : "")
-                    : $"Message from u/{first.Author}: {first.Title}";
+                    ? $"{from} replied" + (first.Title.Length > 0 ? $" in “{first.Title}”" : "")
+                    : $"Message from {from}: {first.Title}";
             var body = first.Snippet.Length > 0 ? first.Snippet : first.SelfText;
             InboxNotification?.Invoke(title, body.Length > 200 ? body[..200] + "…" : body);
         }
@@ -942,7 +993,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     void ShowSubmit()
     {
-        var defaultSub = SelectedTab?.IsSubreddit == true && SelectedTab.Target is not ("all" or "popular")
+        var defaultSub = SelectedTab?.IsSubreddit == true && !FeedViewModel.IsAggregateName(SelectedTab.Target)
             ? SelectedTab.Target
             : "";
         var window = new SubmitWindow(_services.Api, defaultSub) { Owner = Application.Current.MainWindow };
@@ -984,7 +1035,7 @@ public sealed partial class MainViewModel : ObservableObject
         try
         {
             await _services.Session.InitializeAsync();
-            await _detail.InitializeAsync(_services.Session.Environment);
+            await _detail.InitializeAsync(_services.Session.Environment, _services.Session.CreateControllerOptions());
             await _browser.InitializeAsync(_services.Session.Environment, _services.Session.CreateControllerOptions());
             _detail.SetDisplay(ReadingFontSize, IsReadingMode);
             ApplyAppearance();
@@ -1115,12 +1166,24 @@ public sealed partial class MainViewModel : ObservableObject
     public void SwitchAccount(string profile)
     {
         if (profile == Settings.ActiveProfile) return;
+        // Remember where we came from (for "Back to …" on the sign-in screen), and drop accounts
+        // that were added but never signed in to.
+        Settings.PreviousProfile = Settings.ActiveProfile;
+        Settings.Accounts.RemoveAll(a => a.UserName.Length == 0 && a.Profile != profile && a.Profile != Settings.ActiveProfile);
         Settings.ActiveProfile = profile;
         Settings.OpenTabs = ["home"];
         Settings.SelectedTab = 0;
         Settings.Save();
         RestartRequested?.Invoke();
     }
+
+    /// <summary>The signed-in account we switched from, offered on the sign-in screen.</summary>
+    AccountInfo? PreviousAccount =>
+        Settings.Accounts.FirstOrDefault(a => a.Profile == Settings.PreviousProfile && a.Profile != Settings.ActiveProfile &&
+                                              a.UserName.Length > 0);
+
+    public bool CanGoBackToAccount => PreviousAccount != null;
+    public string BackToAccountLabel => PreviousAccount is { } a ? $"← Back to u/{a.UserName}" : "";
 
     public void AddAccount()
     {

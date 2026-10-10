@@ -119,8 +119,39 @@ public sealed partial class OfflineStore
 
     // ---- Media --------------------------------------------------------------------------------
 
+    // One background media download per post; re-saving or unsaving cancels the previous one so
+    // two downloads never race in the same folder (or write into a folder that's being deleted).
+    readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> _mediaJobs = new();
+
+    public void StartMediaDownload(string postId, string rawThread)
+    {
+        CancelMediaDownload(postId);
+        var cts = new CancellationTokenSource();
+        _mediaJobs[postId] = cts;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await SaveMediaAsync(postId, rawThread, cts.Token);
+            }
+            catch
+            {
+                // Text and comments are already saved; media is a bonus.
+            }
+            finally
+            {
+                _mediaJobs.TryRemove(new KeyValuePair<string, CancellationTokenSource>(postId, cts));
+            }
+        });
+    }
+
+    void CancelMediaDownload(string postId)
+    {
+        if (_mediaJobs.TryRemove(postId, out var running)) running.Cancel();
+    }
+
     /// <summary>Downloads the post's images/video (and preview stills) next to the saved thread.</summary>
-    public async Task SaveMediaAsync(string postId, string rawThread, CancellationToken ct = default)
+    async Task SaveMediaAsync(string postId, string rawThread, CancellationToken ct)
     {
         if (MediaDirFor(postId) is not { } dir) return;
         List<string> urls;
@@ -138,6 +169,7 @@ public sealed partial class OfflineStore
             var file = await MediaDownloader.DownloadToAsync(urls[i], Path.Combine(dir, i.ToString()), ct);
             if (file != null) map[urls[i]] = Path.GetFileName(file);
         }
+        ct.ThrowIfCancellationRequested(); // unsaved meanwhile: don't recreate its map
         await File.WriteAllTextAsync(Path.Combine(dir, "map.json"), JsonSerializer.Serialize(map), ct);
     }
 
@@ -212,6 +244,7 @@ public sealed partial class OfflineStore
 
     public void Remove(string postId)
     {
+        CancelMediaDownload(postId);
         // Index first, so a locked media folder can't leave a stale entry behind.
         if (_index.Remove(postId)) SaveIndex();
         _searchText.Remove(postId);

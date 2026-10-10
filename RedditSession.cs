@@ -39,8 +39,22 @@ public sealed class RedditSession(WebView2 webView, string profile)
         var args = "--disable-features=CalculateNativeWinOcclusion,MediaFoundationClearPlayback " +
                    "--disable-direct-composition-video-overlays --disable-backgrounding-occluded-windows";
         var options = new CoreWebView2EnvironmentOptions(args);
-        Environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(Paths.Local, "WebView2"), options);
-        await webView.EnsureCoreWebView2Async(Environment, CreateControllerOptions());
+
+        // Right after a restart the previous copy's browser processes can still hold the profile
+        // folder for a moment, so give it a few tries before reporting a failure.
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                Environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(Paths.Local, "WebView2"), options);
+                await webView.EnsureCoreWebView2Async(Environment, CreateControllerOptions());
+                break;
+            }
+            catch when (attempt < 4)
+            {
+                await Task.Delay(1500);
+            }
+        }
 
         Core.NavigationCompleted += (_, _) => NavigationCompleted?.Invoke(this, EventArgs.Empty);
         Core.NewWindowRequested += (_, e) =>
