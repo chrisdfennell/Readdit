@@ -531,44 +531,50 @@
                                IsHitTestVisible="False"
                                Visibility="{Binding SidebarFilter, Converter={StaticResource InvVis}}" />
                 </Grid>
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                    <!-- Each heading collapses its section (remembered between sessions). While
-                         filtering, sections show their matches even when collapsed. -->
-                    <StackPanel Margin="4,0,4,12">
-                        <ToggleButton Content="FEEDS" Style="{StaticResource SectionToggle}"
-                                      IsChecked="{Binding FeedsExpanded}" ToolTip="Show or hide" />
-                        <ItemsControl ItemsSource="{Binding Feeds}" ItemTemplate="{StaticResource SidebarItemTemplate}"
-                                      Visibility="{Binding FeedsExpanded, Converter={StaticResource Vis}}" />
-
-                        <StackPanel Visibility="{Binding HasModeration, Converter={StaticResource Vis}}">
-                            <ToggleButton Content="MODERATION" Style="{StaticResource SectionToggle}"
-                                          IsChecked="{Binding ModerationExpanded}"
-                                          ToolTip="Mod queues for the communities you moderate" />
-                            <ItemsControl ItemsSource="{Binding ModerationItems}" ItemTemplate="{StaticResource SidebarItemTemplate}"
-                                          Visibility="{Binding ShowModeration, Converter={StaticResource Vis}}" />
-                        </StackPanel>
-
-                        <ToggleButton Content="{Binding FavoritesHeader}" Style="{StaticResource SectionToggle}"
-                                      IsChecked="{Binding FavoritesExpanded}"
-                                      ToolTip="Your favorite communities on Reddit. Starring one here stars it on Reddit too." />
-                        <StackPanel Visibility="{Binding ShowFavorites, Converter={StaticResource Vis}}">
-                            <ItemsControl ItemsSource="{Binding FavoriteItems}" ItemTemplate="{StaticResource SidebarItemTemplate}" />
-                            <TextBlock Text="Star a community with ☆ Favorite (or right-click it) and it shows up here and on Reddit."
-                                       TextWrapping="Wrap" FontSize="12" Opacity="0.55" Margin="10,2,10,0"
-                                       Visibility="{Binding HasNoFavorites, Converter={StaticResource Vis}}" />
-                        </StackPanel>
-
-                        <DockPanel>
-                            <Button DockPanel.Dock="Right" Content="⟳" Style="{StaticResource GlyphButton}" Margin="0,12,6,0"
-                                    VerticalAlignment="Top"
-                                    Command="{Binding RefreshSubscriptionsCommand}" ToolTip="Reload subscriptions" />
-                            <ToggleButton Content="{Binding SubscriptionsHeader}" Style="{StaticResource SectionToggle}"
-                                          IsChecked="{Binding SubscriptionsExpanded}" ToolTip="Show or hide" />
-                        </DockPanel>
-                        <ItemsControl ItemsSource="{Binding SubscriptionItems}" ItemTemplate="{StaticResource SidebarItemTemplate}"
-                                      Visibility="{Binding ShowSubscriptions, Converter={StaticResource Vis}}" />
-                    </StackPanel>
-                </ScrollViewer>
+                <!-- One flat, virtualized list of section headers, communities and hints, so only
+                     the rows on screen are built (some people have thousands of subscriptions).
+                     Each heading collapses its section (remembered between sessions). While
+                     filtering, sections show their matches even when collapsed. -->
+                <ItemsControl ItemsSource="{Binding SidebarRows}" Focusable="False"
+                              VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                              VirtualizingPanel.ScrollUnit="Pixel" ScrollViewer.CanContentScroll="True">
+                    <ItemsControl.Template>
+                        <ControlTemplate TargetType="ItemsControl">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                          CanContentScroll="True" Focusable="False">
+                                <ItemsPresenter />
+                            </ScrollViewer>
+                        </ControlTemplate>
+                    </ItemsControl.Template>
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <VirtualizingStackPanel />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemContainerStyle>
+                        <Style TargetType="ContentPresenter">
+                            <Setter Property="Margin" Value="4,0" />
+                        </Style>
+                    </ItemsControl.ItemContainerStyle>
+                    <ItemsControl.Resources>
+                        <DataTemplate DataType="{x:Type local:SidebarItem}">
+                            <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource SidebarItemTemplate}" />
+                        </DataTemplate>
+                        <DataTemplate DataType="{x:Type local:SidebarHeader}">
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Content="⟳" Style="{StaticResource GlyphButton}" Margin="0,12,6,0"
+                                        VerticalAlignment="Top" ToolTip="Reload subscriptions"
+                                        Command="{Binding DataContext.RefreshSubscriptionsCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        Visibility="{Binding CanRefresh, Converter={StaticResource Vis}}" />
+                                <ToggleButton Content="{Binding Title}" Style="{StaticResource SectionToggle}"
+                                              IsChecked="{Binding IsExpanded}" ToolTip="{Binding ToolTip}" />
+                            </DockPanel>
+                        </DataTemplate>
+                        <DataTemplate DataType="{x:Type local:SidebarHint}">
+                            <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="12" Opacity="0.55" Margin="10,2,10,0" />
+                        </DataTemplate>
+                    </ItemsControl.Resources>
+                </ItemsControl>
             </DockPanel>
 
             <GridSplitter x:Name="SidebarSplitter" Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch"

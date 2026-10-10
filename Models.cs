@@ -371,6 +371,32 @@ public sealed record SidebarItem(string Label, string Spec, string? Icon = null,
     public bool IsCommunity => !IsFeed && (Spec.StartsWith("r/") || (Spec.StartsWith("mod:") && Spec != "mod:mod"));
 }
 
+/// <summary>A collapsible section heading in the sidebar ("▾ FAVORITES (12)").</summary>
+/// <param name="key">Section name as remembered in settings: feeds, moderation, favorites, subscriptions.</param>
+/// <param name="setExpanded">Called when the heading is toggled (by mouse, keyboard or accessibility tools).</param>
+public sealed class SidebarHeader(string key, string title, bool isExpanded, string toolTip, bool canRefresh,
+    Action<string, bool> setExpanded)
+{
+    public string Key => key;
+    public string Title => title;
+    public string ToolTip => toolTip;
+    public bool CanRefresh => canRefresh;
+
+    public bool IsExpanded
+    {
+        get => isExpanded;
+        set
+        {
+            if (value == isExpanded) return;
+            isExpanded = value;
+            setExpanded(key, value);
+        }
+    }
+}
+
+/// <summary>A line of help text under a sidebar section.</summary>
+public sealed record SidebarHint(string Text);
+
 /// <summary>A subreddit name, its icon URL if it has one, and whether you've starred it on Reddit.</summary>
 public sealed record SubredditRef(string Name, string? Icon, long Subscribers = 0, bool IsFavorite = false);
 

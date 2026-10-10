@@ -100,8 +100,7 @@ public sealed partial class MainViewModel : ObservableObject
         PreferencesCommand = new RelayCommand(_ => ShowPreferences());
         SubmitCommand = new RelayCommand(_ => ShowSubmit(), _ => _isReady);
         ShortcutsCommand = new RelayCommand(_ => new ShortcutsWindow { Owner = Application.Current.MainWindow }.ShowDialog());
-        RefreshSubscriptionsCommand = new RelayCommand(_ => _ = LoadSubscriptionsAsync(), _ => _isReady);
-        ToggleReadingModeCommand = new RelayCommand(_ => IsReadingMode = !IsReadingMode);
+        RefreshSubscriptionsCommand = new RelayCommand(_ => _ = LoadSubscriptionsAsync(), _ => _isReady); ToggleReadingModeCommand = new RelayCommand(_ => IsReadingMode = !IsReadingMode);
         HideCommand = new RelayCommand(p => _ = HideAsync(p as Post ?? SelectedPost));
         ApproveCommand = new RelayCommand(p => _ = ModerateAsync(p as Post ?? SelectedPost, "approve"));
         RemoveCommand = new RelayCommand(p => _ = ModerateAsync(p as Post ?? SelectedPost, "remove"));
@@ -264,8 +263,7 @@ public sealed partial class MainViewModel : ObservableObject
             _moderated = await _services.Api.GetModeratedAsync();
             _services.Moderated.Clear();
             foreach (var sub in _moderated) _services.Moderated.Add(sub.Name);
-            Raise(nameof(HasModeration));
-            Raise(nameof(ModerationItems));
+            RefreshSidebar();
         }
         catch
         {
@@ -569,14 +567,59 @@ public sealed partial class MainViewModel : ObservableObject
         get => _sidebarFilter;
         set
         {
-            if (!Set(ref _sidebarFilter, value)) return;
-            Raise(nameof(FavoriteItems));
-            Raise(nameof(SubscriptionItems));
-            Raise(nameof(ModerationItems));
-            Raise(nameof(ShowModeration));
-            Raise(nameof(ShowFavorites));
-            Raise(nameof(ShowSubscriptions));
+            if (Set(ref _sidebarFilter, value)) RefreshSidebar();
         }
+    }
+
+    // The whole sidebar is one flat, virtualized list of headers, items and hints, so only the
+    // rows on screen are built. (Separate lists in a StackPanel built every row up front, which
+    // froze the window for people subscribed to thousands of communities.)
+    IReadOnlyList<object>? _sidebarRows;
+    public IReadOnlyList<object> SidebarRows => _sidebarRows ??= BuildSidebarRows();
+
+    void RefreshSidebar()
+    {
+        _sidebarRows = null;
+        Raise(nameof(SidebarRows));
+    }
+
+    List<object> BuildSidebarRows()
+    {
+        var rows = new List<object>();
+        void Section(string key, string title, bool expanded, bool show, string toolTip,
+            IEnumerable<object> items, bool canRefresh = false)
+        {
+            rows.Add(new SidebarHeader(key, title, expanded, toolTip, canRefresh, SetSectionExpanded));
+            if (show) rows.AddRange(items);
+        }
+
+        Section("feeds", "FEEDS", FeedsExpanded, FeedsExpanded, "Show or hide", Feeds);
+        if (HasModeration)
+            Section("moderation", "MODERATION", ModerationExpanded, ShowModeration,
+                "Mod queues for the communities you moderate", ModerationItems);
+        Section("favorites", FavoritesHeader, FavoritesExpanded, ShowFavorites,
+            "Your favorite communities on Reddit. Starring one here stars it on Reddit too.",
+            HasNoFavorites
+                ? [new SidebarHint("Star a community with ☆ Favorite (or right-click it) and it shows up here and on Reddit.")]
+                : FavoriteItems);
+        Section("subscriptions", SubscriptionsHeader, SubscriptionsExpanded, ShowSubscriptions, "Show or hide",
+            SubscriptionItems, canRefresh: true);
+        return rows;
+    }
+
+    void SetSectionExpanded(string key, bool expanded)
+    {
+        // Rebuild after the toggle has finished updating, not from inside its binding.
+        Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            switch (key)
+            {
+                case "feeds": FeedsExpanded = expanded; break;
+                case "moderation": ModerationExpanded = expanded; break;
+                case "favorites": FavoritesExpanded = expanded; break;
+                case "subscriptions": SubscriptionsExpanded = expanded; break;
+            }
+        });
     }
 
     bool MatchesFilter(string name) =>
@@ -602,6 +645,7 @@ public sealed partial class MainViewModel : ObservableObject
         else Settings.CollapsedSidebarSections.Add(section);
         Settings.Save();
         foreach (var name in changed) Raise(name);
+        RefreshSidebar();
     }
 
     bool IsFiltering => SidebarFilter.Trim().Length > 0;
@@ -653,8 +697,8 @@ public sealed partial class MainViewModel : ObservableObject
             foreach (var sub in _subscriptions.Where(s => s.IsFavorite)) Favorites.Add(sub.Name);
             SaveFavorites();
 
-            Raise(nameof(SubscriptionItems));
             Raise(nameof(SubscriptionsHeader));
+            RefreshSidebar();
         }
         catch (Exception ex)
         {
@@ -723,9 +767,8 @@ public sealed partial class MainViewModel : ObservableObject
         Settings.Favorites = [.. Favorites];
         Settings.Save();
         Raise(nameof(FavoriteLabel));
-        Raise(nameof(FavoriteItems));
-        Raise(nameof(HasNoFavorites));
         Raise(nameof(FavoritesHeader));
+        RefreshSidebar();
     }
 
     public bool HasNoFavorites => Favorites.Count == 0;
