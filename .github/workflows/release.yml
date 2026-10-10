@@ -1,16 +1,28 @@
-# Builds the installer and publishes a GitHub release when a version tag (v1.2.3) is pushed.
-# Installed copies of Readdit check these releases for updates.
+# Publishes a GitHub release with the installer. Installed copies of Readdit update from these.
+# Start it by pushing a version tag (git tag v1.2.3 && git push origin v1.2.3), or from the
+# Actions tab with "Run workflow" and a version number.
 name: Release
 
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. 0.5.0)'
+        required: true
 
 permissions:
   contents: write
 
 jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
   release:
+    name: Publish release
+    needs: ci
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,9 +31,13 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Version from tag
+      - name: Version
         shell: pwsh
-        run: echo "VERSION=$($env:GITHUB_REF_NAME.TrimStart('v'))" >> $env:GITHUB_ENV
+        run: |
+          $version = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '${{ inputs.version }}' } else { $env:GITHUB_REF_NAME }
+          $version = $version.TrimStart('v')
+          if ($version -notmatch '^\d+\.\d+\.\d+([-+].+)?$') { throw "'$version' isn't a version like 1.2.3" }
+          echo "VERSION=$version" >> $env:GITHUB_ENV
 
       - name: Restore tools
         run: dotnet tool restore
@@ -43,4 +59,4 @@ jobs:
         run: >
           dotnet vpk upload github --repoUrl ${{ github.server_url }}/${{ github.repository }}
           --token ${{ secrets.GITHUB_TOKEN }} --outputDir Releases --publish
-          --releaseName "Readdit ${{ env.VERSION }}" --tag ${{ github.ref_name }}
+          --releaseName "Readdit ${{ env.VERSION }}" --tag v${{ env.VERSION }}

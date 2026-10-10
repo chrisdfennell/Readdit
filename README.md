@@ -6,6 +6,11 @@
 
 <p align="center">A fast, keyboard-friendly desktop Reddit client for Windows.</p>
 
+<p align="center">
+  <a href="https://github.com/chrisdfennell/Readdit/actions/workflows/ci.yml"><img src="https://github.com/chrisdfennell/Readdit/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/chrisdfennell/Readdit/releases/latest"><img src="https://img.shields.io/github/v/release/chrisdfennell/Readdit?include_prereleases&label=release" alt="Latest release"></a>
+</p>
+
 ---
 
 Readdit is a native Windows app (WPF on .NET 10) for browsing Reddit. It signs in through Reddit's own login page and reads Reddit through your session, so you don't need an API key. Your password only ever goes to Reddit.
@@ -54,17 +59,23 @@ You need the [.NET 10 SDK](https://dotnet.microsoft.com/download).
 
 ```powershell
 dotnet run                                # run a development build
+./tests/run-smoke.ps1                     # post view smoke test (needs Edge or Chrome)
 ./build-installer.ps1 -Version 0.4.0      # build Releases/Readdit-win-Setup.exe
 ```
 
-## Releasing
+## CI/CD
 
-Push a version tag. GitHub Actions builds the installer and publishes a release, and installed copies of Readdit pick it up:
+- **CI** ([ci.yml](.github/workflows/ci.yml)) runs on every push to `main` and every pull request. It builds with warnings treated as errors, runs the post view smoke test in headless Edge, and packages an installer. Download it from the run's **Artifacts** to try that exact build.
+- **Release** ([release.yml](.github/workflows/release.yml)) runs CI first, then builds the installer and publishes a GitHub release. Installed copies of Readdit update from there automatically.
+
+To release, push a version tag:
 
 ```powershell
 git tag v0.4.1
 git push origin v0.4.1
 ```
+
+Or open **Actions → Release → Run workflow** on GitHub and enter a version.
 
 ## Where Readdit keeps data
 

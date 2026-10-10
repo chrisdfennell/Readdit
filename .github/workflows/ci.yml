@@ -1,0 +1,57 @@
+# Builds and tests every push to main and every pull request, and packages a test installer.
+# The release workflow also calls this, so nothing ships without passing it.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build, test and package
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build
+        run: dotnet build Readdit.csproj -c Release -p:TreatWarningsAsErrors=true
+
+      - name: Post view smoke test
+        shell: pwsh
+        run: ./tests/run-smoke.ps1
+
+      # A throwaway prerelease version so every CI build produces an installable artifact.
+      - name: CI version
+        shell: pwsh
+        run: |
+          $base = dotnet msbuild Readdit.csproj -getProperty:Version
+          echo "VERSION=$base-ci.${{ github.run_number }}" >> $env:GITHUB_ENV
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Publish
+        run: dotnet publish Readdit.csproj -c Release -r win-x64 --self-contained -p:Version=${{ env.VERSION }} -o publish
+
+      - name: Package installer
+        run: >
+          dotnet vpk pack --packId Readdit --packVersion ${{ env.VERSION }} --packDir publish
+          --mainExe Readdit.exe --packTitle Readdit --icon Assets\readdit.ico --outputDir Releases
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Readdit-${{ env.VERSION }}
+          path: |
+            Releases/Readdit-win-Setup.exe
+            Releases/Readdit-win-Portable.zip
+          retention-days: 14

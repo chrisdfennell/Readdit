@@ -1,0 +1,112 @@
+<!doctype html>
+<!--
+  Smoke test for the post view (wwwroot/detail.js). Renders a fake thread, exercises the main
+  interactions, and writes the outcome to <body data-result>. Run with tests/run-smoke.ps1.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<script>
+  window.__errors = [];
+  window.addEventListener('error', e => window.__errors.push(e.message + ' @' + e.lineno));
+  // Stand-in for WebView2's host bridge: record what the page sends.
+  window.__sent = [];
+  window.chrome = { webview: { postMessage: m => window.__sent.push(m), addEventListener() {} } };
+</script>
+<link rel="stylesheet" href="../wwwroot/detail.css">
+</head>
+<body>
+<div id="empty"></div>
+<main id="root"></main>
+<div id="lightbox" hidden><button class="lb-close"></button><button class="lb-nav lb-prev"></button><div class="lb-stage"><img alt=""></div><button class="lb-nav lb-next"></button><div class="lb-counter"></div></div>
+<div id="toast" hidden></div>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="../wwwroot/detail.js"></script>
+<script>
+try {
+  const now = Date.now() / 1000;
+  const post = {
+    name: 't3_abc', id: 'abc', title: 'Test <b>post</b> & title', subreddit: 'csharp', author: 'alice',
+    created_utc: now - 3600, domain: 'self.csharp', is_self: true, score: 1234, likes: true,
+    num_comments: 3, permalink: '/r/csharp/comments/abc/test/', over_18: false, link_flair_text: 'Help',
+    // Hostile markup: the sanitizer must strip the script and the onerror handler.
+    selftext_html: '<div class="md"><p>Hello <strong>world</strong> <a href="/r/dotnet">r/dotnet</a></p><script>window.__pwned=1<\/script><img src=x onerror="window.__pwned=2"><span class="md-spoiler-text">secret</span></div>',
+  };
+  const comment = (id, author, body, replies) => ({ kind: 't1', data: {
+    id, name: 't1_' + id, author, body, body_html: '<div class="md"><p>' + body + '</p></div>', score: 5,
+    created_utc: now - 60, permalink: '/r/csharp/comments/abc/test/' + id, parent_id: 't3_abc',
+    replies: replies ? { kind: 'Listing', data: { children: replies } } : '' } });
+
+  renderThread({
+    sort: 'confidence', focus: null, offline: false, lastVisit: now - 120,
+    settings: { blurNsfw: true, collapseBelow: -5, muted: ['bob'], highlighted: ['carol'], me: 'dave' },
+    data: [
+      { kind: 'Listing', data: { children: [{ kind: 't3', data: post }] } },
+      { kind: 'Listing', data: { children: [
+        comment('c1', 'bob', 'First comment', [
+          comment('c2', 'carol', 'Nested reply'),
+          { kind: 'more', data: { id: 'm1', count: 4, children: ['x1', 'x2'], parent_id: 't1_c1' } },
+        ]),
+        comment('c3', 'dave', 'Image: <a href="https://preview.redd.it/foo.png?width=100">https://preview.redd.it/foo.png?width=100</a>'),
+        { kind: 'more', data: { id: '_', count: 0, children: [], parent_id: 't1_c3' } },
+      ] } },
+    ],
+  });
+
+  const editButtons = [...document.querySelectorAll('.c-actions .action')].filter(b => b.textContent === 'Edit').length;
+  const md = document.createElement('div');
+  md.append(renderMarkdown('**bold** and >!secret!< and ^super'));
+
+  // Edit flow on our own comment (c3): opens an editor with live preview, cancel restores the body.
+  [...document.querySelectorAll('#c_c3 > .c-content > .c-actions .action')].find(b => b.textContent === 'Edit').click();
+  const editorOpen = !!document.querySelector('#c_c3 .reply-box textarea');
+  document.querySelector('#c_c3 .reply-box .reply-actions button:nth-child(2)').click();
+  const editorClosed = !document.querySelector('#c_c3 > .c-content > .reply-box:not([hidden])') && !!document.querySelector('#c_c3 .c-body');
+
+  const newBadges = document.querySelectorAll('.comment.new').length;
+  const mutedCollapsed = document.querySelectorAll('.comment.muted.collapsed').length;
+  const highlighted = document.querySelectorAll('.comment.highlight').length;
+
+  openFind();
+  findInput.value = 'comment';
+  runFind();
+  const findResult = findCount.textContent;
+  closeFind();
+  window.scrollTo({ top: 0, behavior: 'instant' }); // cancel find's smooth scroll before measuring
+
+  // Click a comment's upvote the way a user would: whatever is on top at that point gets it.
+  const c1 = document.getElementById('c_c1');
+  if (c1.classList.contains('collapsed')) c1.toggleCollapse();
+  const up = document.querySelector('#c_c1 .c-actions .vote .up');
+  up.scrollIntoView({ block: 'center' });
+  const r = up.getBoundingClientRect();
+  const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  hit.click();
+
+  document.body.setAttribute('data-result', JSON.stringify({
+    errors: window.__errors,
+    pwned: window.__pwned || 0,
+    title: document.querySelector('h1')?.textContent,
+    comments: document.querySelectorAll('.comment').length,
+    more: [...document.querySelectorAll('.more button')].map(b => b.textContent),
+    inlineImages: document.querySelectorAll('img.md-img').length,
+    voteLiked: !!document.querySelector('.vote.large.liked'),
+    score: document.querySelector('.vote.large .score')?.textContent,
+    sortOptions: document.querySelectorAll('.comments-head option').length,
+    elementUnderUpvote: hit.tagName + (hit.className ? '.' + hit.className : ''),
+    voteMessages: window.__sent.filter(m => m.type === 'vote'),
+    editButtons,
+    markdown: md.innerHTML,
+    editorOpen,
+    editorClosed,
+    newBadges,
+    mutedCollapsed,
+    highlighted,
+    findResult,
+  }));
+} catch (err) {
+  document.body.setAttribute('data-result', JSON.stringify({ threw: err.message + ' ' + err.stack }));
+}
+</script>
+</body>
+</html>

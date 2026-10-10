@@ -1,0 +1,59 @@
+<#
+.SYNOPSIS
+    Runs tests/detail-smoke.html in headless Edge (or Chrome) and checks the results.
+    Exits non-zero if any check fails. Used by CI and handy locally.
+#>
+$ErrorActionPreference = 'Stop'
+
+$browser = @(
+    "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
+    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
+    "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $browser) { throw 'Microsoft Edge or Google Chrome is required to run the smoke test.' }
+
+$page = (Resolve-Path (Join-Path $PSScriptRoot 'detail-smoke.html')).Path
+$url = 'file:///' + ($page -replace '\\', '/' -replace '#', '%23')
+$profileDir = Join-Path ([IO.Path]::GetTempPath()) "readdit-smoke-$([guid]::NewGuid().ToString('N'))"
+
+try {
+    $dom = & $browser --headless=new --disable-gpu --no-first-run --allow-file-access-from-files `
+        --user-data-dir="$profileDir" --virtual-time-budget=5000 --dump-dom $url 2>$null | Out-String
+} finally {
+    Remove-Item $profileDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+if ($dom -notmatch 'data-result="([^"]*)"') { throw "The smoke page produced no result. Output:`n$dom" }
+$result = [Net.WebUtility]::HtmlDecode($Matches[1]) | ConvertFrom-Json
+if ($result.threw) { throw "The smoke page threw: $($result.threw)" }
+
+$checks = [ordered]@{
+    'no script errors'                    = $result.errors.Count -eq 0
+    'sanitizer blocks injected scripts'   = $result.pwned -eq 0
+    'title rendered as text'              = $result.title -eq 'Test <b>post</b> & title'
+    'all comments rendered'               = $result.comments -eq 3
+    'load-more and continue-thread links' = $result.more.Count -eq 2 -and $result.more[0] -eq 'Load 4 more replies' -and $result.more[1] -like 'Continue this thread*'
+    'image links become inline images'   = $result.inlineImages -eq 1
+    'post vote state and score'           = $result.voteLiked -and $result.score -eq '1.2k'
+    'comment sort menu'                   = $result.sortOptions -eq 6
+    'clicks reach comment vote buttons'   = $result.elementUnderUpvote -eq 'BUTTON.up'
+    'comment vote sent to host'           = $result.voteMessages.Count -eq 1 -and $result.voteMessages[0].id -eq 't1_c1'
+    'edit only on own comments'           = $result.editButtons -eq 1
+    'markdown preview'                    = $result.markdown -match '<strong>bold</strong>' -and $result.markdown -match 'md-spoiler-text' -and $result.markdown -match '<sup>'
+    'editor opens and cancels'            = $result.editorOpen -and $result.editorClosed
+    'new-since-last-visit badges'         = $result.newBadges -eq 2
+    'muted user collapsed'                = $result.mutedCollapsed -eq 1
+    'highlighted user'                    = $result.highlighted -eq 1
+    'find in thread'                      = $result.findResult -eq '1 / 2'
+}
+
+$failed = 0
+foreach ($check in $checks.GetEnumerator()) {
+    if ($check.Value) { Write-Host "  PASS  $($check.Key)" -ForegroundColor Green }
+    else { Write-Host "  FAIL  $($check.Key)" -ForegroundColor Red; $failed++ }
+}
+if ($failed) {
+    Write-Host "`nRaw result:`n$($result | ConvertTo-Json -Depth 5)"
+    throw "$failed smoke check(s) failed."
+}
+Write-Host "`nAll $($checks.Count) smoke checks passed." -ForegroundColor Green
