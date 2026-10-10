@@ -1653,9 +1653,75 @@ document.addEventListener('auxclick', e => {
     openUrl(anchor.getAttribute('href'));
 });
 
+// ---- Middle-click auto-scroll ----------------------------------------------------------------
+// Press and hold the wheel button and move to scroll (release to stop), or click it once to keep
+// scrolling until the next click, key or wheel turn. Links keep middle-click for "open".
+
+const autoScroll = { active: false, originY: 0, y: 0, moved: false, swallowClick: false };
+const autoScrollMarker = el('div', { id: 'autoscroll', hidden: true }, '⇕');
+document.body.append(autoScrollMarker);
+
+function startAutoScroll(e) {
+    Object.assign(autoScroll, { active: true, originY: e.clientY, y: e.clientY, moved: false });
+    autoScrollMarker.style.left = (e.clientX - 15) + 'px';
+    autoScrollMarker.style.top = (e.clientY - 15) + 'px';
+    autoScrollMarker.hidden = false;
+    document.body.classList.add('autoscrolling');
+    requestAnimationFrame(autoScrollFrame);
+}
+
+function stopAutoScroll() {
+    autoScroll.active = false;
+    autoScrollMarker.hidden = true;
+    document.body.classList.remove('autoscrolling');
+}
+
+function autoScrollFrame() {
+    if (!autoScroll.active) return;
+    const dy = autoScroll.y - autoScroll.originY;
+    if (Math.abs(dy) > 10) {
+        autoScroll.moved = true;
+        window.scrollBy(0, Math.min(120, (Math.abs(dy) - 10) * 0.12) * Math.sign(dy));
+    }
+    requestAnimationFrame(autoScrollFrame);
+}
+
+document.addEventListener('mousedown', e => {
+    if (autoScroll.active) {
+        // The click that ends auto-scroll shouldn't also open a link or press a button.
+        stopAutoScroll();
+        autoScroll.swallowClick = true;
+        e.preventDefault();
+        return;
+    }
+    if (e.button !== 1) return;
+    if (e.target.closest('a[href], video, iframe, textarea, input, select')) return;
+    e.preventDefault(); // otherwise Chromium's own auto-scroll may start as well
+    startAutoScroll(e);
+}, true);
+document.addEventListener('click', e => {
+    if (!autoScroll.swallowClick) return;
+    autoScroll.swallowClick = false;
+    e.preventDefault();
+    e.stopPropagation();
+}, true);
+document.addEventListener('mousemove', e => { if (autoScroll.active) autoScroll.y = e.clientY; });
+document.addEventListener('mouseup', e => {
+    if (autoScroll.active && e.button === 1 && autoScroll.moved) stopAutoScroll();
+});
+window.addEventListener('wheel', () => { if (autoScroll.active) stopAutoScroll(); }, { passive: true });
+window.addEventListener('blur', () => { if (autoScroll.active) stopAutoScroll(); });
+
 const NATIVE_KEYS = new Set([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End']);
 
 document.addEventListener('keydown', e => {
+    if (autoScroll.active) {
+        stopAutoScroll();
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            return;
+        }
+    }
     if (!lightbox.hidden) {
         // Only claim the lightbox's own keys; Ctrl+C and friends keep working.
         if (e.key === 'Escape') closeLightbox();

@@ -158,6 +158,33 @@ try {
 } catch (err) {
   document.body.setAttribute('data-result', JSON.stringify({ threw: err.message + ' ' + err.stack }));
 }
+
+// Middle-click auto-scroll needs a few animation frames, so it reports separately.
+(async () => {
+  const out = {};
+  try {
+    // Tall page so there's room to scroll.
+    root.append(el('div', { style: 'height:5000px' }, 'spacer'));
+    window.scrollTo(0, 0);
+    const mouse = (type, target, opts) => target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, ...opts }));
+
+    const link = el('a', { href: '/r/test' }, 'a link');
+    root.prepend(link);
+    mouse('mousedown', link, { button: 1, clientX: 100, clientY: 100 });
+    out.linkStarts = autoScroll.active;
+
+    mouse('mousedown', root, { button: 1, clientX: 200, clientY: 200 });
+    out.started = autoScroll.active;
+    mouse('mousemove', document, { clientX: 200, clientY: 400 });
+    await new Promise(r => setTimeout(r, 400));
+    out.scrolledDown = window.scrollY > 50;
+    mouse('mousedown', root, { button: 0, clientX: 200, clientY: 400 });
+    out.stoppedByClick = !autoScroll.active;
+  } catch (err) {
+    out.threw = err.message;
+  }
+  document.body.setAttribute('data-autoscroll', JSON.stringify(out));
+})();
 </script>
 </body>
 </html>

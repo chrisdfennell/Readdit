@@ -30,6 +30,7 @@ try {
 if ($dom -notmatch 'data-result="([^"]*)"') { throw "The smoke page produced no result. Output:`n$dom" }
 $result = [Net.WebUtility]::HtmlDecode($Matches[1]) | ConvertFrom-Json
 if ($result.threw) { throw "The smoke page threw: $($result.threw)" }
+$auto = if ($dom -match 'data-autoscroll="([^"]*)"') { [Net.WebUtility]::HtmlDecode($Matches[1]) | ConvertFrom-Json } else { $null }
 
 $checks = [ordered]@{
     'no script errors'                    = $result.errors.Count -eq 0
@@ -56,6 +57,9 @@ $checks = [ordered]@{
     'report count and reasons shown'      = $result.mod.postReportBadge -eq '2 REPORTS' -and $result.mod.reportText -match 'Spam' -and $result.mod.reportText -match 'Off topic'
     'mod menu offers the actions'         = ($result.mod.menuItems -join '|') -match 'Approve' -and ($result.mod.menuItems -join '|') -match 'Ban u/alice'
     'approve sends a mod request'         = $result.mod.sent -contains 'approve:t3_abc:csharp'
+    'middle-click on a link still opens'  = $auto -and -not $auto.linkStarts
+    'middle-click auto-scroll scrolls'    = $auto -and $auto.started -and $auto.scrolledDown
+    'next click stops auto-scroll'        = $auto -and $auto.stoppedByClick
     'muted user collapsed'                = $result.mutedCollapsed -eq 1
     'highlighted user'                    = $result.highlighted -eq 1
     'find counts each match once'         = $result.findResult -eq '1 / 1'

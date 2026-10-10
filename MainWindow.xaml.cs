@@ -35,6 +35,13 @@ public partial class MainWindow : Window
         _vm.AppearanceChanged += ApplyAppearance;
         Loaded += async (_, _) => await _vm.InitializeAsync();
 
+        // Middle-click auto-scroll on the post list.
+        _autoScroll = new AutoScroller(this);
+        PreviewMouseDown += OnWindowPreviewMouseDown;
+        PreviewMouseUp += (_, e) => { if (_autoScroll.OnMouseUp(e)) e.Handled = true; };
+        PreviewMouseWheel += (_, _) => { if (_autoScroll.IsActive) _autoScroll.Stop(); };
+        Deactivated += (_, _) => { if (_autoScroll.IsActive) _autoScroll.Stop(); };
+
         _tray.OpenRequested += BringToFront;
         _tray.InboxRequested += OpenInbox;
         _tray.ExitRequested += () =>
@@ -73,6 +80,30 @@ public partial class MainWindow : Window
     }
 
     bool _restarting;
+    readonly AutoScroller _autoScroll;
+
+    void OnWindowPreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        // Only on the post list; middle-click keeps its meaning elsewhere (open sidebar entries
+        // in a new tab, close tabs).
+        ScrollViewer? viewer = null;
+        if (e.ChangedButton == MouseButton.Middle && !_autoScroll.IsActive)
+        {
+            var list = FindAncestor<ListBox>(e.OriginalSource as DependencyObject);
+            if (list?.DataContext is not FeedViewModel) return;
+            viewer = AutoScroller.FindScrollViewer(list);
+        }
+        if (_autoScroll.OnMouseDown(e, viewer)) e.Handled = true;
+    }
+
+    static T? FindAncestor<T>(DependencyObject? node) where T : DependencyObject
+    {
+        while (node != null && node is not T)
+            node = node is Visual or System.Windows.Media.Media3D.Visual3D
+                ? VisualTreeHelper.GetParent(node)
+                : LogicalTreeHelper.GetParent(node);
+        return node as T;
+    }
 
     public void BringToFront()
     {
@@ -221,6 +252,15 @@ public partial class MainWindow : Window
     void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (_autoScroll.IsActive)
+        {
+            _autoScroll.Stop(); // any key, Esc especially, ends auto-scroll
+            if (key == Key.Escape)
+            {
+                e.Handled = true;
+                return;
+            }
+        }
         var ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
         var shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt)) return;
