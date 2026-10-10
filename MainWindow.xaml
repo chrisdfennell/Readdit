@@ -1,0 +1,650 @@
+<Window x:Class="Readdit.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Readdit"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="{Binding WindowTitle}"
+        Icon="Assets/readdit.ico"
+        Width="1500" Height="900" MinWidth="1000" MinHeight="560"
+        WindowStartupLocation="CenterScreen"
+        PreviewKeyDown="OnPreviewKeyDown">
+
+    <Window.Resources>
+        <local:VisibilityConverter x:Key="Vis" />
+        <local:VisibilityConverter x:Key="InvVis" Invert="True" />
+        <local:UrlToImageConverter x:Key="UrlToImage" />
+        <local:HasValueConverter x:Key="HasValue" />
+        <SolidColorBrush x:Key="Downvote" Color="#7193FF" />
+        <SolidColorBrush x:Key="Divider" Color="#40808080" />
+        <SolidColorBrush x:Key="CardBorder" Color="#30808080" />
+        <SolidColorBrush x:Key="SoftFill" Color="#14808080" />
+        <BlurEffect x:Key="NsfwBlur" Radius="18" />
+
+        <Style x:Key="Meta" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Opacity" Value="0.7" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+        <Style x:Key="SectionHeader" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Opacity" Value="0.6" />
+            <Setter Property="Margin" Value="10,14,10,4" />
+        </Style>
+
+        <!-- Bare glyph button for vote arrows and tab close boxes. -->
+        <Style x:Key="GlyphButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Padding" Value="4,1" />
+            <Setter Property="Opacity" Value="0.65" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Opacity" Value="1" />
+                    <Setter Property="Background" Value="#22808080" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Community icon, or a letter badge when there isn't one. -->
+        <DataTemplate x:Key="CommunityIcon" DataType="{x:Type local:SidebarItem}">
+            <Grid Width="20" Height="20" Margin="0,0,8,0">
+                <Border CornerRadius="10" Background="{DynamicResource Accent}"
+                        Visibility="{Binding HasIcon, Converter={StaticResource InvVis}}">
+                    <TextBlock Text="{Binding Initial}" Foreground="White" FontSize="11" FontWeight="Bold"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <Border CornerRadius="10" ClipToBounds="True"
+                        Visibility="{Binding HasIcon, Converter={StaticResource Vis}}">
+                    <Border.Background>
+                        <ImageBrush ImageSource="{Binding Icon, Converter={StaticResource UrlToImage}, ConverterParameter=40}"
+                                    Stretch="UniformToFill" />
+                    </Border.Background>
+                </Border>
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="SidebarItemTemplate" DataType="{x:Type local:SidebarItem}">
+            <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                    Background="Transparent" BorderThickness="0" Margin="0,1" Padding="8,4"
+                    ToolTip="{Binding Label}"
+                    Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
+                    Command="{Binding DataContext.OpenFeedCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                    CommandParameter="{Binding Spec}">
+                <StackPanel Orientation="Horizontal">
+                    <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource CommunityIcon}"
+                                      Visibility="{Binding IsCommunity, Converter={StaticResource Vis}}" />
+                    <TextBlock Text="{Binding Label}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+                <Button.InputBindings>
+                    <MouseBinding MouseAction="MiddleClick"
+                                  Command="{Binding DataContext.OpenInNewTabCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                  CommandParameter="{Binding Spec}" />
+                </Button.InputBindings>
+                <Button.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="Open in new tab"
+                                  Command="{Binding PlacementTarget.Tag.OpenInNewTabCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding Spec}" />
+                        <MenuItem Header="Add to favorites"
+                                  Command="{Binding PlacementTarget.Tag.AddFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding Spec}" />
+                        <MenuItem Header="Remove from favorites"
+                                  Command="{Binding PlacementTarget.Tag.RemoveFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding Spec}" />
+                    </ContextMenu>
+                </Button.ContextMenu>
+            </Button>
+        </DataTemplate>
+
+        <!-- Right-click menu for any post row, card or tile. Tag carries the window's view model. -->
+        <ContextMenu x:Key="PostMenu" x:Shared="False">
+            <MenuItem Header="Upvote" InputGestureText="A"
+                      Command="{Binding PlacementTarget.Tag.VoteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <MenuItem Header="Downvote" InputGestureText="Z"
+                      Command="{Binding PlacementTarget.Tag.DownvoteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <MenuItem Header="Save / unsave" InputGestureText="S"
+                      Command="{Binding PlacementTarget.Tag.ToggleSaveCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <MenuItem Header="Hide post" InputGestureText="X"
+                      Command="{Binding PlacementTarget.Tag.HideCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <MenuItem Header="Download images / video" InputGestureText="D"
+                      Command="{Binding PlacementTarget.Tag.DownloadCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <MenuItem Header="Edit library tags…"
+                      Command="{Binding PlacementTarget.Tag.EditTagsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <Separator />
+            <MenuItem Header="Open link" InputGestureText="O"
+                      Command="{Binding PlacementTarget.Tag.OpenLinkCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding Url}" />
+            <MenuItem Header="Open on reddit.com"
+                      Command="{Binding PlacementTarget.Tag.OpenLinkCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding PermalinkUrl}" />
+            <MenuItem Header="Open in default browser" InputGestureText="Shift+O"
+                      Command="{Binding PlacementTarget.Tag.OpenInBrowserCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding Url}" />
+            <MenuItem Header="Copy link"
+                      Command="{Binding PlacementTarget.Tag.CopyLinkCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding PermalinkUrl}" />
+            <Separator />
+            <MenuItem Header="{Binding Subreddit}" HeaderStringFormat="Open r/{0} in new tab"
+                      Command="{Binding PlacementTarget.Tag.OpenPostSubredditCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <MenuItem Header="{Binding Author}" HeaderStringFormat="View u/{0}"
+                      Command="{Binding PlacementTarget.Tag.OpenAuthorCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+        </ContextMenu>
+
+        <Style x:Key="PostItemStyle" TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+            <Setter Property="Tag" Value="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}" />
+            <Setter Property="ContextMenu" Value="{StaticResource PostMenu}" />
+        </Style>
+
+        <!-- Large hover preview for thumbnails. -->
+        <ToolTip x:Key="ImagePreview" x:Shared="False" Placement="Right" Padding="4" MaxWidth="600">
+            <Image Source="{Binding PreviewImage, Converter={StaticResource UrlToImage}, ConverterParameter=560}"
+                   MaxWidth="560" MaxHeight="560" Stretch="Uniform" />
+        </ToolTip>
+
+        <!-- Shared vote column. -->
+        <DataTemplate x:Key="VoteColumn" DataType="{x:Type local:Post}">
+            <StackPanel x:Name="Root" VerticalAlignment="Top" Visibility="{Binding CanVote, Converter={StaticResource Vis}}">
+                <Button x:Name="UpArrow" Content="▲" Style="{StaticResource GlyphButton}" ToolTip="Upvote (a)"
+                        Command="{Binding DataContext.VoteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                        CommandParameter="{Binding}" />
+                <TextBlock x:Name="ScoreLabel" Text="{Binding ScoreText}" FontWeight="Bold" FontSize="12"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" Margin="2,0" />
+                <Button x:Name="DownArrow" Content="▼" Style="{StaticResource GlyphButton}" ToolTip="Downvote (z)"
+                        Command="{Binding DataContext.DownvoteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                        CommandParameter="{Binding}" />
+            </StackPanel>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding Likes}" Value="True">
+                    <Setter TargetName="UpArrow" Property="Foreground" Value="{DynamicResource Accent}" />
+                    <Setter TargetName="UpArrow" Property="Opacity" Value="1" />
+                    <Setter TargetName="ScoreLabel" Property="Foreground" Value="{DynamicResource Accent}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Likes}" Value="False">
+                    <Setter TargetName="DownArrow" Property="Foreground" Value="{StaticResource Downvote}" />
+                    <Setter TargetName="DownArrow" Property="Opacity" Value="1" />
+                    <Setter TargetName="ScoreLabel" Property="Foreground" Value="{StaticResource Downvote}" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <!-- Horizontal vote bar for cards. -->
+        <DataTemplate x:Key="VoteBar" DataType="{x:Type local:Post}">
+            <StackPanel Orientation="Horizontal" Visibility="{Binding CanVote, Converter={StaticResource Vis}}">
+                <Button x:Name="UpArrow" Content="▲" Style="{StaticResource GlyphButton}" ToolTip="Upvote (a)"
+                        Command="{Binding DataContext.VoteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                        CommandParameter="{Binding}" />
+                <TextBlock x:Name="ScoreLabel" Text="{Binding ScoreText}" FontWeight="Bold" FontSize="12"
+                           VerticalAlignment="Center" Margin="2,0" />
+                <Button x:Name="DownArrow" Content="▼" Style="{StaticResource GlyphButton}" ToolTip="Downvote (z)"
+                        Command="{Binding DataContext.DownvoteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                        CommandParameter="{Binding}" />
+            </StackPanel>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding Likes}" Value="True">
+                    <Setter TargetName="UpArrow" Property="Foreground" Value="{DynamicResource Accent}" />
+                    <Setter TargetName="UpArrow" Property="Opacity" Value="1" />
+                    <Setter TargetName="ScoreLabel" Property="Foreground" Value="{DynamicResource Accent}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Likes}" Value="False">
+                    <Setter TargetName="DownArrow" Property="Foreground" Value="{StaticResource Downvote}" />
+                    <Setter TargetName="DownArrow" Property="Opacity" Value="1" />
+                    <Setter TargetName="ScoreLabel" Property="Foreground" Value="{StaticResource Downvote}" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <!-- Compact rows. -->
+        <DataTemplate x:Key="CompactTemplate" DataType="{x:Type local:Post}">
+            <Grid Margin="0,6" Background="Transparent">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="46" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource VoteColumn}" />
+
+                <Border Grid.Column="1" Width="72" Height="72" Margin="2,0,10,0" CornerRadius="6"
+                        VerticalAlignment="Top" ClipToBounds="True"
+                        ToolTip="{StaticResource ImagePreview}"
+                        ToolTipService.IsEnabled="{Binding HasPreview}"
+                        ToolTipService.InitialShowDelay="250"
+                        Visibility="{Binding Thumbnail, Converter={StaticResource Vis}}">
+                    <Image x:Name="Thumb" Stretch="UniformToFill"
+                           Source="{Binding Thumbnail, Converter={StaticResource UrlToImage}, ConverterParameter=144}" />
+                </Border>
+
+                <StackPanel Grid.Column="2">
+                    <TextBlock x:Name="TitleText" Text="{Binding Title}" TextWrapping="Wrap" FontSize="14" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding Tags}" FontSize="11" FontWeight="SemiBold" Margin="0,3,0,0"
+                               Foreground="{DynamicResource Accent}" TextTrimming="CharacterEllipsis"
+                               Visibility="{Binding Tags, Converter={StaticResource Vis}}" />
+                    <TextBlock Text="{Binding Snippet}" TextWrapping="Wrap" Margin="0,3,0,0" MaxHeight="60"
+                               TextTrimming="CharacterEllipsis" Opacity="0.9"
+                               Visibility="{Binding Snippet, Converter={StaticResource Vis}}" />
+                    <DockPanel Margin="0,3,0,0">
+                        <TextBlock DockPanel.Dock="Right" Text="★" Foreground="#E0A800" Margin="6,0,0,0" ToolTip="Saved"
+                                   Visibility="{Binding Saved, Converter={StaticResource Vis}}" />
+                        <TextBlock DockPanel.Dock="Right" Text="{Binding NewCommentsText}" FontSize="12" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Accent}" Margin="6,0,0,0"
+                                   ToolTip="New comments since you last opened this thread"
+                                   Visibility="{Binding HasNewComments, Converter={StaticResource Vis}}" />
+                        <TextBlock Text="{Binding MetaLine}" Style="{StaticResource Meta}" />
+                    </DockPanel>
+                </StackPanel>
+            </Grid>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding BlurThumbnail}" Value="True">
+                    <Setter TargetName="Thumb" Property="Effect" Value="{StaticResource NsfwBlur}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsRead}" Value="True">
+                    <Setter TargetName="TitleText" Property="Opacity" Value="0.55" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <!-- Big cards with the image front and centre. -->
+        <DataTemplate x:Key="CardTemplate" DataType="{x:Type local:Post}">
+            <Border Margin="2,6" Padding="14,10" CornerRadius="10" BorderThickness="1"
+                    BorderBrush="{StaticResource CardBorder}" Background="{StaticResource SoftFill}">
+                <StackPanel>
+                    <TextBlock Text="{Binding ShortMeta}" Style="{StaticResource Meta}" />
+                    <TextBlock x:Name="TitleText" Text="{Binding Title}" TextWrapping="Wrap" FontSize="17"
+                               FontWeight="SemiBold" Margin="0,4,0,0" />
+                    <TextBlock Text="{Binding Tags}" FontSize="11" FontWeight="SemiBold" Margin="0,4,0,0"
+                               Foreground="{DynamicResource Accent}" TextTrimming="CharacterEllipsis"
+                               Visibility="{Binding Tags, Converter={StaticResource Vis}}" />
+
+                    <Border Margin="0,10,0,0" CornerRadius="8" ClipToBounds="True" HorizontalAlignment="Stretch"
+                            Visibility="{Binding PreviewImage, Converter={StaticResource Vis}}">
+                        <Image x:Name="Preview" MaxHeight="460" Stretch="Uniform"
+                               Source="{Binding PreviewImage, Converter={StaticResource UrlToImage}, ConverterParameter=640}" />
+                    </Border>
+                    <TextBlock Text="{Binding CardText}" TextWrapping="Wrap" Margin="0,8,0,0" MaxHeight="110"
+                               TextTrimming="CharacterEllipsis" Opacity="0.85"
+                               Visibility="{Binding CardText, Converter={StaticResource Vis}}" />
+                    <TextBlock Text="{Binding Snippet}" TextWrapping="Wrap" Margin="0,8,0,0" MaxHeight="110"
+                               TextTrimming="CharacterEllipsis" Opacity="0.85"
+                               Visibility="{Binding Snippet, Converter={StaticResource Vis}}" />
+
+                    <DockPanel Margin="-4,8,0,0">
+                        <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource VoteBar}" />
+                        <TextBlock Text="{Binding CommentsText}" Style="{StaticResource Meta}" Margin="14,0,0,0"
+                                   VerticalAlignment="Center" Visibility="{Binding IsLink, Converter={StaticResource Vis}}" />
+                        <TextBlock Text="{Binding NewCommentsText}" FontSize="12" FontWeight="SemiBold" Margin="6,0,0,0"
+                                   Foreground="{DynamicResource Accent}" VerticalAlignment="Center"
+                                   Visibility="{Binding HasNewComments, Converter={StaticResource Vis}}" />
+                        <TextBlock Text="★ Saved" Foreground="#E0A800" Margin="14,0,0,0" VerticalAlignment="Center"
+                                   FontSize="12" Visibility="{Binding Saved, Converter={StaticResource Vis}}" />
+                        <TextBlock Text="{Binding Domain}" Style="{StaticResource Meta}" HorizontalAlignment="Right"
+                                   VerticalAlignment="Center" Visibility="{Binding HasLink, Converter={StaticResource Vis}}" />
+                    </DockPanel>
+                </StackPanel>
+            </Border>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding BlurThumbnail}" Value="True">
+                    <Setter TargetName="Preview" Property="Effect" Value="{StaticResource NsfwBlur}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsRead}" Value="True">
+                    <Setter TargetName="TitleText" Property="Opacity" Value="0.55" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <!-- Picture grid tiles. -->
+        <DataTemplate x:Key="GridTemplate" DataType="{x:Type local:Post}">
+            <Border Width="214" Margin="2" CornerRadius="8" ClipToBounds="True"
+                    BorderThickness="1" BorderBrush="{StaticResource CardBorder}" Background="{StaticResource SoftFill}">
+                <StackPanel>
+                    <Grid Height="190">
+                        <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="12" FontSize="14" FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Opacity="0.85"
+                                   Visibility="{Binding PreviewImage, Converter={StaticResource InvVis}}" />
+                        <Image x:Name="Preview" Stretch="UniformToFill"
+                               ToolTip="{StaticResource ImagePreview}" ToolTipService.InitialShowDelay="400"
+                               Source="{Binding PreviewImage, Converter={StaticResource UrlToImage}, ConverterParameter=320}"
+                               Visibility="{Binding PreviewImage, Converter={StaticResource Vis}}" />
+                        <TextBlock Text="{Binding ScoreText}" FontSize="11" FontWeight="Bold" Foreground="White"
+                                   Background="#99000000" Padding="6,1" Margin="6"
+                                   HorizontalAlignment="Left" VerticalAlignment="Top" />
+                    </Grid>
+                    <StackPanel Margin="8,6,8,8">
+                        <TextBlock x:Name="TitleText" Text="{Binding Title}" TextWrapping="Wrap" FontWeight="SemiBold"
+                                   MaxHeight="38" TextTrimming="CharacterEllipsis" FontSize="12" />
+                        <TextBlock Text="{Binding ShortMeta}" Style="{StaticResource Meta}" FontSize="11" Margin="0,2,0,0" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding BlurThumbnail}" Value="True">
+                    <Setter TargetName="Preview" Property="Effect" Value="{StaticResource NsfwBlur}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsRead}" Value="True">
+                    <Setter TargetName="TitleText" Property="Opacity" Value="0.55" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <ItemsPanelTemplate x:Key="ListPanel">
+            <VirtualizingStackPanel />
+        </ItemsPanelTemplate>
+        <ItemsPanelTemplate x:Key="GridPanel">
+            <WrapPanel />
+        </ItemsPanelTemplate>
+
+        <!-- Post list: layout follows the toolbar's Compact / Cards / Grid choice. -->
+        <Style x:Key="PostListStyle" TargetType="ListBox" BasedOn="{StaticResource {x:Type ListBox}}">
+            <Setter Property="ItemTemplate" Value="{StaticResource CompactTemplate}" />
+            <Setter Property="ItemsPanel" Value="{StaticResource ListPanel}" />
+            <Setter Property="ItemContainerStyle" Value="{StaticResource PostItemStyle}" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+            <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True" />
+            <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling" />
+            <Setter Property="VirtualizingPanel.ScrollUnit" Value="Pixel" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.LayoutMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="Cards">
+                    <Setter Property="ItemTemplate" Value="{StaticResource CardTemplate}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding DataContext.LayoutMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="Grid">
+                    <Setter Property="ItemTemplate" Value="{StaticResource GridTemplate}" />
+                    <Setter Property="ItemsPanel" Value="{StaticResource GridPanel}" />
+                    <Setter Property="HorizontalContentAlignment" Value="Left" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid x:Name="RootGrid">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Toolbar -->
+        <DockPanel Margin="10,8" LastChildFill="False"
+                   Visibility="{Binding ShowLogin, Converter={StaticResource InvVis}}">
+            <Grid DockPanel.Dock="Left" Width="340">
+                <TextBox x:Name="SearchBox" VerticalContentAlignment="Center"
+                         Text="{Binding SearchInput, UpdateSourceTrigger=PropertyChanged}"
+                         ToolTip="Search Reddit, or type r/name, u/name or a reddit link (/ or Ctrl+L)"
+                         PreviewKeyDown="OnSearchBoxKeyDown">
+                    <TextBox.InputBindings>
+                        <KeyBinding Key="Return" Command="{Binding GoCommand}" />
+                    </TextBox.InputBindings>
+                </TextBox>
+                <TextBlock Text="🔍 Search, or r/name, u/name…" Margin="12,0,0,0" VerticalAlignment="Center"
+                           Opacity="0.5" IsHitTestVisible="False"
+                           Visibility="{Binding SearchInput, Converter={StaticResource InvVis}}" />
+                <Popup IsOpen="{Binding ShowSuggestions, Mode=TwoWay}" PlacementTarget="{Binding ElementName=SearchBox}"
+                       Placement="Bottom" StaysOpen="False" AllowsTransparency="True" Width="340">
+                    <Border Background="{DynamicResource {x:Static SystemColors.WindowBrushKey}}" CornerRadius="8"
+                            BorderBrush="{StaticResource Divider}" BorderThickness="1" Padding="4" Margin="0,4,0,0">
+                        <ListBox x:Name="SuggestionList" ItemsSource="{Binding Suggestions}" BorderThickness="0"
+                                 Background="Transparent" KeyDown="OnSuggestionKeyDown" MouseUp="OnSuggestionClicked">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="{x:Type local:SidebarItem}">
+                                    <StackPanel Orientation="Horizontal" Margin="2,3">
+                                        <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource CommunityIcon}" />
+                                        <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+                </Popup>
+            </Grid>
+            <CheckBox DockPanel.Dock="Left" Margin="10,0,0,0" VerticalAlignment="Center"
+                      Content="{Binding SearchScopeLabel}" IsChecked="{Binding SearchInSubreddit}"
+                      Visibility="{Binding CanSearchInSubreddit, Converter={StaticResource Vis}}" />
+
+            <ComboBox DockPanel.Dock="Left" Margin="14,0,0,0" MinWidth="120" ToolTip="Sort posts"
+                      ItemsSource="{Binding SelectedTab.Sorts}" SelectedItem="{Binding SelectedTab.Sort}"
+                      Visibility="{Binding SelectedTab.HasSorts, Converter={StaticResource Vis}, FallbackValue=Collapsed}" />
+            <ComboBox DockPanel.Dock="Left" Margin="6,0,0,0" MinWidth="100" ToolTip="Time range"
+                      ItemsSource="{Binding SelectedTab.TimeFilters}" SelectedItem="{Binding SelectedTab.TimeFilter}"
+                      Visibility="{Binding SelectedTab.UsesTimeFilter, Converter={StaticResource Vis}, FallbackValue=Collapsed}" />
+            <Button DockPanel.Dock="Left" Content="⟳" Margin="6,0,0,0" MinWidth="40"
+                    Command="{Binding RefreshCommand}" ToolTip="Refresh (r / F5)" />
+            <Button DockPanel.Dock="Left" Content="{Binding FavoriteLabel}" Margin="6,0,0,0"
+                    Command="{Binding ToggleFavoriteCommand}"
+                    Visibility="{Binding SelectedTab.IsSubreddit, Converter={StaticResource Vis}, FallbackValue=Collapsed}" />
+            <ComboBox DockPanel.Dock="Left" Margin="14,0,0,0" MinWidth="110" ToolTip="Layout (1 / 2 / 3)"
+                      ItemsSource="{Binding LayoutModes}" SelectedItem="{Binding LayoutMode}" />
+            <Button DockPanel.Dock="Left" Content="{Binding ReadingModeLabel}" Margin="6,0,0,0"
+                    Command="{Binding ToggleReadingModeCommand}" ToolTip="Reading mode (f, Esc to exit)" />
+
+            <Button DockPanel.Dock="Right" Content="{Binding AccountLabel}" Margin="6,0,0,0"
+                    Click="OnAccountButtonClick" ToolTip="Switch or add accounts" />
+            <Button DockPanel.Dock="Right" Content="⬆ Update ready" Margin="6,0,0,0"
+                    Style="{DynamicResource AccentButtonStyle}" ToolTip="Restart Readdit to install the new version"
+                    Command="{Binding InstallUpdateCommand}"
+                    Visibility="{Binding UpdateReady, Converter={StaticResource Vis}}" />
+            <Button DockPanel.Dock="Right" Content="⚙" Margin="6,0,0,0" MinWidth="40"
+                    Command="{Binding PreferencesCommand}" ToolTip="Preferences and filters" />
+            <Button DockPanel.Dock="Right" Content="⌨" Margin="6,0,0,0" MinWidth="40"
+                    Command="{Binding ShortcutsCommand}" ToolTip="Keyboard shortcuts (?)" />
+            <Button DockPanel.Dock="Right" Content="{Binding InboxLabel}" Margin="6,0,0,0" MinWidth="44"
+                    Command="{Binding OpenFeedCommand}" CommandParameter="inbox" ToolTip="Inbox (i)" />
+            <Button DockPanel.Dock="Right" Content="✏ New post" Margin="6,0,0,0"
+                    Command="{Binding SubmitCommand}" ToolTip="New post (n)" />
+        </DockPanel>
+
+        <!-- Main content -->
+        <Grid Grid.Row="1" Visibility="{Binding ShowLogin, Converter={StaticResource InvVis}}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="SidebarColumn" Width="230" MinWidth="140" />
+                <ColumnDefinition x:Name="SidebarSplitColumn" Width="Auto" />
+                <ColumnDefinition x:Name="ListColumn" Width="2*" MinWidth="340" />
+                <ColumnDefinition x:Name="ListSplitColumn" Width="Auto" />
+                <ColumnDefinition Width="3*" MinWidth="340" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Sidebar -->
+            <DockPanel>
+                <Grid DockPanel.Dock="Top" Margin="8,4,8,0">
+                    <TextBox Text="{Binding SidebarFilter, UpdateSourceTrigger=PropertyChanged}" VerticalContentAlignment="Center" />
+                    <TextBlock Text="Filter communities" Margin="12,0,0,0" VerticalAlignment="Center" Opacity="0.5"
+                               IsHitTestVisible="False"
+                               Visibility="{Binding SidebarFilter, Converter={StaticResource InvVis}}" />
+                </Grid>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="4,0,4,12">
+                        <TextBlock Text="FEEDS" Style="{StaticResource SectionHeader}" />
+                        <ItemsControl ItemsSource="{Binding Feeds}" ItemTemplate="{StaticResource SidebarItemTemplate}" />
+
+                        <TextBlock Text="FAVORITES" Style="{StaticResource SectionHeader}" />
+                        <ItemsControl ItemsSource="{Binding FavoriteItems}" ItemTemplate="{StaticResource SidebarItemTemplate}" />
+
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="⟳" Style="{StaticResource GlyphButton}" Margin="0,10,6,0"
+                                    Command="{Binding RefreshSubscriptionsCommand}" ToolTip="Reload subscriptions" />
+                            <TextBlock Text="{Binding SubscriptionsHeader}" Style="{StaticResource SectionHeader}" />
+                        </DockPanel>
+                        <ItemsControl ItemsSource="{Binding SubscriptionItems}" ItemTemplate="{StaticResource SidebarItemTemplate}" />
+                    </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
+
+            <GridSplitter x:Name="SidebarSplitter" Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                          Background="{StaticResource Divider}" ResizeBehavior="PreviousAndNext" />
+
+            <!-- Tabs + post list -->
+            <TabControl Grid.Column="2" ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}"
+                        BorderThickness="0" Padding="0">
+                <TabControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type local:FeedViewModel}">
+                        <StackPanel Orientation="Horizontal" Background="Transparent" ToolTip="{Binding Title}">
+                            <StackPanel.InputBindings>
+                                <MouseBinding MouseAction="MiddleClick"
+                                              Command="{Binding DataContext.CloseTabCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                              CommandParameter="{Binding}" />
+                            </StackPanel.InputBindings>
+                            <TextBlock Text="{Binding Title}" MaxWidth="150" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                            <Button Content="✕" FontSize="10" Margin="6,0,0,0" Style="{StaticResource GlyphButton}"
+                                    ToolTip="Close tab (Ctrl+W)"
+                                    Command="{Binding DataContext.CloseTabCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    CommandParameter="{Binding}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </TabControl.ItemTemplate>
+                <TabControl.ContentTemplate>
+                    <DataTemplate DataType="{x:Type local:FeedViewModel}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <Border Padding="14,10" BorderThickness="0,0,0,1" BorderBrush="{StaticResource Divider}"
+                                    Visibility="{Binding HasHeader, Converter={StaticResource Vis}}">
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" VerticalAlignment="Top" Margin="10,0,0,0"
+                                            Content="{Binding HeaderActionLabel}" Command="{Binding HeaderActionCommand}"
+                                            Visibility="{Binding HeaderActionLabel, Converter={StaticResource Vis}}" />
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding HeaderTitle}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding HeaderText}" TextWrapping="Wrap" Opacity="0.75" Margin="0,3,0,0"
+                                                   MaxHeight="72" TextTrimming="CharacterEllipsis"
+                                                   Visibility="{Binding HeaderText, Converter={StaticResource Vis}}" />
+                                        <ItemsControl ItemsSource="{Binding HeaderChips}" Margin="0,4,0,0">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="{x:Type local:SidebarItem}">
+                                                    <Button Margin="0,4,6,0" Padding="8,3"
+                                                            Command="{Binding DataContext.OpenFeedCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding Spec}">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource CommunityIcon}" />
+                                                            <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                                                        </StackPanel>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+
+                            <!-- Offline library: full-text search and tag filter. -->
+                            <DockPanel Grid.Row="1" Margin="10,8" Visibility="{Binding IsOffline, Converter={StaticResource Vis}}">
+                                <ComboBox DockPanel.Dock="Right" MinWidth="140" Margin="8,0,0,0" ToolTip="Filter by tag"
+                                          ItemsSource="{Binding LibraryTagOptions}" SelectedItem="{Binding LibraryTag}" />
+                                <Grid>
+                                    <TextBox Text="{Binding LibraryQuery, UpdateSourceTrigger=PropertyChanged, Delay=300}"
+                                             VerticalContentAlignment="Center" />
+                                    <TextBlock Text="🔍 Search saved posts and comments" Margin="12,0,0,0" VerticalAlignment="Center"
+                                               Opacity="0.5" IsHitTestVisible="False"
+                                               Visibility="{Binding LibraryQuery, Converter={StaticResource InvVis}}" />
+                                </Grid>
+                            </DockPanel>
+
+                            <ProgressBar Grid.Row="2" IsIndeterminate="True" Height="3"
+                                         Visibility="{Binding IsLoading, Converter={StaticResource Vis}}" />
+
+                            <ListBox Grid.Row="3" ItemsSource="{Binding Posts}" SelectedItem="{Binding SelectedPost}"
+                                     Style="{StaticResource PostListStyle}"
+                                     SelectionChanged="OnPostSelectionChanged"
+                                     ScrollViewer.ScrollChanged="OnPostListScrollChanged" />
+
+                            <Button Grid.Row="4" Content="Load more (m)" Margin="8" HorizontalAlignment="Stretch"
+                                    Command="{Binding LoadMoreCommand}"
+                                    Visibility="{Binding HasMore, Converter={StaticResource Vis}}" />
+                        </Grid>
+                    </DataTemplate>
+                </TabControl.ContentTemplate>
+            </TabControl>
+
+            <GridSplitter x:Name="ListSplitter" Grid.Column="3" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                          Background="{StaticResource Divider}" ResizeBehavior="PreviousAndNext" />
+
+            <Grid Grid.Column="4">
+                <!-- Post + comments (HTML, see wwwroot/detail.*) -->
+                <wv2:WebView2 x:Name="DetailWebView" DefaultBackgroundColor="Transparent"
+                              Visibility="{Binding ShowBrowser, Converter={StaticResource InvVis}}" />
+
+                <!-- In-app browser for links. WebViews can't overlap, so it swaps with the post view. -->
+                <DockPanel Visibility="{Binding ShowBrowser, Converter={StaticResource Vis}}">
+                    <Border DockPanel.Dock="Top" Padding="6,5" BorderThickness="0,0,0,1" BorderBrush="{StaticResource Divider}">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                                <Button Content="←" MinWidth="34" Command="{Binding BrowserBackCommand}" ToolTip="Back (Alt+Left)" />
+                                <Button Content="→" MinWidth="34" Margin="4,0,0,0" Command="{Binding BrowserForwardCommand}" ToolTip="Forward (Alt+Right)" />
+                                <Button Content="⟳" MinWidth="34" Margin="4,0,0,0" Command="{Binding BrowserReloadCommand}" ToolTip="Reload" />
+                            </StackPanel>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                <Button Content="📋" MinWidth="34" Margin="4,0,0,0" ToolTip="Copy address"
+                                        Command="{Binding CopyLinkCommand}" CommandParameter="{Binding BrowserUrl}" />
+                                <Button Content="↗" MinWidth="34" Margin="4,0,0,0" ToolTip="Open in your browser"
+                                        Command="{Binding BrowserOpenExternalCommand}" />
+                                <Button Content="✕ Back to post" Margin="4,0,0,0" ToolTip="Close (Esc)"
+                                        Command="{Binding CloseBrowserCommand}" />
+                            </StackPanel>
+                            <StackPanel Margin="10,0" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding BrowserTitle}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding BrowserUrl}" Style="{StaticResource Meta}" FontSize="11" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                    <ProgressBar DockPanel.Dock="Top" IsIndeterminate="True" Height="2"
+                                 Visibility="{Binding BrowserLoading, Converter={StaticResource Vis}}" />
+                    <wv2:WebView2 x:Name="BrowserWebView" />
+                </DockPanel>
+            </Grid>
+        </Grid>
+
+        <!-- Reddit sign-in / account. This WebView also serves every data request, hidden, once signed in. -->
+        <DockPanel Grid.Row="0" Grid.RowSpan="2"
+                   Visibility="{Binding ShowLogin, Converter={StaticResource Vis}}">
+            <DockPanel DockPanel.Dock="Top" Margin="16,12">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                    <Button Content="Continue anyway" Margin="0,0,8,0" Command="{Binding ContinueAnywayCommand}"
+                            Visibility="{Binding ShowContinueAnyway, Converter={StaticResource Vis}}" />
+                    <Button Content="Continue" MinWidth="100" Command="{Binding ContinueCommand}"
+                            Style="{DynamicResource AccentButtonStyle}" />
+                </StackPanel>
+                <StackPanel>
+                    <TextBlock Text="Reddit account" FontSize="20" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding LoginMessage}" TextWrapping="Wrap" Opacity="0.8" Margin="0,4,0,0" />
+                </StackPanel>
+            </DockPanel>
+            <wv2:WebView2 x:Name="LoginWebView" />
+        </DockPanel>
+
+        <!-- Status bar -->
+        <Border Grid.Row="2" BorderThickness="0,1,0,0" BorderBrush="{StaticResource Divider}" Padding="10,4">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Right" Text="Press ? for shortcuts" Style="{StaticResource Meta}" />
+                <TextBlock Text="{Binding Status}" Style="{StaticResource Meta}" />
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

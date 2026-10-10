@@ -1,0 +1,39 @@
+<Window x:Class="Readdit.SubmitWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="New post" Width="620" Height="600" MinHeight="420"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <DockPanel Margin="20">
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,16,0,0">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button x:Name="PostButton" Content="Post" MinWidth="90" Click="OnPost"
+                        Style="{DynamicResource AccentButtonStyle}" />
+                <Button Content="Cancel" MinWidth="90" Margin="8,0,0,0" IsCancel="True" />
+            </StackPanel>
+            <TextBlock x:Name="ErrorText" Foreground="#E5484D" TextWrapping="Wrap" VerticalAlignment="Center" />
+        </DockPanel>
+
+        <StackPanel DockPanel.Dock="Top">
+            <TextBlock Text="Community" Margin="0,0,0,4" />
+            <DockPanel>
+                <TextBlock Text="r/" VerticalAlignment="Center" FontWeight="Bold" Foreground="#FF4500" Margin="0,0,6,0" />
+                <TextBox x:Name="Subreddit" />
+            </DockPanel>
+
+            <TextBlock Text="Title" Margin="0,12,0,4" />
+            <TextBox x:Name="PostTitle" MaxLength="300" />
+
+            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                <RadioButton x:Name="TextKind" Content="Text post" IsChecked="True" Checked="OnKindChanged" />
+                <RadioButton x:Name="LinkKind" Content="Link" Margin="16,0,0,0" Checked="OnKindChanged" />
+                <CheckBox x:Name="Nsfw" Content="NSFW" Margin="24,0,0,0" />
+                <CheckBox x:Name="Spoiler" Content="Spoiler" Margin="12,0,0,0" />
+            </StackPanel>
+
+            <TextBlock x:Name="ContentLabel" Text="Text (Markdown supported)" Margin="0,12,0,4" />
+        </StackPanel>
+
+        <TextBox x:Name="Body" AcceptsReturn="True" AcceptsTab="True" TextWrapping="Wrap"
+                 VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" />
+    </DockPanel>
+</Window>

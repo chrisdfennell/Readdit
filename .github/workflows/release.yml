@@ -1,0 +1,46 @@
+# Builds the installer and publishes a GitHub release when a version tag (v1.2.3) is pushed.
+# Installed copies of Readdit check these releases for updates.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Version from tag
+        shell: pwsh
+        run: echo "VERSION=$($env:GITHUB_REF_NAME.TrimStart('v'))" >> $env:GITHUB_ENV
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Publish
+        run: dotnet publish Readdit.csproj -c Release -r win-x64 --self-contained -p:Version=${{ env.VERSION }} -o publish
+
+      # Previous releases let vpk build small delta updates.
+      - name: Download previous releases
+        run: dotnet vpk download github --repoUrl ${{ github.server_url }}/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }} --outputDir Releases
+        continue-on-error: true
+
+      - name: Pack installer
+        run: >
+          dotnet vpk pack --packId Readdit --packVersion ${{ env.VERSION }} --packDir publish
+          --mainExe Readdit.exe --packTitle Readdit --icon Assets\readdit.ico --outputDir Releases
+
+      - name: Publish release
+        run: >
+          dotnet vpk upload github --repoUrl ${{ github.server_url }}/${{ github.repository }}
+          --token ${{ secrets.GITHUB_TOKEN }} --outputDir Releases --publish
+          --releaseName "Readdit ${{ env.VERSION }}" --tag ${{ github.ref_name }}
