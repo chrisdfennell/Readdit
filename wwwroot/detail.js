@@ -877,6 +877,13 @@ function commentsSection(d) {
         el('div', { class: 'comments-head' },
             el('h2', null, `${count(d.num_comments || 0)} comments`),
             el('div', { class: 'head-tools' },
+                el('button', {
+                    class: 'action', title: 'Load the latest comments',
+                    onclick: () => {
+                        list.replaceChildren(spinner());
+                        call('sort', { sort: state.sort }).catch(err => showError(err.message));
+                    },
+                }, '⟳ Refresh'),
                 el('button', { class: 'action', title: 'Find in thread (Ctrl+F)', onclick: () => openFind() }, '🔍 Find'),
                 select)),
         el('div', { id: 'new-note', class: 'note', hidden: true }),

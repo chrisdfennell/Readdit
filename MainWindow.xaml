@@ -501,8 +501,8 @@
             <ComboBox Margin="6,2,0,2" MinWidth="100" ToolTip="Time range"
                       ItemsSource="{Binding SelectedTab.TimeFilters}" SelectedItem="{Binding SelectedTab.TimeFilter}"
                       Visibility="{Binding SelectedTab.UsesTimeFilter, Converter={StaticResource Vis}, FallbackValue=Collapsed}" />
-            <Button Content="⟳" Margin="6,2,0,2" MinWidth="40"
-                    Command="{Binding RefreshCommand}" ToolTip="Refresh (r / F5)" />
+            <Button Content="⟳ Refresh" Margin="6,2,0,2"
+                    Command="{Binding RefreshCommand}" ToolTip="Load the latest posts (r / F5)" />
             <Button Content="{Binding FavoriteLabel}" Margin="6,2,0,2"
                     Command="{Binding ToggleFavoriteCommand}"
                     Visibility="{Binding SelectedTab.IsSubreddit, Converter={StaticResource Vis}, FallbackValue=Collapsed}" />
@@ -658,6 +658,23 @@
                                      Style="{StaticResource PostListStyle}"
                                      SelectionChanged="OnPostSelectionChanged"
                                      ScrollViewer.ScrollChanged="OnPostListScrollChanged" />
+
+                            <!-- "↑ 5 new posts" pill floating over the top of the list. -->
+                            <Button Grid.Row="3" Content="{Binding NewPostsLabel}" Command="{Binding ShowNewCommand}"
+                                    HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,8,0,0" Cursor="Hand"
+                                    ToolTip="Load the newest posts"
+                                    Visibility="{Binding HasNewPosts, Converter={StaticResource Vis}}">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{DynamicResource Accent}" CornerRadius="14" Padding="14,6">
+                                            <Border.Effect>
+                                                <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.35" />
+                                            </Border.Effect>
+                                            <ContentPresenter TextElement.Foreground="White" TextElement.FontWeight="SemiBold" />
+                                        </Border>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
 
                             <Button Grid.Row="4" Content="Load more (m)" Margin="8" HorizontalAlignment="Stretch"
                                     Command="{Binding LoadMoreCommand}"

@@ -23,6 +23,7 @@ public sealed class FeedViewModel : ObservableObject
         Scope = scope;
         _sort = Sorts.Count > 0 ? Sorts[0] : "";
         LoadMoreCommand = new RelayCommand(_ => _ = LoadPageAsync(_cts?.Token ?? default), _ => HasMore && !IsLoading);
+        ShowNewCommand = new RelayCommand(_ => _ = ReloadAsync());
         HeaderActionCommand = new RelayCommand(_ => _ = RunHeaderActionAsync(), _ => HeaderActionLabel.Length > 0 && !_headerBusy);
     }
 
@@ -37,6 +38,7 @@ public sealed class FeedViewModel : ObservableObject
 
     public ObservableCollection<Post> Posts { get; } = [];
     public ICommand LoadMoreCommand { get; }
+    public ICommand ShowNewCommand { get; }
     public ICommand HeaderActionCommand { get; }
 
     /// <summary>Serialized form used to restore tabs and route sidebar clicks.</summary>
@@ -178,6 +180,55 @@ public sealed class FeedViewModel : ObservableObject
         }, System.Windows.Threading.DispatcherPriority.ContextIdle);
     }
 
+    // ---- "N new posts" -----------------------------------------------------------------------
+
+    int _newAvailable;
+    /// <summary>Items at the top of the feed that aren't loaded yet (from the last background check).</summary>
+    public int NewAvailable
+    {
+        get => _newAvailable;
+        private set
+        {
+            if (!Set(ref _newAvailable, value)) return;
+            Raise(nameof(HasNewPosts));
+            Raise(nameof(NewPostsLabel));
+        }
+    }
+
+    public bool HasNewPosts => NewAvailable > 0;
+
+    public string NewPostsLabel => Kind == FeedKind.Inbox
+        ? $"↑ {NewAvailable} new {(NewAvailable == 1 ? "message" : "messages")}"
+        : $"↑ {NewAvailable}{(NewAvailable >= 50 ? "+" : "")} new {(NewAvailable == 1 ? "post" : "posts")}";
+
+    bool _checkingForNew;
+
+    /// <summary>
+    /// Looks at the feed's first page and counts items that aren't loaded yet, without touching
+    /// the list, so reading isn't interrupted. Clicking the "N new posts" pill reloads.
+    /// </summary>
+    public async Task CheckForNewAsync()
+    {
+        if (!_loaded || IsLoading || _checkingForNew || Kind is FeedKind.Offline or FeedKind.Saved) return;
+        _checkingForNew = true;
+        try
+        {
+            var (items, _) = await _services.Api.GetListingAsync(BuildPath(), null, default);
+            // Only genuinely new items: ranked feeds (best, hot) reshuffle all the time, so
+            // "not loaded yet" alone would count old posts that just moved up.
+            var newest = Posts.Count > 0 ? Posts.Max(p => p.Created) : DateTimeOffset.MinValue;
+            NewAvailable = items.Count(i => !_seen.Contains(i.FullName) && i.Created > newest && !IsFiltered(i));
+        }
+        catch
+        {
+            // A background check; the next one or a manual refresh will report real problems.
+        }
+        finally
+        {
+            _checkingForNew = false;
+        }
+    }
+
     /// <summary>Takes a handled item out of a mod queue.</summary>
     public void DropFromQueue(string fullName)
     {
@@ -283,6 +334,7 @@ public sealed class FeedViewModel : ObservableObject
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
         _loaded = true;
+        NewAvailable = 0;
         Posts.Clear();
         _seen.Clear();
         _after = null;

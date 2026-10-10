@@ -33,6 +33,12 @@ public sealed partial class MainViewModel : ObservableObject
         _ = _updates.WarmUpAsync();
         InstallUpdateCommand = new RelayCommand(_ => InstallUpdate(), _ => _updates.IsUpdateReady);
         _updateTimer.Tick += async (_, _) => await CheckForUpdatesQuietlyAsync();
+        // Only the tab you're looking at, and only while Readdit is on screen.
+        _newPostsTimer.Tick += async (_, _) =>
+        {
+            if (Settings.CheckForNewPosts && Application.Current.MainWindow is { IsVisible: true } && SelectedTab is { } tab)
+                await tab.CheckForNewAsync();
+        };
         _browser.PropertyChanged += (_, e) =>
         {
             switch (e.PropertyName)
@@ -298,6 +304,7 @@ public sealed partial class MainViewModel : ObservableObject
     public bool UpdateReady { get => _updateReady; private set => Set(ref _updateReady, value); }
 
     readonly DispatcherTimer _updateTimer = new() { Interval = TimeSpan.FromHours(6) };
+    readonly DispatcherTimer _newPostsTimer = new() { Interval = TimeSpan.FromSeconds(90) };
 
     public string UpdateButtonLabel => $"⬆ Restart to update to {_updates.ReadyVersion}";
 
@@ -1250,6 +1257,7 @@ public sealed partial class MainViewModel : ObservableObject
         _ = LoadSubscriptionsAsync();
         _ = CheckForUpdatesQuietlyAsync();
         _updateTimer.Start();
+        _newPostsTimer.Start();
 
         if (Tabs.Count == 0)
         {

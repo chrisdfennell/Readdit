@@ -116,6 +116,9 @@ public sealed class AppSettings
     /// <summary>Open web links in Readdit's own browser pane instead of the default browser.</summary>
     public bool OpenLinksInApp { get; set; } = true;
 
+    /// <summary>Check the open feed for new posts in the background and offer to show them.</summary>
+    public bool CheckForNewPosts { get; set; } = true;
+
     public bool HideNsfw { get; set; }
     public bool BlurNsfw { get; set; } = true;
     public bool HideRead { get; set; }

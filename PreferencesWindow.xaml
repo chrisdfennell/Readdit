@@ -52,6 +52,7 @@
                 <CheckBox x:Name="BlurNsfw" Content="Blur NSFW and spoiler images until clicked" Margin="0,8,0,0" />
                 <CheckBox x:Name="HideNsfw" Content="Hide NSFW posts in Home, Popular, All and search" Margin="0,4,0,0" />
                 <CheckBox x:Name="HideRead" Content="Hide posts I've already opened" Margin="0,4,0,0" />
+                <CheckBox x:Name="CheckForNewPosts" Content="Check the open feed for new posts every 90 seconds" Margin="0,4,0,0" />
                 <CheckBox x:Name="OpenLinksInApp" Content="Open links inside Readdit (instead of your default browser)" Margin="0,4,0,0" />
 
                 <TextBlock Text="Library and inbox" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />

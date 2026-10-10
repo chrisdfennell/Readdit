@@ -55,6 +55,7 @@ public partial class PreferencesWindow : Window
         HideNsfw.IsChecked = settings.HideNsfw;
         HideRead.IsChecked = settings.HideRead;
         OpenLinksInApp.IsChecked = settings.OpenLinksInApp;
+        CheckForNewPosts.IsChecked = settings.CheckForNewPosts;
         SaveOffline.IsChecked = settings.SaveOffline;
         InboxNotifications.IsChecked = settings.InboxNotifications;
         CloseToTray.IsChecked = settings.CloseToTray;
@@ -73,6 +74,7 @@ public partial class PreferencesWindow : Window
         _settings.HideNsfw = HideNsfw.IsChecked == true;
         _settings.HideRead = HideRead.IsChecked == true;
         _settings.OpenLinksInApp = OpenLinksInApp.IsChecked == true;
+        _settings.CheckForNewPosts = CheckForNewPosts.IsChecked == true;
         _settings.SaveOffline = SaveOffline.IsChecked == true;
         _settings.InboxNotifications = InboxNotifications.IsChecked == true;
         _settings.CloseToTray = CloseToTray.IsChecked == true;
