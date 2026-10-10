@@ -8,6 +8,30 @@ public sealed class RedditAuthException(string message) : Exception(message);
 
 public sealed record SubredditInfo(string Name, string Title, long Subscribers, string Description, bool IsSubscribed);
 
+/// <summary>A post flair a community offers. Editable ones let you change the text.</summary>
+public sealed record PostFlair(string Id, string Text, bool Editable)
+{
+    public override string ToString() => Text.Length > 0 ? Text : "(flair)";
+}
+
+public sealed record CommunityRule(string Name, string Description);
+
+/// <summary>What a community asks of new posts.</summary>
+public sealed record PostingInfo(IReadOnlyList<PostFlair> Flairs, bool FlairRequired, IReadOnlyList<CommunityRule> Rules);
+
+/// <summary>The flair chosen for a new post (none: both empty).</summary>
+public sealed record FlairChoice(string Id, string Text)
+{
+    public static readonly FlairChoice None = new("", "");
+
+    public void AddTo(Dictionary<string, string> form)
+    {
+        if (Id.Length == 0) return;
+        form["flair_id"] = Id;
+        if (Text.Length > 0) form["flair_text"] = Text;
+    }
+}
+
 public sealed record UserInfo(
     string Name, long Karma, long LinkKarma, long CommentKarma, DateTimeOffset Created, string? Icon, bool Suspended = false);
 
@@ -186,6 +210,62 @@ public sealed partial class RedditApi(RedditSession session)
         var mods = Optional($"{Base}/r/{name}/about/moderators.json?raw_json=1");
         await Task.WhenAll(about, rules, mods);
         return $$"""{"about":{{about.Result}},"rules":{{rules.Result}},"mods":{{mods.Result}}}""";
+    }
+
+    /// <summary>What a community asks of new posts: its flairs, whether one is required, and its rules.</summary>
+    public async Task<PostingInfo> GetPostingInfoAsync(string name, CancellationToken ct)
+    {
+        if (!NameChars().IsMatch(name)) throw new InvalidOperationException("That isn't a community name.");
+        async Task<JsonDocument?> Optional(string url)
+        {
+            try
+            {
+                return JsonDocument.Parse(await GetBodyAsync(url, ct));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException and not RedditAuthException)
+            {
+                return null; // no flairs, no requirements published, or no rules
+            }
+        }
+        var flairsTask = Optional($"{Base}/r/{name}/api/link_flair_v2.json?raw_json=1");
+        var requirementsTask = Optional($"{Base}/api/v1/{name}/post_requirements.json?raw_json=1");
+        var rulesTask = Optional($"{Base}/r/{name}/about/rules.json?raw_json=1");
+        await Task.WhenAll(flairsTask, requirementsTask, rulesTask);
+        using var flairs = flairsTask.Result;
+        using var requirements = requirementsTask.Result;
+        using var rules = rulesTask.Result;
+
+        var flairList = flairs?.RootElement.ValueKind == JsonValueKind.Array
+            ? flairs.RootElement.EnumerateArray()
+                .Where(f => !f.Bool("mod_only"))
+                .Select(f => new PostFlair(f.Str("id"), f.Str("text"), f.Bool("text_editable")))
+                .Where(f => f.Id.Length > 0)
+                .ToList()
+            : [];
+        var ruleList = rules?.RootElement.TryGetProperty("rules", out var r) == true && r.ValueKind == JsonValueKind.Array
+            ? r.EnumerateArray().Select(x => new CommunityRule(x.Str("short_name"), x.Str("description"))).ToList()
+            : [];
+        return new PostingInfo(flairList, requirements?.RootElement.Bool("is_flair_required") == true, ruleList);
+    }
+
+    /// <summary>Current details (comment counts…) for posts by id, up to 100 per request.</summary>
+    public async Task<List<Post>> GetPostsInfoAsync(IReadOnlyList<string> postIds, CancellationToken ct)
+    {
+        var posts = new List<Post>();
+        foreach (var chunk in postIds.Where(id => System.Text.RegularExpressions.Regex.IsMatch(id, "^[a-z0-9]+$")).Chunk(100))
+        {
+            var (items, _) = await GetListingAsync($"/api/info.json?id={string.Join(",", chunk.Select(id => "t3_" + id))}", null, ct);
+            posts.AddRange(items.Where(p => p.Kind == ItemKind.Link));
+        }
+        return posts;
+    }
+
+    /// <summary>A user's newest posts.</summary>
+    public async Task<List<Post>> GetUserPostsAsync(string user, CancellationToken ct)
+    {
+        if (!NameChars().IsMatch(user)) throw new InvalidOperationException("That isn't a username.");
+        var (items, _) = await GetListingAsync($"/user/{user}/submitted.json?sort=new", null, ct);
+        return items.Where(p => p.Kind == ItemKind.Link).ToList();
     }
 
     /// <summary>A community wiki page (Reddit's wikipage JSON).</summary>
@@ -435,7 +515,8 @@ public sealed partial class RedditApi(RedditSession session)
     }
 
     /// <summary>Submits a post; returns its URL.</summary>
-    public async Task<string> SubmitAsync(string subreddit, string title, bool isLink, string content, bool nsfw, bool spoiler)
+    public async Task<string> SubmitAsync(string subreddit, string title, bool isLink, string content, bool nsfw, bool spoiler,
+        FlairChoice? flair = null)
     {
         var form = new Dictionary<string, string>
         {
@@ -448,6 +529,7 @@ public sealed partial class RedditApi(RedditSession session)
             ["resubmit"] = "true",
             ["sendreplies"] = "true",
         };
+        (flair ?? FlairChoice.None).AddTo(form);
         using var doc = await PostAsync("/api/submit", form);
         return doc.RootElement.GetProperty("json").GetProperty("data").Str("url");
     }

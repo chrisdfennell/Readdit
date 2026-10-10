@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self';
+                   script-src 'self' https://cdn.jsdelivr.net;
+                   style-src 'self' 'unsafe-inline';
+                   img-src https: data: blob:;
+                   media-src https: blob:;
+                   connect-src https:;">
+    <title>Skein editor</title>
+    <link rel="stylesheet" href="detail.css">
+    <!-- The New post window's editor: the same one as the post view's reply box (detail.js). -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/turndown@7.2.0/dist/turndown.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/turndown-plugin-gfm@1.0.2/dist/turndown-plugin-gfm.js" defer></script>
+    <script src="detail.js" defer></script>
+    <script src="editor.js" defer></script>
+</head>
+<body class="editor-page">
+    <!-- What detail.js expects to find; unused here. -->
+    <div id="empty" hidden></div>
+    <main id="root" hidden></main>
+    <div id="lightbox" hidden>
+        <div class="lb-bar"><span class="lb-title"></span><button class="lb-play"></button><button class="lb-full"></button></div>
+        <button class="lb-close"></button><button class="lb-nav lb-prev"></button>
+        <div class="lb-stage"><img alt=""></div>
+        <button class="lb-nav lb-next"></button><div class="lb-counter"></div>
+    </div>
+    <div id="toast" hidden></div>
+
+    <div id="editor-root"></div>
+</body>
+</html>

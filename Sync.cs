@@ -89,6 +89,11 @@ public sealed class SettingsSync(AppSettings settings, UserNotes notes, Action? 
     {
         ["folders"] = JsonSerializer.Serialize(settings.SubscriptionFolders),
         ["searches"] = JsonSerializer.Serialize(settings.SavedSearches),
+        ["watching"] = JsonSerializer.Serialize(new
+        {
+            threads = settings.WatchedThreads.Select(w => new { w.PostId, w.Title, w.Subreddit }),
+            users = settings.FollowedUsers.Select(f => f.Name),
+        }),
         ["alerts"] = JsonSerializer.Serialize(new
         {
             interval = settings.AlertIntervalMinutes,
@@ -124,6 +129,22 @@ public sealed class SettingsSync(AppSettings settings, UserNotes notes, Action? 
         {
             case "folders":
                 settings.SubscriptionFolders = data.Deserialize<List<SubscriptionFolder>>() ?? [];
+                break;
+            case "watching":
+                // Keep this PC's "seen up to" for threads and people that are still there.
+                var oldThreads = settings.WatchedThreads;
+                settings.WatchedThreads = (data["threads"]?.Deserialize<List<WatchedThread>>() ?? []).Select(w =>
+                {
+                    // -1: not counted on this PC yet (the next check counts, without announcing).
+                    w.SeenComments = oldThreads.FirstOrDefault(o => o.PostId == w.PostId)?.SeenComments ?? -1;
+                    return w;
+                }).ToList();
+                var oldUsers = settings.FollowedUsers;
+                settings.FollowedUsers = (data["users"]?.Deserialize<List<string>>() ?? []).Select(name => new FollowedUser
+                {
+                    Name = name,
+                    LastChecked = oldUsers.FirstOrDefault(o => o.Name.Equals(name, StringComparison.OrdinalIgnoreCase))?.LastChecked ?? 0,
+                }).ToList();
                 break;
             case "searches":
                 settings.SavedSearches = data.Deserialize<List<SavedSearch>>() ?? [];

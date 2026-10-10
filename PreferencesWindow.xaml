@@ -54,6 +54,18 @@
                 <CheckBox x:Name="HideRead" Content="Hide posts I've already opened" Margin="0,4,0,0" />
                 <CheckBox x:Name="CheckForNewPosts" Content="Check the open feed for new posts every 90 seconds" Margin="0,4,0,0" />
                 <CheckBox x:Name="OpenLinksInApp" Content="Open links inside Skein (instead of your default browser)" Margin="0,4,0,0" />
+                <CheckBox x:Name="HideDuplicates" Margin="0,4,0,0"
+                          Content="Show a link posted in several communities once (in Home, Popular, All, folders and search)" />
+                <DockPanel Margin="0,8,0,0">
+                    <TextBlock Text="Let background tabs sleep (to save memory) after" VerticalAlignment="Center" Margin="0,0,12,0" />
+                    <ComboBox x:Name="SleepTabs" MinWidth="120" HorizontalAlignment="Left">
+                        <ComboBoxItem Content="5 minutes" Tag="5" />
+                        <ComboBoxItem Content="15 minutes" Tag="15" />
+                        <ComboBoxItem Content="30 minutes" Tag="30" />
+                        <ComboBoxItem Content="1 hour" Tag="60" />
+                        <ComboBoxItem Content="Never" Tag="0" />
+                    </ComboBox>
+                </DockPanel>
 
                 <TextBlock Text="Library and inbox" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />
                 <CheckBox x:Name="SaveOffline" Content="Keep an offline copy of posts I save" Margin="0,8,0,0" />
@@ -143,6 +155,16 @@
                     <TextBox x:Name="SyncFolder" />
                 </DockPanel>
                 <TextBlock x:Name="SyncStatusText" TextWrapping="Wrap" Opacity="0.75" Margin="0,6,0,0" />
+
+                <TextBlock Text="Backup" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />
+                <TextBlock TextWrapping="Wrap" Opacity="0.8" Margin="0,4,0,0"
+                           Text="One file with your settings, folders, alerts, filters, saved searches, user notes and reading history. Your Reddit sign-in isn't included: on another PC you sign in again." />
+                <CheckBox x:Name="BackupLibrary" Margin="0,8,0,0" />
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <Button Content="Back up…" Click="OnBackUp" />
+                    <Button Content="Restore…" Margin="8,0,0,0" Click="OnRestore" />
+                </StackPanel>
+                <TextBlock x:Name="BackupStatus" TextWrapping="Wrap" Opacity="0.8" Margin="0,6,0,0" />
 
                 <TextBlock Text="Help" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />
                 <DockPanel Margin="0,8,0,0">

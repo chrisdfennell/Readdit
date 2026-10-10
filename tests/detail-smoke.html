@@ -198,6 +198,14 @@ try {
   const roundTrip = document.createElement('div');
   roundTrip.append(renderMarkdown('**a** and >!b!<'));
   result.roundTrip = htmlToMarkdown(roundTrip.innerHTML);
+  // Read aloud splits long text into sentence-sized pieces; the Watch button follows the settings.
+  const longText = Array.from({ length: 40 }, (_, i) => `Sentence number ${i} is here.`).join(' ');
+  const chunks = speechChunks(longText);
+  result.speech = { pieces: chunks.length, longest: Math.max(...chunks.map(c => c.length)), complete: chunks.join(' ') === longText };
+  state.settings.watched = ['abc'];
+  const watching = watchButton({ id: 'abc', title: 'x', subreddit: 'y', num_comments: 3 }).textContent;
+  const notWatching = watchButton({ id: 'zzz', title: 'x', subreddit: 'y', num_comments: 3 }).textContent;
+  result.watchOk = watching.endsWith('Watching') && notWatching.endsWith(' Watch');
   // Picture viewer: which posts have pictures, and stepping past the last one moves to the next post.
   result.postImages = [
     postImages({ is_gallery: true, gallery_data: { items: [{ media_id: 'a' }, { media_id: 'b' }] },

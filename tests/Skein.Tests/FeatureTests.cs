@@ -482,6 +482,154 @@ public class MarkdownEditTests
     }
 }
 
+public class DuplicateTests
+{
+    static Post Link(string id, string url, string sub = "pics", string crosspostParent = "") =>
+        Post.FromLink(JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            name = "t3_" + id,
+            id,
+            url,
+            subreddit = sub,
+            is_self = false,
+            crosspost_parent = crosspostParent,
+            title = "t",
+        })).RootElement);
+
+    [Fact]
+    public void The_same_link_matches_without_tracking_or_www()
+    {
+        var a = Link("a", "https://www.example.com/story/?utm_source=x&id=5");
+        var b = Link("b", "https://example.com/story?id=5&ref=home");
+        Assert.Equal("example.com/story?id=5", a.LinkKey);
+        Assert.Equal(a.LinkKey, b.LinkKey);
+        Assert.NotEqual(a.LinkKey, Link("c", "https://example.com/other").LinkKey);
+    }
+
+    [Fact]
+    public void Crossposts_match_their_original_and_reddit_links_never_match()
+    {
+        var original = Link("orig", "https://i.redd.it/x.jpg");
+        var crosspost = Link("xp", "https://www.reddit.com/r/pics/comments/orig/", crosspostParent: "t3_orig");
+        Assert.Contains("t3_orig", crosspost.DuplicateKeys);
+        Assert.Contains("t3_orig", original.DuplicateKeys);
+        Assert.Null(Link("v", "https://v.redd.it/abc").LinkKey);
+        Assert.Null(Link("r", "https://www.reddit.com/r/x/comments/1/").LinkKey);
+    }
+
+    [Fact]
+    public void Duplicates_are_tagged_with_the_other_communities()
+    {
+        var post = Link("a", "https://example.com/x");
+        post.AlsoIn = "r/news, r/worldnews";
+        Assert.Contains("🔁 also in r/news, r/worldnews", post.Tags);
+    }
+}
+
+public class BackupTests : TempFolderTest
+{
+    [Fact]
+    public void Backs_up_and_restores_settings_and_data_but_not_the_sign_in()
+    {
+        var roaming = Path.Combine(Dir, "roaming");
+        var local = Path.Combine(Dir, "local");
+        Directory.CreateDirectory(Path.Combine(local, "WebView2"));
+        Directory.CreateDirectory(Path.Combine(local, "offline", "media", "abc"));
+        Directory.CreateDirectory(roaming);
+        File.WriteAllText(Path.Combine(roaming, "settings.json"), "{\"Theme\":\"Dark\"}");
+        File.WriteAllText(Path.Combine(local, "user-notes.json"), "{}");
+        File.WriteAllText(Path.Combine(local, "subscriptions.json"), "[]");
+        File.WriteAllText(Path.Combine(local, "WebView2", "Cookies"), "secret");
+        File.WriteAllText(Path.Combine(local, "offline", "abc.json"), "[]");
+        File.WriteAllText(Path.Combine(local, "offline", "media", "abc", "0.jpg"), "jpg");
+
+        var zip = Path.Combine(Dir, "backup.zip");
+        Backup.Create(zip, roaming, local, includeLibrary: true, "0.5.3");
+        var manifest = Backup.ReadManifest(zip);
+        Assert.NotNull(manifest);
+        Assert.True(manifest.IncludesLibrary);
+        using (var archive = System.IO.Compression.ZipFile.OpenRead(zip))
+            Assert.DoesNotContain(archive.Entries, e => e.FullName.Contains("WebView2") || e.FullName.Contains("Cookies"));
+
+        // Restore onto a "new PC".
+        var roaming2 = Path.Combine(Dir, "roaming2");
+        var local2 = Path.Combine(Dir, "local2");
+        Backup.Stage(zip, local2);
+        Assert.True(Backup.ApplyPending(roaming2, local2));
+        Assert.Equal("{\"Theme\":\"Dark\"}", File.ReadAllText(Path.Combine(roaming2, "settings.json")));
+        Assert.True(File.Exists(Path.Combine(local2, "subscriptions.json")));
+        Assert.True(File.Exists(Path.Combine(local2, "offline", "media", "abc", "0.jpg")));
+        Assert.False(Directory.Exists(Path.Combine(local2, "restore-pending")));
+        Assert.False(Backup.ApplyPending(roaming2, local2)); // nothing left to apply
+    }
+
+    [Fact]
+    public void Ignores_files_that_try_to_escape_the_restore_folder()
+    {
+        var zip = Path.Combine(Dir, "evil.zip");
+        using (var archive = System.IO.Compression.ZipFile.Open(zip, System.IO.Compression.ZipArchiveMode.Create))
+        {
+            foreach (var name in new[] { "skein-backup.json", "local/../../escaped.txt", "other/x.txt", "local/ok.txt" })
+                using (var writer = new StreamWriter(archive.CreateEntry(name).Open()))
+                    writer.Write(name == "skein-backup.json" ? "{\"Version\":1}" : "x");
+        }
+        var local = Path.Combine(Dir, "local");
+        Backup.Stage(zip, local);
+        Backup.ApplyPending(Path.Combine(Dir, "roaming"), local);
+        Assert.True(File.Exists(Path.Combine(local, "ok.txt")));
+        Assert.False(File.Exists(Path.Combine(Dir, "escaped.txt")));
+        Assert.False(File.Exists(Path.Combine(local, "x.txt")));
+    }
+
+    [Fact]
+    public void Not_a_backup_has_no_manifest()
+    {
+        var zip = Path.Combine(Dir, "random.zip");
+        using (System.IO.Compression.ZipFile.Open(zip, System.IO.Compression.ZipArchiveMode.Create)) { }
+        Assert.Null(Backup.ReadManifest(zip));
+        Assert.Null(Backup.ReadManifest(Path.Combine(Dir, "missing.zip")));
+    }
+}
+
+public class PostingFlairTests
+{
+    [Fact]
+    public void Flair_goes_in_the_form_only_when_chosen()
+    {
+        var form = new Dictionary<string, string>();
+        FlairChoice.None.AddTo(form);
+        Assert.Empty(form);
+        new FlairChoice("abc-123", "").AddTo(form);
+        Assert.Equal("abc-123", form["flair_id"]);
+        Assert.False(form.ContainsKey("flair_text"));
+        new FlairChoice("abc-123", "Custom").AddTo(form);
+        Assert.Equal("Custom", form["flair_text"]);
+    }
+}
+
+public class WatchSyncTests : TempFolderTest
+{
+    [Fact]
+    public void Watched_threads_and_followed_people_sync_keeping_each_pcs_counts()
+    {
+        var folder = Path.Combine(Dir, "OneDrive");
+        var a = new AppSettings { SyncEnabled = true, SyncFolder = folder };
+        var b = new AppSettings { SyncEnabled = true, SyncFolder = folder };
+        a.WatchedThreads.Add(new WatchedThread { PostId = "abc", Title = "A thread", Subreddit = "aww", SeenComments = 40 });
+        a.FollowedUsers.Add(new FollowedUser { Name = "alice", LastChecked = 1000 });
+        new SettingsSync(a, new UserNotes(Path.Combine(Dir, "a.json")), save: () => { }).RunOnce();
+
+        var syncB = new SettingsSync(b, new UserNotes(Path.Combine(Dir, "b.json")), save: () => { });
+        syncB.Reset(preferFile: true);
+        syncB.RunOnce();
+        var thread = Assert.Single(b.WatchedThreads);
+        Assert.Equal(("abc", "A thread"), (thread.PostId, thread.Title));
+        Assert.Equal(-1, thread.SeenComments); // counted fresh on this PC, without announcing old comments
+        var user = Assert.Single(b.FollowedUsers);
+        Assert.Equal(("alice", 0L), (user.Name, user.LastChecked));
+    }
+}
+
 public class SidebarStoreTests : TempFolderTest
 {
     [Fact]

@@ -86,6 +86,17 @@ public sealed class FeedViewModel : ObservableObject
     public event Action? InboxRead;
     public event Action? ManageAlertsRequested;
 
+    /// <summary>Follow / Following was clicked on a profile.</summary>
+    public event Action<string>? FollowToggleRequested;
+
+    /// <summary>Shows Follow or Following on a profile's header.</summary>
+    public void RefreshFollowLabel()
+    {
+        if (Kind != FeedKind.User) return;
+        HeaderActionLabel = _services.Settings.FollowedUsers.Any(f => f.Name.Equals(Target, StringComparison.OrdinalIgnoreCase))
+            ? "✓ Following" : "+ Follow";
+    }
+
     /// <summary>The search was refined: open this spec in the tab's place.</summary>
     public event Action<FeedViewModel, string>? SearchRefined;
 
@@ -345,6 +356,41 @@ public sealed class FeedViewModel : ObservableObject
     /// <summary>Reload next time the tab is shown (e.g. after filters change).</summary>
     public void MarkStale() => _loaded = false;
 
+    // ---- Sleeping (background tabs let go of their posts) ---------------------------------------
+
+    /// <summary>When the tab was last on screen.</summary>
+    public DateTime LastShown { get; set; } = DateTime.Now;
+
+    bool _isAsleep;
+    /// <summary>Asleep: its posts were let go to save memory; it reloads when shown.</summary>
+    public bool IsAsleep
+    {
+        get => _isAsleep;
+        private set
+        {
+            if (Set(ref _isAsleep, value)) Raise(nameof(TabLabel));
+        }
+    }
+
+    /// <summary>The tab's title, marked while it sleeps.</summary>
+    public string TabLabel => IsAsleep ? "💤 " + Title : Title;
+
+    /// <summary>Lets go of the loaded posts (and their images) until the tab is shown again.</summary>
+    public void Sleep()
+    {
+        if (!_loaded || IsAsleep) return;
+        _cts?.Cancel();
+        Posts.Clear();
+        _seen.Clear();
+        _firstByKey.Clear();
+        _after = null;
+        HasMore = false;
+        NewAvailable = 0;
+        _selectedPost = null;
+        _loaded = false;
+        IsAsleep = true;
+    }
+
     bool _isLoading;
     public bool IsLoading { get => _isLoading; private set => Set(ref _isLoading, value); }
 
@@ -431,6 +477,7 @@ public sealed class FeedViewModel : ObservableObject
 
     public async Task ReloadAsync()
     {
+        IsAsleep = false;
         _cts?.Cancel();
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
@@ -438,6 +485,7 @@ public sealed class FeedViewModel : ObservableObject
         NewAvailable = 0;
         Posts.Clear();
         _seen.Clear();
+        _firstByKey.Clear();
         _after = null;
         HasMore = false;
         _selectedPost = null; // deliberate, so bypass the tab-switch hold
@@ -451,6 +499,7 @@ public sealed class FeedViewModel : ObservableObject
         IsLoading = true;
         Status = $"Loading {Title}…";
         var hidden = 0;
+        var duplicates = 0;
         try
         {
             if (Kind == FeedKind.Offline)
@@ -494,6 +543,11 @@ public sealed class FeedViewModel : ObservableObject
                         hidden++;
                         continue;
                     }
+                    if (IsDuplicate(item))
+                    {
+                        duplicates++;
+                        continue;
+                    }
                     AddPost(item);
                     added++;
                 }
@@ -503,7 +557,8 @@ public sealed class FeedViewModel : ObservableObject
             }
 
             Status = (Posts.Count == 0 ? $"Nothing to show in {Title}." : $"{Title} · {Posts.Count} items") +
-                     (hidden > 0 ? $" · {hidden} hidden by filters" : "");
+                     (hidden > 0 ? $" · {hidden} hidden by filters" : "") +
+                     (duplicates > 0 ? $" · {duplicates} {(duplicates == 1 ? "duplicate" : "duplicates")} merged" : "");
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -527,8 +582,26 @@ public sealed class FeedViewModel : ObservableObject
         }
     }
 
+    readonly Dictionary<string, Post> _firstByKey = [];
+
+    /// <summary>
+    /// In mixed feeds, a link already in the list (posted elsewhere, or a crosspost) isn't shown
+    /// again; the copy that is notes the other communities.
+    /// </summary>
+    bool IsDuplicate(Post post)
+    {
+        if (!_services.Settings.HideDuplicates || !IsAggregate || post.Kind != ItemKind.Link) return false;
+        var first = post.DuplicateKeys.Select(k => _firstByKey.GetValueOrDefault(k)).FirstOrDefault(p => p != null);
+        if (first == null) return false;
+        if (!first.Subreddit.Equals(post.Subreddit, StringComparison.OrdinalIgnoreCase) &&
+            !first.AlsoIn.Contains("r/" + post.Subreddit, StringComparison.OrdinalIgnoreCase))
+            first.AlsoIn = first.AlsoIn.Length == 0 ? "r/" + post.Subreddit : first.AlsoIn + ", r/" + post.Subreddit;
+        return true;
+    }
+
     void AddPost(Post post)
     {
+        foreach (var key in post.DuplicateKeys) _firstByKey.TryAdd(key, post);
         post.BlurThumbnail = _services.Settings.BlurNsfw && (post.Over18 || post.Spoiler);
         post.IsHighlightedAuthor = _services.IsHighlighted(post.Author);
         post.AuthorTag = _services.UserNotes.Get(post.Author)?.Tag ?? "";
@@ -615,6 +688,7 @@ public sealed class FeedViewModel : ObservableObject
                     HeaderText = user.Suspended
                         ? "This account has been suspended."
                         : $"{Format.Count(user.Karma)} karma · Redditor for {Format.Age(user.Created)}";
+                    RefreshFollowLabel();
                     break;
 
                 case FeedKind.Search:
@@ -701,6 +775,10 @@ public sealed class FeedViewModel : ObservableObject
             if (Kind == FeedKind.Alerts)
             {
                 ManageAlertsRequested?.Invoke();
+            }
+            else if (Kind == FeedKind.User)
+            {
+                FollowToggleRequested?.Invoke(Target);
             }
             else if (Kind == FeedKind.Inbox)
             {

@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace Skein;
@@ -55,6 +56,9 @@ public partial class PreferencesWindow : Window
         HideNsfw.IsChecked = settings.HideNsfw;
         HideRead.IsChecked = settings.HideRead;
         OpenLinksInApp.IsChecked = settings.OpenLinksInApp;
+        HideDuplicates.IsChecked = settings.HideDuplicates;
+        SleepTabs.SelectedItem = SleepTabs.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == settings.SleepTabsAfterMinutes.ToString())
+                                 ?? SleepTabs.Items[1];
         CheckForNewPosts.IsChecked = settings.CheckForNewPosts;
         SaveOffline.IsChecked = settings.SaveOffline;
         InboxNotifications.IsChecked = settings.InboxNotifications;
@@ -68,6 +72,7 @@ public partial class PreferencesWindow : Window
         Domains.Text = string.Join(Environment.NewLine, settings.DomainFilters);
         Subreddits.Text = string.Join(Environment.NewLine, settings.SubredditFilters);
         ShowLinkHandlerStatus();
+        ShowLibrarySize();
         SyncEnabled.IsChecked = settings.SyncEnabled;
         SyncFolder.Text = settings.SyncFolder;
         SyncStatusText.Text = SettingsSync.DefaultFolder() == null && settings.SyncFolder.Length == 0
@@ -85,6 +90,73 @@ public partial class PreferencesWindow : Window
             InitialDirectory = SyncFolder.Text.Length > 0 && System.IO.Directory.Exists(SyncFolder.Text) ? SyncFolder.Text : SettingsSync.DefaultFolder() ?? "",
         };
         if (dialog.ShowDialog(this) == true) SyncFolder.Text = dialog.FolderName;
+    }
+
+    // ---- Backup -------------------------------------------------------------------------------
+
+    /// <summary>A backup was chosen to restore: Skein restarts to put it in place.</summary>
+    public bool RestartToRestore { get; private set; }
+
+    void ShowLibrarySize()
+    {
+        var bytes = Backup.LibraryBytes(Paths.Local);
+        BackupLibrary.Content = bytes == 0
+            ? "Include the offline library (it's empty)"
+            : $"Include the offline library ({bytes / 1024.0 / 1024.0:0.#} MB of saved posts, pictures and videos)";
+        BackupLibrary.IsEnabled = bytes > 0;
+    }
+
+    void OnBackUp(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Back up Skein",
+            FileName = $"Skein backup {DateTime.Now:yyyy-MM-dd}",
+            Filter = "Skein backup (*.zip)|*.zip",
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        try
+        {
+            Mouse.OverrideCursor = Cursors.Wait;
+            Backup.Create(dialog.FileName, Paths.Roaming, Paths.Local, BackupLibrary.IsChecked == true, _updates.CurrentVersion);
+            BackupStatus.Text = $"✓ Backed up to {dialog.FileName}";
+        }
+        catch (Exception ex)
+        {
+            BackupStatus.Text = $"Couldn't back up: {ex.Message}";
+        }
+        finally
+        {
+            Mouse.OverrideCursor = null;
+        }
+    }
+
+    void OnRestore(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog { Title = "Restore a Skein backup", Filter = "Skein backup (*.zip)|*.zip" };
+        if (dialog.ShowDialog(this) != true) return;
+        if (Backup.ReadManifest(dialog.FileName) is not { } manifest)
+        {
+            BackupStatus.Text = "That file isn't a Skein backup.";
+            return;
+        }
+        var library = manifest.IncludesLibrary ? " and your offline library" : "";
+        if (MessageBox.Show(this,
+                $"Restore the backup from {manifest.Created.LocalDateTime:f}?\n\n" +
+                $"Your settings, folders, alerts, notes and reading history{library} are replaced by the backup's. " +
+                "Skein restarts to do it.",
+                "Restore a backup", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK)
+            return;
+        try
+        {
+            Backup.Stage(dialog.FileName, Paths.Local);
+            RestartToRestore = true;
+            DialogResult = false; // nothing here should be saved over the backup
+        }
+        catch (Exception ex)
+        {
+            BackupStatus.Text = $"Couldn't restore: {ex.Message}";
+        }
     }
 
     /// <summary>"Report a problem…" was clicked (the main window shows the report dialog).</summary>
@@ -152,6 +224,8 @@ public partial class PreferencesWindow : Window
         _settings.HideNsfw = HideNsfw.IsChecked == true;
         _settings.HideRead = HideRead.IsChecked == true;
         _settings.OpenLinksInApp = OpenLinksInApp.IsChecked == true;
+        _settings.HideDuplicates = HideDuplicates.IsChecked == true;
+        _settings.SleepTabsAfterMinutes = int.Parse((string)((ComboBoxItem)SleepTabs.SelectedItem).Tag);
         _settings.CheckForNewPosts = CheckForNewPosts.IsChecked == true;
         _settings.SaveOffline = SaveOffline.IsChecked == true;
         _settings.InboxNotifications = InboxNotifications.IsChecked == true;

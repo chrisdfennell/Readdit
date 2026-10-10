@@ -103,6 +103,8 @@ $checks = [ordered]@{
                                             $result.richToMarkdown -match '>!secret!<' -and $result.richToMarkdown -match '\^\(10\)' -and
                                             $result.richToMarkdown -match '-\s+one' -and $result.richToMarkdown -match '> quoted'
     'Markdown survives a trip through rich text' = $result.roundTrip -eq '**a** and >!b!<'
+    'read aloud in sentence-sized pieces' = $result.speech.pieces -gt 3 -and $result.speech.longest -le 240 -and $result.speech.complete
+    'watch button shows its state'        = $result.watchOk
     'wiki links stay in the post view'    = $result.wikiLinks -eq 'aww:faq|aww:index|none'
     'community page: rules and sections'  = $result.community.title -eq 'Cute things' -and $result.community.rules -eq 2 -and
                                             $result.community.sections -eq 3 -and $result.community.wikiButton

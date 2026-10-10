@@ -103,6 +103,52 @@ public sealed partial class Post : ObservableObject
     /// <summary>Offline library tags, comma separated.</summary>
     public string LibraryTags { get; set; } = "";
 
+    /// <summary>The post this one crossposts (t3_…), if it's a crosspost.</summary>
+    public string CrosspostParent { get; init; } = "";
+
+    string _alsoIn = "";
+    /// <summary>Communities where the same link was posted too (duplicates hidden from the list).</summary>
+    public string AlsoIn
+    {
+        get => _alsoIn;
+        set
+        {
+            if (Set(ref _alsoIn, value)) Raise(nameof(Tags));
+        }
+    }
+
+    /// <summary>
+    /// Keys that make two posts "the same": the post itself, the post it crossposts, and its link
+    /// (see <see cref="LinkKey"/>). A crosspost and its original share one either way round.
+    /// </summary>
+    public IEnumerable<string> DuplicateKeys
+    {
+        get
+        {
+            if (Kind != ItemKind.Link) yield break;
+            yield return FullName;
+            if (CrosspostParent.Length > 0) yield return CrosspostParent;
+            if (LinkKey is { } link) yield return link;
+        }
+    }
+
+    /// <summary>The link without tracking parameters, www., or a trailing slash. Null for text posts and Reddit's own links.</summary>
+    public string? LinkKey
+    {
+        get
+        {
+            if (Kind != ItemKind.Link || IsSelf || !Uri.TryCreate(Url, UriKind.Absolute, out var uri)) return null;
+            var host = uri.Host.ToLowerInvariant();
+            if (host.StartsWith("www.")) host = host[4..];
+            // Reddit's own links (galleries, videos, other threads) are unique to their post.
+            if (host is "reddit.com" or "old.reddit.com" or "v.redd.it" || host.EndsWith(".reddit.com")) return null;
+            var query = string.Join('&', uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
+                .Where(p => !p.StartsWith("utm_", StringComparison.OrdinalIgnoreCase) && !p.StartsWith("ref=", StringComparison.OrdinalIgnoreCase))
+                .Order(StringComparer.Ordinal));
+            return host + uri.AbsolutePath.TrimEnd('/') + (query.Length > 0 ? "?" + query : "");
+        }
+    }
+
     /// <summary>A message you sent: who it went to (u/name, or r/name for a community).</summary>
     public string SentTo { get; set; } = "";
 
@@ -215,6 +261,7 @@ public sealed partial class Post : ObservableObject
         IsHighlightedAuthor ? $"⭐ u/{Author}" : null,
         AuthorTag.Length > 0 ? $"👤 u/{Author}: {AuthorTag}" : null,
         AlertName.Length > 0 ? "🔔 " + AlertName : null,
+        AlsoIn.Length > 0 ? "🔁 also in " + AlsoIn : null,
         LibraryTags.Length > 0 ? "🏷 " + LibraryTags : null,
         IsUnread ? "● NEW" : null,
         Kind != ItemKind.Link && Subject.Length > 0 ? Subject.ToUpperInvariant() : null,
@@ -262,6 +309,7 @@ public sealed partial class Post : ObservableObject
             IsVideo = d.Bool("is_video"),
             IsGallery = d.Bool("is_gallery"),
             HasPictures = HasViewerPictures(d),
+            CrosspostParent = d.Str("crosspost_parent"),
             Over18 = d.Bool("over_18"),
             Spoiler = d.Bool("spoiler"),
             Stickied = d.Bool("stickied"),
@@ -397,8 +445,9 @@ public sealed partial class Post : ObservableObject
 /// <param name="IsFeed">Built-in feeds (Home, Popular…) carry their own emoji, so no community badge.</param>
 /// <param name="Folder">The folder this row is listed under, if any (offers "Remove from folder").</param>
 /// <param name="IsSavedSearch">A saved search (offers "Remove saved search").</param>
+/// <param name="IsFavorite">One of your favorites (its star shows filled).</param>
 public sealed record SidebarItem(string Label, string Spec, string? Icon = null, bool IsFeed = false, string? Folder = null,
-    bool IsSavedSearch = false)
+    bool IsSavedSearch = false, bool IsFavorite = false)
 {
     public bool InFolder => Folder != null;
 

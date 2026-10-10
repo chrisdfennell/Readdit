@@ -119,17 +119,26 @@
         </DataTemplate>
 
         <DataTemplate x:Key="SidebarItemTemplate" DataType="{x:Type local:SidebarItem}">
-            <Button x:Name="Row" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+            <Button x:Name="Row" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                     Background="Transparent" BorderThickness="0" Margin="0,1" Padding="8,4"
                     ToolTip="{Binding Label}"
                     Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
                     Command="{Binding DataContext.OpenFeedCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                     CommandParameter="{Binding Spec}">
-                <StackPanel Orientation="Horizontal">
-                    <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource CommunityIcon}"
-                                      Visibility="{Binding IsCommunity, Converter={StaticResource Vis}}" />
-                    <TextBlock Text="{Binding Label}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                </StackPanel>
+                <DockPanel>
+                    <!-- ☆ on hover to star a community (★ when it's a favorite); clicking it doesn't open the community. -->
+                    <Button x:Name="Star" DockPanel.Dock="Right" Style="{StaticResource GlyphButton}" Padding="4,0" Margin="4,0,0,0"
+                            Visibility="Collapsed" VerticalAlignment="Center"
+                            Command="{Binding DataContext.ToggleFavoriteSpecCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                            CommandParameter="{Binding Spec}">
+                        <TextBlock x:Name="StarGlyph" Text="☆" FontSize="13" />
+                    </Button>
+                    <StackPanel Orientation="Horizontal">
+                        <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource CommunityIcon}"
+                                          Visibility="{Binding IsCommunity, Converter={StaticResource Vis}}" />
+                        <TextBlock Text="{Binding Label}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                </DockPanel>
                 <Button.InputBindings>
                     <MouseBinding MouseAction="MiddleClick"
                                   Command="{Binding DataContext.OpenInNewTabCommand, RelativeSource={RelativeSource AncestorType=Window}}"
@@ -163,6 +172,21 @@
                 </Button.ContextMenu>
             </Button>
             <DataTemplate.Triggers>
+                <!-- The star: always shown on favorites, and on other communities while the mouse is over them. -->
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding CanAddToFolder}" Value="True" />
+                        <Condition Binding="{Binding IsMouseOver, ElementName=Row}" Value="True" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter TargetName="Star" Property="Visibility" Value="Visible" />
+                    <Setter TargetName="Star" Property="ToolTip" Value="Add to your favorites (on Reddit too)" />
+                </MultiDataTrigger>
+                <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                    <Setter TargetName="Star" Property="Visibility" Value="Visible" />
+                    <Setter TargetName="StarGlyph" Property="Text" Value="★" />
+                    <Setter TargetName="StarGlyph" Property="Foreground" Value="#E0A800" />
+                    <Setter TargetName="Star" Property="ToolTip" Value="Remove from your favorites" />
+                </DataTrigger>
                 <!-- Communities listed under a folder sit indented beneath its heading. -->
                 <DataTrigger Binding="{Binding InFolder}" Value="True">
                     <Setter TargetName="Row" Property="Margin" Value="14,1,0,1" />
@@ -219,6 +243,12 @@
                       CommandParameter="{Binding}" />
             <MenuItem Header="{Binding Author}" HeaderStringFormat="View u/{0}"
                       Command="{Binding PlacementTarget.Tag.OpenAuthorCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <MenuItem Header="Watch for new comments (or stop)"
+                      Command="{Binding PlacementTarget.Tag.WatchPostCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <MenuItem Header="{Binding Author}" HeaderStringFormat="Follow u/{0}'s posts (or stop)"
+                      Command="{Binding PlacementTarget.Tag.FollowAuthorCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                       CommandParameter="{Binding}" />
             <MenuItem Header="{Binding Author}" HeaderStringFormat="Send u/{0} a message…"
                       Command="{Binding PlacementTarget.Tag.NewMessageCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
@@ -654,12 +684,19 @@
                                               Command="{Binding DataContext.CloseTabCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                               CommandParameter="{Binding}" />
                             </StackPanel.InputBindings>
-                            <TextBlock Text="{Binding Title}" MaxWidth="150" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                            <TextBlock x:Name="TabText" Text="{Binding TabLabel}" MaxWidth="150" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                             <Button Content="✕" FontSize="10" Margin="6,0,0,0" Style="{StaticResource GlyphButton}"
                                     ToolTip="Close tab (Ctrl+W)"
                                     Command="{Binding DataContext.CloseTabCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                     CommandParameter="{Binding}" />
                         </StackPanel>
+                        <DataTemplate.Triggers>
+                            <!-- Asleep: its posts were let go to save memory; it reloads when opened. -->
+                            <DataTrigger Binding="{Binding IsAsleep}" Value="True">
+                                <Setter TargetName="TabText" Property="Opacity" Value="0.6" />
+                                <Setter TargetName="TabText" Property="ToolTip" Value="Asleep to save memory; it reloads when you open it" />
+                            </DataTrigger>
+                        </DataTemplate.Triggers>
                     </DataTemplate>
                 </TabControl.ItemTemplate>
                 <TabControl.ContentTemplate>

@@ -401,6 +401,44 @@ img.zoomable { cursor: zoom-in; }
 }
 .reply-box textarea:focus { outline: 2px solid var(--accent); border-color: transparent; }
 
+/* The New post window's editor page. */
+body.editor-page { padding: 0; margin: 0; }
+.editor-page #editor-root { padding: 2px; }
+.editor-page .md-editor textarea, .editor-page .rich-editor { min-height: 220px; }
+.editor-page .md-editor textarea {
+    width: 100%;
+    padding: 8px 10px;
+    font: inherit;
+    color: inherit;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    resize: vertical;
+    box-sizing: border-box;
+}
+
+/* Read aloud: the part being read, and the player. */
+.reading { outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 4px; border-radius: 6px; }
+#reader-bar {
+    position: fixed;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 6px 10px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    font-size: 13px;
+}
+#reader-bar[hidden] { display: none; }
+#reader-bar button { background: var(--soft); color: inherit; border-radius: 12px; padding: 3px 9px; }
+#reader-bar select { font: inherit; color: inherit; background: var(--soft); border: 0; border-radius: 8px; padding: 2px 4px; }
+
 /* Community info and wiki. */
 .community-head { display: flex; gap: 14px; align-items: center; }
 .community-icon { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; }

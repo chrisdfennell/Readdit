@@ -74,6 +74,8 @@ public sealed partial class MainViewModel : ObservableObject
         _detail.ModActionDone += OnModActionDone;
         _detail.UserNoteChanged += OnUserNoteChanged;
         _detail.ComposeRequested += to => ShowCompose(to);
+        _detail.WatchRequested += SetWatching;
+        _detail.FollowRequested += SetFollowing;
         _detail.MediaStepHandler = StepToPicturesAsync;
         _detail.FullscreenRequested += on => FullscreenRequested?.Invoke(on);
         _detail.ThreadVisited += postId =>
@@ -83,8 +85,11 @@ public sealed partial class MainViewModel : ObservableObject
         _inboxTimer.Tick += async (_, _) => await RefreshInboxAsync();
         _sync = new SettingsSync(services.Settings, services.UserNotes);
         _syncTimer.Tick += (_, _) => RunSync();
+        _sleepTimer.Tick += (_, _) => SleepIdleTabs();
+        _sleepTimer.Start();
         _alertMonitor = new AlertMonitor(services);
         _alertMonitor.Matched += OnAlertsMatched;
+        _alertMonitor.ThreadsUpdated += OnThreadsUpdated;
         _alertTimer.Tick += async (_, _) =>
         {
             _alertTimer.Interval = AlertInterval; // the first tick comes early; then the chosen rate
@@ -105,6 +110,11 @@ public sealed partial class MainViewModel : ObservableObject
         ToggleFavoriteCommand = new RelayCommand(_ => ToggleFavorite(), _ => SelectedTab?.IsSubreddit == true);
         AddFavoriteCommand = new RelayCommand(p => { if (p is string s) AddFavorite(s); });
         RemoveFavoriteCommand = new RelayCommand(p => { if (p is string s) RemoveFavorite(s); });
+        ToggleFavoriteSpecCommand = new RelayCommand(p =>
+        {
+            if (p is string spec && spec.StartsWith("r/"))
+                _ = SetFavoriteAsync(spec[2..], !Favorites.Contains(spec[2..], StringComparer.OrdinalIgnoreCase));
+        });
         VoteCommand = new RelayCommand(p => _ = VoteAsync(p as Post ?? SelectedPost, up: true));
         DownvoteCommand = new RelayCommand(p => _ = VoteAsync(p as Post ?? SelectedPost, up: false));
         ToggleSaveCommand = new RelayCommand(p => _ = ToggleSaveAsync(p as Post ?? SelectedPost));
@@ -132,6 +142,14 @@ public sealed partial class MainViewModel : ObservableObject
         ManageAlertsCommand = new RelayCommand(_ => ShowAlerts());
         ReportProblemCommand = new RelayCommand(_ => ShowReportProblem());
         RemoveSavedSearchCommand = new RelayCommand(p => { if (p is SidebarItem item) RemoveSavedSearch(item.Spec); });
+        WatchPostCommand = new RelayCommand(p =>
+        {
+            if (p is Post { Kind: ItemKind.Link } post) SetWatching(post.Id, post.Title, post.Subreddit, post.NumComments, !IsWatching(post.Id));
+        });
+        FollowAuthorCommand = new RelayCommand(p =>
+        {
+            if (p is Post post) SetFollowing(post.Author, !IsFollowing(post.Author));
+        });
         ShowCommunityCommand = new RelayCommand(p => ShowCommunity((p as FeedViewModel ?? SelectedTab)?.Target), _ => _isReady);
         NewMessageCommand = new RelayCommand(p => ShowCompose(p switch
         {
@@ -321,6 +339,7 @@ public sealed partial class MainViewModel : ObservableObject
     public ICommand ToggleFavoriteCommand { get; }
     public ICommand AddFavoriteCommand { get; }
     public ICommand RemoveFavoriteCommand { get; }
+    public ICommand ToggleFavoriteSpecCommand { get; }
     public ICommand VoteCommand { get; }
     public ICommand DownvoteCommand { get; }
     public ICommand ToggleSaveCommand { get; }
@@ -340,6 +359,8 @@ public sealed partial class MainViewModel : ObservableObject
     public ICommand ReportProblemCommand { get; }
     public ICommand RemoveSavedSearchCommand { get; }
     public ICommand ShowCommunityCommand { get; }
+    public ICommand WatchPostCommand { get; }
+    public ICommand FollowAuthorCommand { get; }
 
     /// <summary>Shows a community's rules, sidebar, moderators and wiki in the post view.</summary>
     void ShowCommunity(string? name)
@@ -583,7 +604,11 @@ public sealed partial class MainViewModel : ObservableObject
         set
         {
             if (_selectedTab == value) return;
-            if (_selectedTab != null) _selectedTab.PropertyChanged -= OnTabPropertyChanged;
+            if (_selectedTab != null)
+            {
+                _selectedTab.PropertyChanged -= OnTabPropertyChanged;
+                _selectedTab.LastShown = DateTime.Now; // asleep after a while in the background
+            }
             // All tabs share one ListBox; while it swaps lists it pushes a null selection back.
             _selectedTab?.HoldSelection();
             value?.HoldSelection();
@@ -664,6 +689,7 @@ public sealed partial class MainViewModel : ObservableObject
         feed.ManageAlertsRequested += ShowAlerts;
         feed.SearchRefined += (tab, spec) => ReplaceTab(tab, spec);
         feed.SaveSearchRequested += SaveSearch;
+        feed.FollowToggleRequested += user => SetFollowing(user, !IsFollowing(user));
         feed.InboxRead += () =>
         {
             UnreadCount = 0;
@@ -812,7 +838,8 @@ public sealed partial class MainViewModel : ObservableObject
                 var key = "folder:" + folder.Name;
                 Section(key, $"📁 {folder.Name} ({folder.Subreddits.Count})", IsExpanded(key) || IsFiltering,
                     "Show or hide this folder's communities",
-                    members.Select(s => new SidebarItem("r/" + s, "r/" + s, _icons.GetValueOrDefault(s), Folder: folder.Name)),
+                    members.Select(s => new SidebarItem("r/" + s, "r/" + s, _icons.GetValueOrDefault(s), Folder: folder.Name,
+                        IsFavorite: Favorites.Contains(s, StringComparer.OrdinalIgnoreCase))),
                     [
                         new SidebarAction("▶", "Open all of this folder's posts together", OpenFolderCommand, folder.Name),
                         new SidebarAction("✎", "Rename, edit or delete this folder", EditFolderCommand, folder.Name),
@@ -1059,7 +1086,7 @@ public sealed partial class MainViewModel : ObservableObject
         SidebarFilter.Length == 0 || name.Contains(SidebarFilter.Trim(), StringComparison.OrdinalIgnoreCase);
 
     public IReadOnlyList<SidebarItem> FavoriteItems =>
-        Favorites.Where(MatchesFilter).Select(f => new SidebarItem("r/" + f, "r/" + f, _icons.GetValueOrDefault(f))).ToList();
+        Favorites.Where(MatchesFilter).Select(f => new SidebarItem("r/" + f, "r/" + f, _icons.GetValueOrDefault(f), IsFavorite: true)).ToList();
 
     public IReadOnlyList<SidebarItem> SubscriptionItems
     {
@@ -1069,7 +1096,8 @@ public sealed partial class MainViewModel : ObservableObject
             if (Settings.SubscriptionSort == "Visits")
                 matching = matching.OrderByDescending(s => _services.CommunityVisits.CountFor(s.Name))
                     .ThenBy(s => s.Name, StringComparer.OrdinalIgnoreCase);
-            return matching.Select(s => new SidebarItem("r/" + s.Name, "r/" + s.Name, s.Icon)).ToList();
+            var favorites = Favorites.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return matching.Select(s => new SidebarItem("r/" + s.Name, "r/" + s.Name, s.Icon, IsFavorite: favorites.Contains(s.Name))).ToList();
         }
     }
 
@@ -1449,6 +1477,7 @@ public sealed partial class MainViewModel : ObservableObject
             case "F11": FullscreenRequested?.Invoke(null); return true;
             case "d": _detail.RequestDownload(); return true;
             case "v": _detail.OpenViewer(); return true;
+            case "R": _detail.ReadAloud(); return true;
             case "J": _detail.NavigateComments(1); return true;
             case "K": _detail.NavigateComments(-1); return true;
             case "+" or "=": ReadingFontSize++; return true;
@@ -1552,6 +1581,19 @@ public sealed partial class MainViewModel : ObservableObject
         {
             InboxNotification?.Invoke("New message on Reddit", Status, null);
         }
+    }
+
+    // ---- Sleeping tabs ------------------------------------------------------------------------------
+
+    readonly DispatcherTimer _sleepTimer = new() { Interval = TimeSpan.FromMinutes(1) };
+
+    /// <summary>Background tabs unused for a while let go of their posts (they reload when opened).</summary>
+    void SleepIdleTabs()
+    {
+        var after = Settings.SleepTabsAfterMinutes;
+        if (after <= 0) return;
+        var cutoff = DateTime.Now.AddMinutes(-after);
+        foreach (var tab in Tabs.Where(t => t != SelectedTab && t.LastShown < cutoff)) tab.Sleep();
     }
 
     // ---- Sync between PCs -----------------------------------------------------------------------
@@ -1664,14 +1706,63 @@ public sealed partial class MainViewModel : ObservableObject
         StartSync();
     }
 
+    // ---- Watching threads and following people ----------------------------------------------------
+
+    public bool IsWatching(string postId) => Settings.WatchedThreads.Any(w => w.PostId == postId);
+
+    public bool IsFollowing(string user) => Settings.FollowedUsers.Any(f => f.Name.Equals(user, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Starts or stops watching a thread for new comments (counting from what's there now).</summary>
+    public void SetWatching(string postId, string title, string subreddit, long comments, bool on)
+    {
+        Settings.WatchedThreads.RemoveAll(w => w.PostId == postId);
+        if (on) Settings.WatchedThreads.Add(new WatchedThread { PostId = postId, Title = title, Subreddit = subreddit, SeenComments = comments });
+        Settings.Save();
+        Status = on ? $"Watching “{title}”. You'll be told about new comments." : $"Stopped watching “{title}”.";
+        _detail.RefreshSettings();
+    }
+
+    /// <summary>Starts or stops following someone's new posts.</summary>
+    public void SetFollowing(string user, bool on)
+    {
+        if (user.Length == 0 || user == "[deleted]") return;
+        Settings.FollowedUsers.RemoveAll(f => f.Name.Equals(user, StringComparison.OrdinalIgnoreCase));
+        if (on) Settings.FollowedUsers.Add(new FollowedUser { Name = user });
+        Settings.Save();
+        Status = on ? $"Following u/{user}. Their new posts show up in Alerts." : $"Stopped following u/{user}.";
+        _detail.RefreshSettings();
+        foreach (var tab in Tabs.Where(t => t.Kind == FeedKind.User && t.Target.Equals(user, StringComparison.OrdinalIgnoreCase)))
+            tab.RefreshFollowLabel();
+        // Start counting from their newest post now.
+        if (on) _ = CheckAlertsNowAsync();
+    }
+
+    void OnThreadsUpdated(List<(WatchedThread Thread, Post Post, long NewComments)> updates)
+    {
+        var (thread, post, count) = updates[0];
+        var title = updates.Count == 1
+            ? $"💬 {count} new {(count == 1 ? "comment" : "comments")} in a thread you watch"
+            : $"💬 New comments in {updates.Count} threads you watch";
+        var text = updates.Count == 1 ? thread.Title : string.Join("\n", updates.Take(3).Select(u => $"• {u.NewComments} in {u.Thread.Title}"));
+        Status = updates.Count == 1 ? $"{count} new comments in “{thread.Title}”." : $"New comments in {updates.Count} watched threads.";
+        foreach (var copy in Tabs.SelectMany(t => t.Posts).Where(p => p.Id == thread.PostId)) copy.NewComments += count;
+        AlertNotification?.Invoke(title, text, post);
+    }
+
     // ---- Alerts --------------------------------------------------------------------------------
 
     void ShowAlerts()
     {
-        var window = new AlertsWindow(Settings.AlertRules, Settings.AlertIntervalMinutes) { Owner = Application.Current.MainWindow };
+        var window = new AlertsWindow(Settings.AlertRules, Settings.AlertIntervalMinutes, Settings.WatchedThreads, Settings.FollowedUsers)
+        {
+            Owner = Application.Current.MainWindow,
+        };
         if (window.ShowDialog() != true) return;
         Settings.AlertRules = window.Result;
         Settings.AlertIntervalMinutes = window.IntervalMinutes;
+        Settings.WatchedThreads = window.WatchedResult;
+        Settings.FollowedUsers = window.FollowedResult;
+        _detail.RefreshSettings();
         Settings.Save();
         _alertTimer.Stop();
         _alertTimer.Interval = AlertInterval;
@@ -1744,6 +1835,7 @@ public sealed partial class MainViewModel : ObservableObject
                 "Subscriptions", ToggleSubscriptionSort),
             new PaletteItem("⤢", IsReadingMode ? "Leave reading mode" : "Reading mode", "F", () => IsReadingMode = !IsReadingMode),
             new PaletteItem("▣", "Mini mode", "Ctrl+M", () => MiniModeRequested?.Invoke(true)),
+            new PaletteItem("🔊", "Read aloud (or stop)", "Shift+R", () => _detail.ReadAloud()),
             new PaletteItem("▤", "Layout: Compact", "1", () => LayoutMode = "Compact"),
             new PaletteItem("▦", "Layout: Cards", "2", () => LayoutMode = "Cards"),
             new PaletteItem("▩", "Layout: Grid", "3", () => LayoutMode = "Grid"),
@@ -1870,6 +1962,11 @@ public sealed partial class MainViewModel : ObservableObject
         var window = new PreferencesWindow(Settings, _updates, SyncStatus) { Owner = Application.Current.MainWindow };
         window.ReportProblemRequested += () => ShowReportProblem();
         var saved = window.ShowDialog() == true;
+        if (window.RestartToRestore)
+        {
+            RestartRequested?.Invoke(); // the backup is put in place as Skein starts again
+            return;
+        }
         UpdateReady = _updates.IsUpdateReady;
         Raise(nameof(UpdateButtonLabel));
         if (!saved) return;
@@ -1903,7 +2000,7 @@ public sealed partial class MainViewModel : ObservableObject
         var defaultSub = SelectedTab?.IsSubreddit == true && !FeedViewModel.IsAggregateName(SelectedTab.Target)
             ? SelectedTab.Target
             : "";
-        var window = new SubmitWindow(_services.Api, defaultSub) { Owner = Application.Current.MainWindow };
+        var window = new SubmitWindow(_services.Api, defaultSub, _services) { Owner = Application.Current.MainWindow };
         if (window.ShowDialog() != true) return;
         if (window.PostUrl is { Length: > 0 } url)
         {

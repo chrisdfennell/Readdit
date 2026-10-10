@@ -76,6 +76,7 @@ if (host) {
             case 'find': openFind(); break;
             case 'nextNew': nextNewComment(); break;
             case 'nextOp': nextOpComment(); break;
+            case 'readAloud': reader.parts.length ? stopReading() : readAloud(); break;
             case 'fullscreenState':
                 viewer.fullscreen = !!m.on;
                 if (!m.on) viewer.ownsFullscreen = false;
@@ -95,6 +96,7 @@ if (host) {
             case 'settings':
                 state.settings = m.settings;
                 refreshUserTags();
+                root.querySelectorAll('.watch-button').forEach(b => b.paint && b.paint());
                 break;
         }
     });
@@ -1068,7 +1070,8 @@ function clearView() {
         a.load(); // aborts the in-flight download
     }
     state.audios = [];
-    // Overlays and find results belong to the old post.
+    // Overlays, reading aloud and find results belong to the old post.
+    stopReading();
     closeLightbox();
     closeMenu();
     hideHovercard();
@@ -1155,6 +1158,8 @@ function renderPost(d, settings) {
         el('div', { class: 'actions' },
             action('💬 Reply', () => box.open()),
             saveButton(d),
+            watchButton(d),
+            action('🔊 Read aloud', () => readAloud(), 'Read the post and its comments aloud (Shift+R)'),
             hasDownloadableMedia(d) && action('⬇ Download', () => downloadPost(), 'Save images or video (d)'),
             action('↗ Open on Reddit', () => send({ type: 'external', url: permalink })),
             d.is_self ? null : action('🔗 Open link', () => send({ type: 'external', url: source.url || d.url })),
@@ -1407,6 +1412,9 @@ function openUserMenu(anchor, name) {
             muted ? `Unmute u/${name}` : `🔇 Mute u/${name}`),
         !sameUser(name, state.settings.me) &&
             el('button', { onclick: () => { closeMenu(); send({ type: 'compose', to: name }); } }, `✉ Send u/${name} a message…`),
+        !sameUser(name, state.settings.me) &&
+            el('button', { onclick: () => setFollowing(name, !isFollowing(name)) },
+                isFollowing(name) ? `Stop following u/${name}` : `👁 Follow u/${name}'s posts`),
         el('button', { onclick: () => openNoteForm(menu, name) },
             noteFor(name) ? `📝 Edit your note on u/${name}…` : `📝 Note or tag on u/${name}…`));
     document.body.append(menu);
@@ -1892,6 +1900,158 @@ function renderConversation(m) {
         box));
     const focused = list.querySelector('.bubble.focused');
     if (focused) focused.scrollIntoView({ block: 'center' });
+}
+
+// ---- Watching threads and following people ---------------------------------------------------
+
+const isWatching = id => (state.settings.watched || []).includes(id);
+const isFollowing = name => (state.settings.followed || []).some(f => sameUser(f, name));
+
+/** 🔔 Watch: be told about new comments on this thread. */
+function watchButton(d) {
+    const button = el('button', { class: 'action watch-button' });
+    button.paint = () => {
+        const on = isWatching(d.id);
+        button.textContent = on ? '🔕 Watching' : '🔔 Watch';
+        button.title = on ? 'Stop being told about new comments here' : 'Be told when new comments arrive here';
+    };
+    button.onclick = async () => {
+        const on = !isWatching(d.id);
+        try {
+            state.settings = await call('watch', { id: d.id, title: d.title, sub: d.subreddit, count: d.num_comments || 0, on });
+            button.paint();
+            showToast(on ? 'Watching: you\'ll be told about new comments' : 'Stopped watching');
+        } catch (err) {
+            showToast(err.message);
+        }
+    };
+    button.paint();
+    return button;
+}
+
+async function setFollowing(name, on) {
+    closeMenu();
+    try {
+        state.settings = await call('follow', { name, on });
+        showToast(on ? `Following u/${name}: their new posts show up in Alerts` : `Stopped following u/${name}`);
+    } catch (err) {
+        showToast(err.message);
+    }
+}
+
+// ---- Read aloud ----------------------------------------------------------------------------
+// Windows' own voices (through the browser's speech support): the post, then each top-level
+// comment, with a small player to pause, skip, stop and change speed.
+
+const reader = { parts: [], index: 0, rate: 1, bar: null };
+
+/** Splits text into sentence-sized pieces (very long single utterances can stall). */
+function speechChunks(text) {
+    const flat = text.replace(/\s+/g, ' ').trim();
+    if (!flat) return [];
+    const sentences = flat.match(/[^.!?]+[.!?]*\s*/g) || [flat];
+    const chunks = [];
+    let current = '';
+    for (const s of sentences) {
+        if ((current + s).length > 220 && current) {
+            chunks.push(current.trim());
+            current = '';
+        }
+        current += s;
+    }
+    if (current.trim()) chunks.push(current.trim());
+    return chunks;
+}
+
+function readAloud() {
+    if (!window.speechSynthesis) {
+        showToast('Reading aloud isn\'t available here');
+        return;
+    }
+    const article = root.querySelector('article.post');
+    if (!article) return;
+    stopReading();
+    const parts = [];
+    const add = (node, text) => speechChunks(text).forEach(chunk => parts.push({ node, text: chunk }));
+    const title = article.querySelector('h1')?.textContent || '';
+    add(article, title + '. ' + (article.querySelector('.post-body')?.innerText || ''));
+    for (const comment of topLevelComments()) {
+        const body = comment.querySelector(':scope > .c-content > .c-body')?.innerText || '';
+        if (body.trim() && body.trim() !== '[deleted]') add(comment, `${comment.dataset.author} says: ${body}`);
+    }
+    reader.parts = parts;
+    reader.index = 0;
+    showReaderBar();
+    speakCurrent();
+}
+
+function speakCurrent() {
+    const part = reader.parts[reader.index];
+    root.querySelectorAll('.reading').forEach(n => n.classList.remove('reading'));
+    if (!part) {
+        stopReading();
+        return;
+    }
+    part.node.classList.add('reading');
+    if (part.node !== reader.lastNode) part.node.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    reader.lastNode = part.node;
+    const utterance = new SpeechSynthesisUtterance(part.text);
+    utterance.rate = reader.rate;
+    utterance.onend = () => {
+        if (reader.parts[reader.index] !== part) return; // skipped or stopped meanwhile
+        reader.index++;
+        speakCurrent();
+    };
+    window.speechSynthesis.speak(utterance);
+    updateReaderBar();
+}
+
+/** Skips to the start of the next comment (not just the next sentence). */
+function readNext() {
+    const node = reader.parts[reader.index]?.node;
+    let next = reader.index + 1;
+    while (next < reader.parts.length && reader.parts[next].node === node) next++;
+    reader.index = next;
+    window.speechSynthesis.cancel();
+    speakCurrent();
+}
+
+function togglePauseReading() {
+    if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+    else window.speechSynthesis.pause();
+    updateReaderBar();
+}
+
+function stopReading() {
+    reader.parts = [];
+    reader.lastNode = null;
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    root.querySelectorAll('.reading').forEach(n => n.classList.remove('reading'));
+    if (reader.bar) reader.bar.hidden = true;
+}
+
+function showReaderBar() {
+    if (!reader.bar) {
+        const speed = el('select', { title: 'Speed', onchange: e => { reader.rate = parseFloat(e.target.value); } },
+            [['0.8', '0.8×'], ['1', '1×'], ['1.25', '1.25×'], ['1.5', '1.5×'], ['2', '2×']]
+                .map(([value, label]) => el('option', { value, selected: value === '1' }, label)));
+        reader.bar = el('div', { id: 'reader-bar', hidden: true },
+            el('span', { class: 'reader-label' }, '🔊 Reading aloud'),
+            el('button', { class: 'reader-pause', title: 'Pause or resume', onclick: () => togglePauseReading() }, '⏸'),
+            el('button', { title: 'Next comment', onclick: () => readNext() }, '⏭'),
+            el('button', { title: 'Stop', onclick: () => stopReading() }, '⏹'),
+            speed);
+        document.body.append(reader.bar);
+    }
+    reader.bar.hidden = false;
+}
+
+function updateReaderBar() {
+    if (!reader.bar) return;
+    reader.bar.querySelector('.reader-pause').textContent = window.speechSynthesis.paused ? '▶' : '⏸';
+    const total = new Set(reader.parts.map(p => p.node)).size;
+    const at = new Set(reader.parts.slice(0, reader.index + 1).map(p => p.node)).size;
+    reader.bar.querySelector('.reader-label').textContent = `🔊 Reading aloud · ${at} of ${total}`;
 }
 
 // ---- Community info and wiki ---------------------------------------------------------------

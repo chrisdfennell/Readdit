@@ -60,6 +60,8 @@ public static class Program
 
         // Before anything (WebView2, logs) opens the data folder.
         Paths.MigrateLocalData();
+        // A backup chosen in Preferences is put in place now, before anything reads these files.
+        Backup.ApplyPending(Paths.Roaming, Paths.Local);
         LinkHandler.RemoveLegacyRegistrations();
         LinkHandler.RegisterProtocol();
         // Keep the web link registration pointing at this copy (updates can move the exe).

@@ -152,8 +152,20 @@ public sealed class AppSettings
     /// <summary>Keep the mini mode window on top of other windows.</summary>
     public bool MiniTopmost { get; set; } = true;
 
+    /// <summary>In mixed feeds, show a link posted in several communities once (noting the others).</summary>
+    public bool HideDuplicates { get; set; } = true;
+
+    /// <summary>Background tabs let go of their posts after this many minutes (0 = never).</summary>
+    public int SleepTabsAfterMinutes { get; set; } = 15;
+
     /// <summary>Searches kept in the sidebar.</summary>
     public List<SavedSearch> SavedSearches { get; set; } = [];
+
+    /// <summary>Threads you're watching for new comments.</summary>
+    public List<WatchedThread> WatchedThreads { get; set; } = [];
+
+    /// <summary>People whose new posts you're notified about.</summary>
+    public List<FollowedUser> FollowedUsers { get; set; } = [];
 
     /// <summary>Keyword alerts, checked in the background.</summary>
     public List<AlertRule> AlertRules { get; set; } = [];

@@ -32,7 +32,9 @@ Skein is a native Windows app (WPF on .NET 10) for browsing Reddit. It signs in 
 
 **Browsing**
 - Compact, card and picture-grid layouts, with infinite scroll.
-- Tabs that are restored on restart, and a sidebar with your subscriptions and favorites, including community icons. It handles thousands of subscriptions, shows them instantly at launch, and has an A–Z jump bar and a most-visited sort.
+- Tabs that are restored on restart, and a sidebar with your subscriptions and favorites, including community icons. It handles thousands of subscriptions, shows them instantly at launch, and has an A–Z jump bar and a most-visited sort. Star any community from the sidebar to make it a favorite.
+- Tabs you haven't looked at for a while go to sleep to save memory, and wake up when you come back.
+- The same link posted in several communities shows once in combined feeds, marked with where else it was posted.
 - Folders: group communities your own way, and open a folder as one combined feed.
 - A command palette (<kbd>Ctrl</kbd>+<kbd>K</kbd>) to jump to any community, folder, tab or command.
 - Search with community suggestions as you type. Refine results by author, flair, site, titles only, or text posts versus links, and save searches to the sidebar.
@@ -49,7 +51,8 @@ Skein is a native Windows app (WPF on .NET 10) for browsing Reddit. It signs in 
 - Jump between top-level comments, comments new since your last visit (highlighted), or the original poster's comments.
 - Comment tools: collapse or expand every thread, show only the original poster, people you highlight, new comments or your own, and a highlights box (top comments, the busiest thread, the original poster's replies) on big threads.
 - Vote, save, reply, and edit or delete your own posts and comments, with spell check and a formatting toolbar (<kbd>Ctrl</kbd>+<kbd>B</kbd>, <kbd>I</kbd>, <kbd>K</kbd>). Write in Markdown with a live preview, or switch to rich text and Skein turns it into Markdown for you. Unsent replies and edits are kept as drafts.
-- New posts: text, links, a picture, a gallery of up to 20, or a video. Unfinished posts are kept as drafts too.
+- New posts: text, links, a picture, a gallery of up to 20, or a video. Unfinished posts are kept as drafts too. The community's rules are shown alongside, you can pick a post flair, and the text box has the same toolbar and rich text mode.
+- Read aloud (<kbd>Shift</kbd>+<kbd>R</kbd>): listen to a post and its comments, with pause and skip.
 
 **Moderation** (for communities you moderate)
 - Mod queues in the sidebar: one for all your communities plus one per community, covering the queue, reports, unmoderated, spam and edited items.
@@ -63,6 +66,7 @@ Skein is a native Windows app (WPF on .NET 10) for browsing Reddit. It signs in 
 - Private messages: write new ones, read each conversation as one thread, and browse inbox folders (unread, messages, comment and post replies, mentions, sent).
 - Mini mode (<kbd>Ctrl</kbd>+<kbd>M</kbd>): a small window, on top of your others if you like, for keeping an eye on one feed.
 - Keyword alerts: get notified when new posts match your words, anywhere on Reddit or in communities you pick.
+- Watch a thread to be told when it gets new comments, and follow users to be told when they post.
 - Private notes and tags on users, shown next to their names.
 - Subscription cleanup: find banned, private, quarantined and long-quiet communities and unsubscribe in one go.
 - An offline library: saved posts are kept with their comments and media. Pull in everything you've saved on Reddit, then search, tag and export it (Markdown, HTML, CSV or JSON).
@@ -70,6 +74,7 @@ Skein is a native Windows app (WPF on .NET 10) for browsing Reddit. It signs in 
 - One-click download of images, galleries and video (merged with sound if [ffmpeg](https://ffmpeg.org) is installed).
 - Multiple accounts.
 - Sync between PCs: folders, alerts, user notes, filters and appearance stay the same on every PC, through a shared folder such as OneDrive.
+- Back up and restore your settings, notes, alerts and (optionally) your offline library as a single file.
 - Report a problem from Preferences: Skein bundles its logs, with personal details removed, and opens a GitHub issue.
 - Light, dark and true-black themes, with accent colors and an interface size setting.
 - Automatic updates.

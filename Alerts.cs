@@ -28,6 +28,26 @@ public sealed class AlertRule
     public AlertRule Clone() => (AlertRule)MemberwiseClone();
 }
 
+/// <summary>A thread you're watching for new comments.</summary>
+public sealed class WatchedThread
+{
+    public string PostId { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Subreddit { get; set; } = "";
+
+    /// <summary>Comments already seen or announced (this PC's bookkeeping).</summary>
+    public long SeenComments { get; set; }
+}
+
+/// <summary>Someone whose new posts you want to hear about.</summary>
+public sealed class FollowedUser
+{
+    public string Name { get; set; } = "";
+
+    /// <summary>Their newest post time (unix seconds) already looked at; 0 = never checked.</summary>
+    public long LastChecked { get; set; }
+}
+
 /// <summary>Matching rules against posts, and where to look for them.</summary>
 public static class AlertMatcher
 {
@@ -168,6 +188,7 @@ public sealed class AlertMonitor(Services services)
         if (_running) return;
         _running = true;
         var found = new List<(string, Post)>();
+        var threads = new List<(WatchedThread, Post, long)>();
         try
         {
             foreach (var rule in services.Settings.AlertRules.Where(r => r.Enabled && AlertMatcher.IsUsable(r)).ToList())
@@ -197,6 +218,9 @@ public sealed class AlertMonitor(Services services)
                 // its timestamp). A first check that found nothing starts from now.
                 rule.LastChecked = Math.Max(since, first && links.Count == 0 ? DateTimeOffset.UtcNow.ToUnixTimeSeconds() : newest);
             }
+
+            await CheckFollowedUsersAsync(found);
+            threads = await CheckWatchedThreadsAsync();
             services.Alerts.Save();
             services.Settings.Save();
         }
@@ -205,5 +229,66 @@ public sealed class AlertMonitor(Services services)
             _running = false;
         }
         if (found.Count > 0) Matched?.Invoke(found);
+        if (threads.Count > 0) ThreadsUpdated?.Invoke(threads);
+    }
+
+    /// <summary>Watched threads with new comments: the thread, its current post, and how many are new.</summary>
+    public event Action<List<(WatchedThread Thread, Post Post, long NewComments)>>? ThreadsUpdated;
+
+    /// <summary>New posts from people you follow go into the Alerts feed (as "u/name") and are announced.</summary>
+    async Task CheckFollowedUsersAsync(List<(string, Post)> found)
+    {
+        foreach (var user in services.Settings.FollowedUsers.ToList())
+        {
+            List<Post> posts;
+            try
+            {
+                posts = await services.Api.GetUserPostsAsync(user.Name, default);
+            }
+            catch
+            {
+                continue;
+            }
+            var first = user.LastChecked == 0;
+            var newest = posts.Count > 0 ? posts.Max(p => p.Created.ToUnixTimeSeconds()) : user.LastChecked;
+            // First check: just remember where they're up to (no flood of old posts).
+            if (!first)
+                foreach (var post in posts.Where(p => p.Created.ToUnixTimeSeconds() > user.LastChecked))
+                    if (services.Alerts.Add("u/" + user.Name, post)) found.Add(("u/" + user.Name, post));
+            user.LastChecked = Math.Max(user.LastChecked, first && posts.Count == 0 ? DateTimeOffset.UtcNow.ToUnixTimeSeconds() : newest);
+        }
+    }
+
+    /// <summary>Watched threads that gained comments since you last saw (or were told about) them.</summary>
+    async Task<List<(WatchedThread, Post, long)>> CheckWatchedThreadsAsync()
+    {
+        var updates = new List<(WatchedThread, Post, long)>();
+        var watched = services.Settings.WatchedThreads;
+        if (watched.Count == 0) return updates;
+        List<Post> posts;
+        try
+        {
+            posts = await services.Api.GetPostsInfoAsync(watched.Select(w => w.PostId).ToList(), default);
+        }
+        catch
+        {
+            return updates;
+        }
+        foreach (var thread in watched)
+        {
+            var post = posts.FirstOrDefault(p => p.Id == thread.PostId);
+            if (post == null) continue;
+            if (thread.SeenComments < 0)
+            {
+                // Arrived from another PC: start counting here, without announcing what's already there.
+                thread.SeenComments = post.NumComments;
+                continue;
+            }
+            // Opening the thread counts as seeing its comments.
+            var seen = Math.Max(thread.SeenComments, services.Visits.Get(thread.PostId)?.CommentCount ?? 0);
+            if (post.NumComments > seen) updates.Add((thread, post, post.NumComments - seen));
+            thread.SeenComments = Math.Max(seen, post.NumComments);
+        }
+        return updates;
     }
 }

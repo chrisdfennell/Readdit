@@ -79,7 +79,7 @@ public sealed partial class RedditApi
     /// reports the new post's address over a websocket; returns it (or null if that didn't come).
     /// </summary>
     public async Task<string?> SubmitMediaAsync(string subreddit, string title, UploadedMedia media, bool isVideo,
-        UploadedMedia? poster, bool nsfw, bool spoiler, CancellationToken ct)
+        UploadedMedia? poster, bool nsfw, bool spoiler, CancellationToken ct, FlairChoice? flair = null)
     {
         var form = new Dictionary<string, string>
         {
@@ -93,6 +93,7 @@ public sealed partial class RedditApi
             ["sendreplies"] = "true",
         };
         if (isVideo && poster != null) form["video_poster_url"] = poster.Url;
+        (flair ?? FlairChoice.None).AddTo(form);
         using var doc = await PostAsync("/api/submit", form);
         var data = doc.RootElement.GetProperty("json").GetProperty("data");
         if (data.Str("url") is { Length: > 0 } direct) return direct;
@@ -103,8 +104,9 @@ public sealed partial class RedditApi
 
     /// <summary>Posts several uploaded pictures as one gallery; returns its address.</summary>
     public async Task<string?> SubmitGalleryAsync(string subreddit, string title, IReadOnlyList<GalleryItem> items,
-        bool nsfw, bool spoiler, CancellationToken ct)
+        bool nsfw, bool spoiler, CancellationToken ct, FlairChoice? flair = null)
     {
+        flair ??= FlairChoice.None;
         var body = JsonSerializer.Serialize(new
         {
             sr = subreddit,
@@ -116,7 +118,9 @@ public sealed partial class RedditApi
             show_error_list = true,
             sendreplies = true,
             validate_on_submit = true,
-        });
+            flair_id = flair.Id.Length > 0 ? flair.Id : null,
+            flair_text = flair.Text.Length > 0 ? flair.Text : null,
+        }, new JsonSerializerOptions { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull });
         using var doc = await PostJsonAsync("/api/submit_gallery_post.json", body);
         var data = doc.RootElement.GetProperty("json").GetProperty("data");
         return data.Str("url") is { Length: > 0 } url ? url : await FindMyNewestPostAsync(title, ct);

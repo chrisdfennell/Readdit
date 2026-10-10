@@ -88,6 +88,8 @@ public sealed class DetailBridge(WebView2 view, Services services)
         muted = services.Settings.MutedUsers,
         highlighted = services.Settings.HighlightedUsers,
         modOf = services.Moderated,
+        watched = services.Settings.WatchedThreads.Select(w => w.PostId),
+        followed = services.Settings.FollowedUsers.Select(f => f.Name),
         // Lower-cased names → your tag and note on that user.
         notes = services.UserNotes.All.ToDictionary(n => n.Key.ToLowerInvariant(), n => new { tag = n.Value.Tag, note = n.Value.Note }),
     });
@@ -205,6 +207,12 @@ public sealed class DetailBridge(WebView2 view, Services services)
         }
     }
 
+    /// <summary>The page asks to watch (or stop watching) a thread: id, title, community, comments, on.</summary>
+    public event Action<string, string, string, long, bool>? WatchRequested;
+
+    /// <summary>The page asks to follow (or stop following) someone.</summary>
+    public event Action<string, bool>? FollowRequested;
+
     /// <summary>The page asks to write a new private message to someone.</summary>
     public event Action<string>? ComposeRequested;
 
@@ -274,6 +282,9 @@ public sealed class DetailBridge(WebView2 view, Services services)
 
     /// <summary>Jumps to the next comment by the original poster.</summary>
     public void NextOpComment() => Send("""{"type":"nextOp"}""");
+
+    /// <summary>Starts (or stops) reading the post and its comments aloud.</summary>
+    public void ReadAloud() => Send("""{"type":"readAloud"}""");
 
     /// <summary>Opens the picture viewer on the current post (or the next one with pictures).</summary>
     public void OpenViewer() => Send("""{"type":"viewer"}""");
@@ -513,6 +524,14 @@ public sealed class DetailBridge(WebView2 view, Services services)
             case "community":
                 await ShowCommunityAsync(m.Str("sub"));
                 return null;
+
+            case "watch":
+                WatchRequested?.Invoke(m.Str("id"), m.Str("title"), m.Str("sub"), m.Long("count"), m.Bool("on"));
+                return SettingsJson;
+
+            case "follow":
+                FollowRequested?.Invoke(m.Str("name"), m.Bool("on"));
+                return SettingsJson;
 
             case "compose":
                 ComposeRequested?.Invoke(m.Str("to"));
