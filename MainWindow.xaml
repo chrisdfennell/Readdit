@@ -120,6 +120,16 @@
             <MenuItem Header="Hide post" InputGestureText="X"
                       Command="{Binding PlacementTarget.Tag.HideCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                       CommandParameter="{Binding}" />
+            <Separator Visibility="{Binding CanModerate, Converter={StaticResource Vis}}" />
+            <MenuItem Header="🛡 Approve" Visibility="{Binding CanModerate, Converter={StaticResource Vis}}"
+                      Command="{Binding PlacementTarget.Tag.ApproveCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <MenuItem Header="🛡 Remove" Visibility="{Binding CanModerate, Converter={StaticResource Vis}}"
+                      Command="{Binding PlacementTarget.Tag.RemoveCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <MenuItem Header="🛡 Remove as spam" Visibility="{Binding CanModerate, Converter={StaticResource Vis}}"
+                      Command="{Binding PlacementTarget.Tag.SpamCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
             <MenuItem Header="Download images / video" InputGestureText="D"
                       Command="{Binding PlacementTarget.Tag.DownloadCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                       CommandParameter="{Binding}" />
@@ -480,6 +490,12 @@
                     <StackPanel Margin="4,0,4,12">
                         <TextBlock Text="FEEDS" Style="{StaticResource SectionHeader}" />
                         <ItemsControl ItemsSource="{Binding Feeds}" ItemTemplate="{StaticResource SidebarItemTemplate}" />
+
+                        <StackPanel Visibility="{Binding HasModeration, Converter={StaticResource Vis}}">
+                            <TextBlock Text="MODERATION" Style="{StaticResource SectionHeader}"
+                                       ToolTip="Mod queues for the communities you moderate" />
+                            <ItemsControl ItemsSource="{Binding ModerationItems}" ItemTemplate="{StaticResource SidebarItemTemplate}" />
+                        </StackPanel>
 
                         <TextBlock Text="FAVORITES" Style="{StaticResource SectionHeader}"
                                    ToolTip="Your favorite communities on Reddit. Starring one here stars it on Reddit too." />

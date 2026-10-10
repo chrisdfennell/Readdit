@@ -100,6 +100,41 @@ public sealed partial class Post : ObservableObject
     /// <summary>Offline library tags, comma separated.</summary>
     public string LibraryTags { get; set; } = "";
 
+    // ---- Moderation (Reddit only sends these fields to moderators) -------------------------------
+
+    /// <summary>You moderate this item's community.</summary>
+    public bool CanModerate { get; set; }
+
+    public long NumReports { get; init; }
+
+    bool _isApproved;
+    public bool IsApproved
+    {
+        get => _isApproved;
+        set
+        {
+            if (Set(ref _isApproved, value)) Raise(nameof(Tags));
+        }
+    }
+
+    bool _isRemoved;
+    public bool IsRemoved
+    {
+        get => _isRemoved;
+        set
+        {
+            if (Set(ref _isRemoved, value)) Raise(nameof(Tags));
+        }
+    }
+
+    /// <summary>Approved by a moderator (approved_by, or the "approved" flag on comments).</summary>
+    static bool ReadApproved(JsonElement d) => d.Str("approved_by").Length > 0 || d.Bool("approved");
+
+    /// <summary>Removed by moderators, AutoMod or Reddit (not deleted by its author).</summary>
+    static bool ReadRemoved(JsonElement d) =>
+        d.Bool("removed") || d.Bool("spam") || d.Str("banned_by").Length > 0 ||
+        d.Str("removed_by_category") is "moderator" or "automod_filtered" or "reddit" or "anti_evil_ops" or "content_takedown";
+
     public bool IsLink => Kind == ItemKind.Link;
     public bool HasPreview => PreviewImage != null;
     public string CommentsText => $"💬 {Format.Count(NumComments)}";
@@ -151,6 +186,9 @@ public sealed partial class Post : ObservableObject
 
     public string Tags => string.Join("  ", new[]
     {
+        IsRemoved ? "✖ REMOVED" : null,
+        NumReports > 0 && !IsApproved ? $"⚑ {NumReports} REPORT{(NumReports == 1 ? "" : "S")}" : null,
+        IsApproved && CanModerate ? "✓ APPROVED" : null,
         IsHighlightedAuthor ? $"⭐ u/{Author}" : null,
         LibraryTags.Length > 0 ? "🏷 " + LibraryTags : null,
         IsUnread ? "● NEW" : null,
@@ -204,6 +242,9 @@ public sealed partial class Post : ObservableObject
             // "self", "default", "nsfw", "spoiler" etc. are placeholders, not URLs.
             Thumbnail = thumb.StartsWith("http") ? thumb : null,
             PreviewImage = FindPreview(d, url, 640),
+            NumReports = d.Long("num_reports"),
+            IsApproved = ReadApproved(d),
+            IsRemoved = ReadRemoved(d),
             RawJson = d.GetRawText(),
         };
     }
@@ -275,6 +316,9 @@ public sealed partial class Post : ObservableObject
             Created = DateTimeOffset.FromUnixTimeSeconds((long)d.Double("created_utc")),
             Over18 = d.Bool("over_18"),
             IsUnread = d.Bool("new"),
+            NumReports = d.Long("num_reports"),
+            IsApproved = ReadApproved(d),
+            IsRemoved = ReadRemoved(d),
             RawJson = d.GetRawText(),
         };
     }
@@ -315,12 +359,15 @@ public sealed record SidebarItem(string Label, string Spec, string? Icon = null)
     {
         get
         {
-            var name = Spec.StartsWith("r/") || Spec.StartsWith("u/") ? Spec[2..] : Label;
+            var name = Spec.StartsWith("r/") || Spec.StartsWith("u/") ? Spec[2..]
+                : Spec.StartsWith("mod:") ? Spec[4..]
+                : Label;
             return name.Length > 0 ? char.ToUpperInvariant(name[0]).ToString() : "?";
         }
     }
 
-    public bool IsCommunity => Spec.StartsWith("r/");
+    /// <summary>Shows a community icon: subreddits and per-community mod queues.</summary>
+    public bool IsCommunity => Spec.StartsWith("r/") || (Spec.StartsWith("mod:") && Spec != "mod:mod");
 }
 
 /// <summary>A subreddit name, its icon URL if it has one, and whether you've starred it on Reddit.</summary>

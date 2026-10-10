@@ -87,7 +87,11 @@ public sealed class DetailBridge(WebView2 view, Services services)
         collapseBelow = services.Settings.CollapseBelowScore,
         muted = services.Settings.MutedUsers,
         highlighted = services.Settings.HighlightedUsers,
+        modOf = services.Moderated,
     });
+
+    /// <summary>A moderator action succeeded (fullname, action), so lists can update.</summary>
+    public event Action<string, string>? ModActionDone;
 
     /// <summary>Raised when a thread is opened, so lists can clear their "+N new" badge.</summary>
     public event Action<string>? ThreadVisited;
@@ -365,6 +369,26 @@ public sealed class DetailBridge(WebView2 view, Services services)
             case "delete":
                 await services.Api.DeleteAsync(m.Str("id"));
                 return null;
+
+            case "mod":
+                {
+                    var action = m.Str("action");
+                    var id = m.Str("id");
+                    // Only in communities you moderate, and only the actions RedditApi allows.
+                    if (!services.IsModeratorOf(m.Str("subreddit")))
+                        throw new InvalidOperationException("You don't moderate that community.");
+                    await services.Api.ModerateAsync(action, id);
+                    ModActionDone?.Invoke(id, action);
+                    return null;
+                }
+
+            case "ban":
+                {
+                    var subreddit = m.Str("subreddit");
+                    if (!services.IsModeratorOf(subreddit)) throw new InvalidOperationException("You don't moderate that community.");
+                    await services.Api.BanAsync(subreddit, m.Str("user"), (int)m.Long("days"), m.Str("reason"), m.Str("message"), m.Str("note"));
+                    return null;
+                }
 
             case "download":
                 {

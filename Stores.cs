@@ -376,6 +376,11 @@ public sealed class Services
     public OfflineStore Offline { get; } = new();
     public VisitStore Visits { get; } = new();
 
+    /// <summary>Communities you moderate (loaded after sign-in).</summary>
+    public HashSet<string> Moderated { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public bool IsModeratorOf(string subreddit) => Moderated.Contains(subreddit);
+
     public bool IsMuted(string user) =>
         Settings.MutedUsers.Contains(user, StringComparer.OrdinalIgnoreCase);
 

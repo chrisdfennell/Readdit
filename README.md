@@ -33,6 +33,11 @@ Readdit is a native Windows app (WPF on .NET 10) for browsing Reddit. It signs i
 - Comments added since your last visit are highlighted.
 - Vote, save, reply, post, and edit or delete your own posts and comments, with a live formatting preview.
 
+**Moderation** (for communities you moderate)
+- Mod queues in the sidebar: one for all your communities plus one per community, covering the queue, reports, unmoderated, spam and edited items.
+- Approve, remove, mark as spam, lock, pin, distinguish, mark NSFW or spoiler, ignore reports, and ban users with a reason, duration and message.
+- Report reasons and approved/removed badges are shown inline. Quick approve, remove and spam are in the post list's right-click menu.
+
 **Power features**
 - Filters: keywords, domains, subreddits, minimum score, auto-collapsing low-scored comments, muted users and highlighted users.
 - Read tracking (hide or dim posts you've opened) and hiding posts.

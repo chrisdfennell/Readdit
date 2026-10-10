@@ -89,6 +89,24 @@ body.reading .post-body { font-size: 1.08em; line-height: 1.7; }
 .head-tools .action { padding: 3px 10px; }
 .note { margin: 10px 0; padding: 8px 12px; background: var(--soft); border-radius: 8px; font-size: 13px; }
 
+/* ---- Moderation ------------------------------------------------------------------------ */
+
+.mod-badges { display: inline-flex; gap: 4px; margin: 0 4px; vertical-align: middle; }
+.post-titles .mod-badges { margin: 0 0 6px; display: flex; }
+.badge.removed { background: #d0142c; }
+.badge.approved { background: #2e8b57; }
+.badge.reported { background: #e08a00; }
+.badge.locked { background: #6b6f73; }
+.action.mod-action { color: #2e8b57; }
+.reports {
+    margin: 6px 0;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    background: rgba(224, 138, 0, 0.12);
+    border-left: 3px solid #e08a00;
+}
+
 /* ---- Popup menu ------------------------------------------------------------------------ */
 
 #menu {
@@ -105,6 +123,22 @@ body.reading .post-body { font-size: 1.08em; line-height: 1.7; }
 }
 #menu button { text-align: left; padding: 7px 12px; font-size: 13px; }
 #menu button:hover { background: var(--soft); }
+
+/* The ban form reuses the menu's popup. */
+#menu.form { width: 300px; gap: 6px; padding: 10px; }
+#menu.form .menu-title { font-weight: 700; font-size: 13px; }
+#menu.form input, #menu.form textarea {
+    font: inherit;
+    font-size: 13px;
+    color: inherit;
+    padding: 6px 8px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    resize: vertical;
+}
+#menu.form .reply-actions button { text-align: center; padding: 5px 14px; background: var(--soft); }
+#menu.form button.danger { background: #d0142c; color: #fff; }
 
 /* ---- Find in thread ---------------------------------------------------------------------- */
 

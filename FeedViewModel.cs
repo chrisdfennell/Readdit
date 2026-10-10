@@ -3,7 +3,7 @@ using System.Windows.Input;
 
 namespace Readdit;
 
-public enum FeedKind { Home, Subreddit, Search, User, Saved, Inbox, Offline }
+public enum FeedKind { Home, Subreddit, Search, User, Saved, Inbox, Offline, ModQueue }
 
 /// <summary>One tab: a listing (subreddit, search, profile, inbox…) and its loaded posts.</summary>
 public sealed class FeedViewModel : ObservableObject
@@ -48,6 +48,7 @@ public sealed class FeedViewModel : ObservableObject
         FeedKind.User => "u/" + Target,
         FeedKind.Saved => "saved",
         FeedKind.Inbox => "inbox",
+        FeedKind.ModQueue => "mod:" + Target,
         _ => "offline",
     };
 
@@ -62,6 +63,8 @@ public sealed class FeedViewModel : ObservableObject
             var scope = rest[..colon];
             return new FeedViewModel(services, FeedKind.Search, rest[(colon + 1)..], scope.Length > 0 ? scope : null);
         }
+        if (spec.StartsWith("mod:", StringComparison.OrdinalIgnoreCase) && spec.Length > 4)
+            return new FeedViewModel(services, FeedKind.ModQueue, spec[4..]);
         if (spec.StartsWith("r/", StringComparison.OrdinalIgnoreCase))
             return new FeedViewModel(services, FeedKind.Subreddit, spec[2..]);
         if (spec.StartsWith("u/", StringComparison.OrdinalIgnoreCase))
@@ -84,8 +87,12 @@ public sealed class FeedViewModel : ObservableObject
         FeedKind.User => "u/" + Target,
         FeedKind.Saved => "★ Saved",
         FeedKind.Inbox => "✉ Inbox",
+        FeedKind.ModQueue => IsAllModQueue ? "🛡 Mod queue" : $"🛡 r/{Target}",
         _ => "📥 Offline",
     };
+
+    /// <summary>"r/mod" is Reddit's combined view of every community you moderate.</summary>
+    bool IsAllModQueue => Target.Equals("mod", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>r/all, r/popular, multireddits, home and search mix many communities.</summary>
     bool IsAggregate =>
@@ -108,6 +115,8 @@ public sealed class FeedViewModel : ObservableObject
         FeedKind.Subreddit => ["hot", "new", "top", "rising", "controversial"],
         FeedKind.Search => ["relevance", "hot", "top", "new", "comments"],
         FeedKind.User => ["new", "hot", "top", "controversial"],
+        // For queues the "sort" picks which queue to show.
+        FeedKind.ModQueue => ["modqueue", "reports", "unmoderated", "spam", "edited"],
         _ => [],
     };
 
@@ -167,6 +176,18 @@ public sealed class FeedViewModel : ObservableObject
             _holdSelection = false;
             Raise(nameof(SelectedPost));
         }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+    }
+
+    /// <summary>Takes a handled item out of a mod queue.</summary>
+    public void DropFromQueue(string fullName)
+    {
+        if (Kind != FeedKind.ModQueue) return;
+        var item = Posts.FirstOrDefault(p => p.FullName == fullName);
+        if (item == null) return;
+        var index = Posts.IndexOf(item);
+        var wasSelected = SelectedPost == item;
+        Posts.Remove(item);
+        if (wasSelected) SelectedPost = Posts.Count == 0 ? null : Posts[Math.Min(index, Posts.Count - 1)];
     }
 
     /// <summary>Stop loading; the tab was closed or replaced.</summary>
@@ -342,6 +363,7 @@ public sealed class FeedViewModel : ObservableObject
     {
         post.BlurThumbnail = _services.Settings.BlurNsfw && (post.Over18 || post.Spoiler);
         post.IsHighlightedAuthor = _services.IsHighlighted(post.Author);
+        post.CanModerate = post.Kind != ItemKind.Message && _services.IsModeratorOf(post.Subreddit);
         if (post.Kind == ItemKind.Link && _services.Visits.Get(post.Id) is { } visit)
             post.NewComments = Math.Max(0, post.NumComments - visit.CommentCount);
         Posts.Add(post);
@@ -361,6 +383,7 @@ public sealed class FeedViewModel : ObservableObject
                 ? $"/user/{me}/saved.json"
                 : throw new InvalidOperationException("Readdit doesn't know your username yet. Refresh in a moment."),
             FeedKind.Inbox => "/message/inbox.json",
+            FeedKind.ModQueue => $"/r/{Target}/about/{Sort}.json?",
             _ => throw new InvalidOperationException(),
         };
     }
@@ -368,7 +391,8 @@ public sealed class FeedViewModel : ObservableObject
     bool IsFiltered(Post p)
     {
         var s = _services.Settings;
-        if (Kind is FeedKind.Saved or FeedKind.Inbox) return false;
+        // Queues must show everything waiting for review, whatever your personal filters say.
+        if (Kind is FeedKind.Saved or FeedKind.Inbox or FeedKind.ModQueue) return false;
         if (Kind != FeedKind.User && _services.IsMuted(p.Author)) return true;
         if (s.HideNsfw && p.Over18 && (IsAggregate || Kind == FeedKind.User)) return true;
         if (s.HideRead && p.IsRead && Kind is FeedKind.Home or FeedKind.Subreddit or FeedKind.Search) return true;
@@ -423,6 +447,18 @@ public sealed class FeedViewModel : ObservableObject
                         HeaderChips = subs.Select(s => new SidebarItem("r/" + s, "r/" + s)).ToList();
                         HeaderText = subs.Count > 0 ? "Matching communities:" : "";
                     }
+                    break;
+
+                case FeedKind.ModQueue:
+                    HeaderTitle = IsAllModQueue ? "Mod queue: all your communities" : $"Mod queue: r/{Target}";
+                    HeaderText = Sort switch
+                    {
+                        "reports" => "Reported posts and comments.",
+                        "unmoderated" => "Posts no moderator has reviewed yet.",
+                        "spam" => "Removed as spam, by moderators or Reddit's filters.",
+                        "edited" => "Recently edited posts and comments.",
+                        _ => "Reported and filtered items waiting for a decision. Right-click to approve or remove.",
+                    };
                     break;
 
                 case FeedKind.Inbox:

@@ -809,6 +809,8 @@ function renderPost(d, settings) {
     const source = (d.crosspost_parent_list && d.crosspost_parent_list[0]) || d;
     const permalink = 'https://www.reddit.com' + d.permalink;
     const mine = !!state.settings.me && sameUser(d.author, state.settings.me);
+    const modOn = isModOf(d.subreddit);
+    const postBadges = modOn ? modBadges(d) : null;
     // An empty placeholder keeps a slot the editor can swap into for self posts with no text yet.
     let body = (d.selftext_html || source.selftext_html)
         ? mdNode(d.selftext_html || source.selftext_html, 'post-body', d.media_metadata || source.media_metadata)
@@ -827,6 +829,7 @@ function renderPost(d, settings) {
             el('div', { class: 'post-titles' },
                 el('h1', null, d.title),
                 tagsLine(d),
+                postBadges,
                 el('div', { class: 'meta' },
                     link('r/' + d.subreddit, '/r/' + d.subreddit), ' · ',
                     link('u/' + d.author, '/user/' + d.author), ' · ',
@@ -835,6 +838,7 @@ function renderPost(d, settings) {
                     source !== d ? [' · crossposted from ', link('r/' + source.subreddit, '/r/' + source.subreddit)] : null))),
         mediaFor(source, d),
         body,
+        modOn && reportList(d),
         el('div', { class: 'actions' },
             action('💬 Reply', () => box.open()),
             saveButton(d),
@@ -842,6 +846,10 @@ function renderPost(d, settings) {
             action('↗ Open on Reddit', () => send({ type: 'external', url: permalink })),
             d.is_self ? null : action('🔗 Open link', () => send({ type: 'external', url: source.url || d.url })),
             action('📋 Copy link', () => navigator.clipboard.writeText(permalink).then(() => showToast('Link copied'))),
+            modOn && el('button', {
+                class: 'action menu-trigger mod-action', title: 'Moderator actions',
+                onclick: e => openModMenu(e.currentTarget, d, 't3', postBadges, 0),
+            }, '🛡 Mod'),
             mine && d.is_self && action('✏ Edit', () => openEditor(body, d.selftext || '',
                 text => call('edit', { id: d.name, text }),
                 data => {
@@ -958,6 +966,10 @@ function commentNode(c, depth, post) {
     node.classList.toggle('highlight', isHighlighted(c.author));
     node.classList.toggle('muted', muted);
     node.classList.toggle('new', isNew);
+    // Comments in the "more" stubs don't carry a subreddit; they belong to the post's.
+    if (!c.subreddit && post) c.subreddit = post.subreddit;
+    const modOn = isModOf(c.subreddit);
+    const commentBadges = modOn ? modBadges(c) : null;
     const line = el('div', { class: 'thread-line', title: 'Collapse thread' });
     const toggle = el('button', { class: 'collapse', title: 'Collapse' }, '−');
     const hiddenCount = el('span', { class: 'muted' });
@@ -973,6 +985,7 @@ function commentNode(c, depth, post) {
         isNew && el('span', { class: 'badge new' }, 'NEW'),
         el('span', { class: 'badge muted-badge' }, 'MUTED'),
         c.author_flair_text && el('span', { class: 'flair' }, c.author_flair_text),
+        commentBadges,
         el('span', { class: 'muted' }, '· ' + (c.score_hidden ? 'score hidden' : count(c.score) + ' points') + ' ·'),
         el('span', { class: 'muted', title: fullDate(c.created_utc) }, age(c.created_utc)),
         c.edited && el('span', { class: 'muted' }, '· edited'),
@@ -1009,12 +1022,16 @@ function commentNode(c, depth, post) {
             body = gone;
         }),
         action('Permalink', () => send({ type: 'external', url: 'https://www.reddit.com' + c.permalink })),
+        modOn && el('button', {
+            class: 'action menu-trigger mod-action', title: 'Moderator actions',
+            onclick: e => openModMenu(e.currentTarget, c, 't1', commentBadges, depth),
+        }, '🛡 Mod'),
         c.author !== '[deleted]' &&
             el('button', { class: 'action menu-trigger', title: 'More', onclick: e => openUserMenu(e.currentTarget, c.author) }, '⋯'));
 
     if (c.replies && c.replies.data) renderChildren(c.replies.data.children, replies, depth + 1, post);
 
-    node.append(line, el('div', { class: 'c-content' }, head, body, actions, box, replies));
+    node.append(line, el('div', { class: 'c-content' }, head, body, modOn && reportList(c), actions, box, replies));
 
     const collapse = () => {
         const collapsed = node.classList.toggle('collapsed');
@@ -1072,6 +1089,135 @@ async function setUserPref(name, list, on) {
     } catch (err) {
         showToast(err.message);
     }
+}
+
+// ---- Moderation ----------------------------------------------------------------------------
+
+const isModOf = sub => (state.settings.modOf || []).some(s => sameUser(s, sub));
+
+/** Status badges (removed / approved / report count), refreshed after each mod action. */
+function modBadges(thing) {
+    const holder = el('span', { class: 'mod-badges' });
+    holder.refresh = () => {
+        const reports = (thing.num_reports || 0);
+        holder.replaceChildren(
+            thing.__removed && el('span', { class: 'badge removed' }, 'REMOVED'),
+            thing.__approved && el('span', { class: 'badge approved' }, 'APPROVED'),
+            !thing.__approved && reports > 0 && el('span', { class: 'badge reported' }, `${reports} REPORT${reports === 1 ? '' : 'S'}`),
+            thing.locked && el('span', { class: 'badge locked' }, 'LOCKED'));
+    };
+    thing.__removed = thing.__removed ?? !!(thing.removed || thing.spam || thing.banned_by ||
+        ['moderator', 'automod_filtered', 'reddit', 'anti_evil_ops'].includes(thing.removed_by_category));
+    thing.__approved = thing.__approved ?? !!(thing.approved_by || thing.approved);
+    holder.refresh();
+    return holder;
+}
+
+/** Report reasons from users and moderators, as Reddit sends them to mods. */
+function reportList(thing) {
+    const user = (thing.user_reports || []).map(r => `${r[1] > 1 ? r[1] + '× ' : ''}${r[0] || 'no reason'}`);
+    const mod = (thing.mod_reports || []).map(r => `${r[0] || 'no reason'} (u/${r[1]})`);
+    if (!user.length && !mod.length) return null;
+    return el('div', { class: 'reports' },
+        el('b', null, '⚑ Reports: '),
+        [...user, ...mod.map(m => 'mod: ' + m)].join(' · '));
+}
+
+/** The 🛡 Mod menu for a post (kind 't3') or comment ('t1'). */
+function openModMenu(anchor, thing, kind, badges, depth) {
+    closeMenu();
+    const sub = thing.subreddit;
+    const mine = sameUser(thing.author, state.settings.me);
+    const item = (label, action) => el('button', { onclick: () => runModAction(action, thing, sub, badges) }, label);
+    const menu = el('div', { id: 'menu' },
+        item('✓ Approve', 'approve'),
+        item('✖ Remove', 'remove'),
+        item('🚫 Remove as spam', 'spam'),
+        item(thing.locked ? '🔓 Unlock' : '🔒 Lock', thing.locked ? 'unlock' : 'lock'),
+        kind === 't3' && item(thing.stickied ? '📌 Unpin' : '📌 Pin to top', thing.stickied ? 'unsticky' : 'sticky'),
+        kind === 't3' && item(thing.over_18 ? 'Unmark NSFW' : 'Mark NSFW', thing.over_18 ? 'unnsfw' : 'nsfw'),
+        kind === 't3' && item(thing.spoiler ? 'Unmark spoiler' : 'Mark spoiler', thing.spoiler ? 'unspoiler' : 'spoiler'),
+        mine && item(thing.distinguished ? 'Undistinguish' : 'Distinguish as mod', thing.distinguished ? 'undistinguish' : 'distinguish'),
+        mine && kind === 't1' && depth === 0 && item('📌 Distinguish and pin', 'sticky_comment'),
+        item(thing.ignore_reports ? 'Stop ignoring reports' : 'Ignore future reports', thing.ignore_reports ? 'unignore_reports' : 'ignore_reports'),
+        thing.author && thing.author !== '[deleted]' && !mine &&
+            el('button', { onclick: () => openBanForm(menu, thing.author, sub) }, `⛔ Ban u/${thing.author}…`));
+    document.body.append(menu);
+    positionMenu(menu, anchor);
+}
+
+function positionMenu(menu, anchor) {
+    const r = anchor.getBoundingClientRect();
+    const w = menu.getBoundingClientRect();
+    menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w.width - 8)) + 'px';
+    menu.style.top = (r.bottom + w.height + 8 > window.innerHeight ? Math.max(8, r.top - w.height - 4) : r.bottom + 4) + 'px';
+}
+
+async function runModAction(action, thing, sub, badges) {
+    closeMenu();
+    try {
+        await call('mod', { action, id: thing.name, subreddit: sub });
+        // Mirror the change locally so the menu and badges stay right without a reload.
+        switch (action) {
+            case 'approve': thing.__approved = true; thing.__removed = false; break;
+            case 'remove': case 'spam': thing.__removed = true; thing.__approved = false; break;
+            case 'lock': thing.locked = true; break;
+            case 'unlock': thing.locked = false; break;
+            case 'sticky': case 'sticky_comment': thing.stickied = true; if (action === 'sticky_comment') thing.distinguished = 'moderator'; break;
+            case 'unsticky': thing.stickied = false; break;
+            case 'nsfw': thing.over_18 = true; break;
+            case 'unnsfw': thing.over_18 = false; break;
+            case 'spoiler': thing.spoiler = true; break;
+            case 'unspoiler': thing.spoiler = false; break;
+            case 'distinguish': thing.distinguished = 'moderator'; break;
+            case 'undistinguish': thing.distinguished = null; break;
+            case 'ignore_reports': thing.ignore_reports = true; break;
+            case 'unignore_reports': thing.ignore_reports = false; break;
+        }
+        if (badges) badges.refresh();
+        const done = {
+            approve: 'Approved', remove: 'Removed', spam: 'Removed as spam', lock: 'Locked', unlock: 'Unlocked',
+            sticky: 'Pinned', unsticky: 'Unpinned', sticky_comment: 'Distinguished and pinned', nsfw: 'Marked NSFW',
+            unnsfw: 'Unmarked NSFW', spoiler: 'Marked as spoiler', unspoiler: 'Unmarked spoiler',
+            distinguish: 'Distinguished', undistinguish: 'Undistinguished',
+            ignore_reports: 'Ignoring future reports', unignore_reports: 'No longer ignoring reports',
+        };
+        showToast(done[action] || 'Done');
+    } catch (err) {
+        showToast('Mod action failed: ' + err.message);
+    }
+}
+
+function openBanForm(menu, user, sub) {
+    const reason = el('input', { type: 'text', maxlength: '100', placeholder: 'Reason (shown to other mods)' });
+    const days = el('input', { type: 'number', min: '1', max: '999', placeholder: 'Days (blank = permanent)' });
+    const message = el('textarea', { rows: '3', placeholder: 'Message to the user (optional)' });
+    const note = el('input', { type: 'text', maxlength: '300', placeholder: 'Mod note (optional)' });
+    const status = el('div', { class: 'reply-status' });
+    const ban = el('button', { class: 'danger' }, `Ban u/${user}`);
+    ban.onclick = async () => {
+        ban.disabled = true;
+        status.textContent = 'Banning…';
+        try {
+            await call('ban', {
+                subreddit: sub, user, days: parseInt(days.value, 10) || 0,
+                reason: reason.value.trim(), message: message.value.trim(), note: note.value.trim(),
+            });
+            closeMenu();
+            showToast(`Banned u/${user} from r/${sub}${parseInt(days.value, 10) ? ` for ${parseInt(days.value, 10)} days` : ''}`);
+        } catch (err) {
+            status.textContent = err.message;
+            ban.disabled = false;
+        }
+    };
+    menu.classList.add('form');
+    menu.replaceChildren(el('div', { class: 'menu-title' }, `Ban u/${user} from r/${sub}`), reason, days, message, note,
+        el('div', { class: 'reply-actions' }, ban, el('button', { onclick: () => closeMenu() }, 'Cancel')), status);
+    // The form is taller than the menu it replaced; keep it on screen.
+    const box = menu.getBoundingClientRect();
+    if (box.bottom > window.innerHeight - 8) menu.style.top = Math.max(8, window.innerHeight - box.height - 8) + 'px';
+    if (box.right > window.innerWidth - 8) menu.style.left = Math.max(8, window.innerWidth - box.width - 8) + 'px';
+    reason.focus();
 }
 
 // ---- New since last visit -------------------------------------------------------------------

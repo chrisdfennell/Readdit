@@ -29,6 +29,7 @@ try {
     name: 't3_abc', id: 'abc', title: 'Test <b>post</b> & title', subreddit: 'csharp', author: 'alice',
     created_utc: now - 3600, domain: 'self.csharp', is_self: true, score: 1234, likes: true,
     num_comments: 3, permalink: '/r/csharp/comments/abc/test/', over_18: false, link_flair_text: 'Help',
+    num_reports: 2, user_reports: [['Spam', 2]], mod_reports: [['Off topic', 'modperson']],
     // Hostile markup: the sanitizer must strip the script and the onerror handler.
     selftext_html: '<div class="md"><p>Hello <strong>world</strong> <a href="/r/dotnet">r/dotnet</a></p><script>window.__pwned=1<\/script><img src=x onerror="window.__pwned=2"><span class="md-spoiler-text">secret</span></div>',
   };
@@ -39,7 +40,7 @@ try {
 
   renderThread({
     sort: 'confidence', focus: null, offline: false, lastVisit: now - 120,
-    settings: { blurNsfw: true, collapseBelow: -5, muted: ['bob'], highlighted: ['carol'], me: 'dave' },
+    settings: { blurNsfw: true, collapseBelow: -5, muted: ['bob'], highlighted: ['carol'], me: 'dave', modOf: ['CSharp'] },
     data: [
       { kind: 'Listing', data: { children: [{ kind: 't3', data: post }] } },
       { kind: 'Listing', data: { children: [
@@ -83,6 +84,16 @@ try {
     unresolvedLabel: c4.textContent.includes('[image]') && !c4.querySelector('a[href^="reddit-media:"]'),
     lazyVideos: [...c4.querySelectorAll('video.md-gif')].every(v => !v.hasAttribute('autoplay') && v.getAttribute('preload') === 'none'),
   };
+  // Moderation: r/csharp is moderated (case-insensitively), so mod buttons, badges and reports show.
+  const mod = {
+    buttons: document.querySelectorAll('.mod-action').length,
+    postReportBadge: document.querySelector('.post .badge.reported')?.textContent,
+    reportText: document.querySelector('.post .reports')?.textContent,
+  };
+  document.querySelector('.post .mod-action').click();
+  mod.menuItems = [...document.querySelectorAll('#menu button')].map(b => b.textContent);
+  [...document.querySelectorAll('#menu button')].find(b => b.textContent.includes('Approve')).click();
+  mod.sent = window.__sent.filter(m => m.type === 'mod').map(m => `${m.action}:${m.id}:${m.subreddit}`);
   const newBadges = document.querySelectorAll('.comment.new').length;
   const mutedCollapsed = document.querySelectorAll('.comment.muted.collapsed').length;
   const highlighted = document.querySelectorAll('.comment.highlight').length;
@@ -124,6 +135,7 @@ try {
     voteMessages,
     newNavigation: [firstNew, secondNew],
     gifs,
+    mod,
     editButtons,
     markdown: md.innerHTML,
     editorOpen,

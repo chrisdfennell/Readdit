@@ -12,7 +12,7 @@ public sealed record UserInfo(
     string Name, long Karma, long LinkKarma, long CommentKarma, DateTimeOffset Created, string? Icon, bool Suspended = false);
 
 /// <summary>Reddit's JSON API, called through the user's browser session.</summary>
-public sealed class RedditApi(RedditSession session)
+public sealed partial class RedditApi(RedditSession session)
 {
     const string Base = "https://www.reddit.com";
 
@@ -183,6 +183,83 @@ public sealed class RedditApi(RedditSession session)
     {
         using var _ = await PostAsync(hide ? "/api/hide" : "/api/unhide", new() { ["id"] = fullName });
     }
+
+    // ---- Moderation ---------------------------------------------------------------------------
+
+    /// <summary>Communities you moderate.</summary>
+    public async Task<List<SubredditRef>> GetModeratedAsync()
+    {
+        var subs = new List<SubredditRef>();
+        string? after = null;
+        for (var page = 0; page < 10; page++)
+        {
+            var url = $"{Base}/subreddits/mine/moderator.json?limit=100&raw_json=1" + (after == null ? "" : $"&after={after}");
+            using var doc = await GetJsonAsync(url, default);
+            var data = doc.RootElement.GetProperty("data");
+            subs.AddRange(data.GetProperty("children").EnumerateArray()
+                .Select(c => ToSubredditRef(c.GetProperty("data")))
+                .Where(s => s.Name.Length > 0));
+            after = data.Str("after");
+            if (string.IsNullOrEmpty(after)) break;
+        }
+        return subs.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// The moderator actions Readdit offers, mapped to Reddit's endpoints. Anything else is
+    /// refused, so the page can't call arbitrary endpoints.
+    /// </summary>
+    static readonly Dictionary<string, (string Path, Func<string, Dictionary<string, string>> Form)> ModActions = new()
+    {
+        ["approve"] = ("/api/approve", id => new() { ["id"] = id }),
+        ["remove"] = ("/api/remove", id => new() { ["id"] = id, ["spam"] = "false" }),
+        ["spam"] = ("/api/remove", id => new() { ["id"] = id, ["spam"] = "true" }),
+        ["lock"] = ("/api/lock", id => new() { ["id"] = id }),
+        ["unlock"] = ("/api/unlock", id => new() { ["id"] = id }),
+        ["sticky"] = ("/api/set_subreddit_sticky", id => new() { ["id"] = id, ["state"] = "true" }),
+        ["unsticky"] = ("/api/set_subreddit_sticky", id => new() { ["id"] = id, ["state"] = "false" }),
+        ["sticky_comment"] = ("/api/distinguish", id => new() { ["id"] = id, ["how"] = "yes", ["sticky"] = "true" }),
+        ["distinguish"] = ("/api/distinguish", id => new() { ["id"] = id, ["how"] = "yes" }),
+        ["undistinguish"] = ("/api/distinguish", id => new() { ["id"] = id, ["how"] = "no" }),
+        ["nsfw"] = ("/api/marknsfw", id => new() { ["id"] = id }),
+        ["unnsfw"] = ("/api/unmarknsfw", id => new() { ["id"] = id }),
+        ["spoiler"] = ("/api/spoiler", id => new() { ["id"] = id }),
+        ["unspoiler"] = ("/api/unspoiler", id => new() { ["id"] = id }),
+        ["ignore_reports"] = ("/api/ignore_reports", id => new() { ["id"] = id }),
+        ["unignore_reports"] = ("/api/unignore_reports", id => new() { ["id"] = id }),
+    };
+
+    public static bool IsModAction(string action) => ModActions.ContainsKey(action);
+
+    /// <summary>Runs a moderator action on a post (t3_) or comment (t1_).</summary>
+    public async Task ModerateAsync(string action, string fullName)
+    {
+        if (!ModActions.TryGetValue(action, out var spec)) throw new InvalidOperationException($"Unknown mod action '{action}'.");
+        if (!ThingId().IsMatch(fullName)) throw new InvalidOperationException("That isn't a post or comment.");
+        using var _ = await PostAsync(spec.Path, spec.Form(fullName));
+    }
+
+    /// <summary>Bans a user from a community. Days 0 = permanent.</summary>
+    public async Task BanAsync(string subreddit, string user, int days, string reason, string message, string note)
+    {
+        if (!NameChars().IsMatch(subreddit) || !NameChars().IsMatch(user)) throw new InvalidOperationException("Invalid name.");
+        var form = new Dictionary<string, string>
+        {
+            ["name"] = user,
+            ["type"] = "banned",
+            ["ban_reason"] = reason,
+            ["ban_message"] = message,
+            ["note"] = note,
+        };
+        if (days > 0) form["duration"] = Math.Min(days, 999).ToString();
+        using var _ = await PostAsync($"/r/{subreddit}/api/friend", form);
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex("^t[13]_[a-z0-9]+$")]
+    private static partial System.Text.RegularExpressions.Regex ThingId();
+
+    [System.Text.RegularExpressions.GeneratedRegex("^[A-Za-z0-9_-]{1,32}$")]
+    private static partial System.Text.RegularExpressions.Regex NameChars();
 
     /// <summary>Stars or unstars a community (Reddit's "favorites" in its sidebar).</summary>
     public async Task FavoriteAsync(string subreddit, bool favorite)
