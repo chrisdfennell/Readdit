@@ -242,18 +242,23 @@ function voteWidget(thing, large) {
         score.textContent = thing.score_hidden ? '•' : count(value);
     };
 
+    let voteSeq = 0;
     const vote = async target => {
         const previous = likes;
         const previousValue = value;
+        const mine = ++voteSeq;
         value += weight(target) - weight(likes);
         likes = target;
         paint();
         try {
             await call('vote', { id: thing.name, dir: weight(target) });
         } catch (err) {
-            likes = previous;
-            value = previousValue;
-            paint();
+            // Only roll back if no newer vote has been cast since; that one owns the state now.
+            if (mine === voteSeq) {
+                likes = previous;
+                value = previousValue;
+                paint();
+            }
             showToast('Vote failed: ' + err.message);
         }
     };
@@ -616,10 +621,18 @@ function clearView() {
     for (const h of state.hls) h.destroy();
     state.hls = [];
     for (const a of state.audios) {
+        a.onerror = null; // stop it trying the next audio candidate for a post that's gone
         a.pause();
         a.removeAttribute('src');
+        a.load(); // aborts the in-flight download
     }
     state.audios = [];
+    // Overlays and find results belong to the old post.
+    closeLightbox();
+    closeMenu();
+    hideHovercard();
+    resetFind();
+    state.newIndex = -1;
     state.post = null;
     root.replaceChildren();
     empty.hidden = false;
@@ -675,6 +688,7 @@ function renderPost(d, settings) {
 
     const box = replyBox(d.name, comment => {
         const list = document.getElementById('comments');
+        list.querySelector('.no-comments')?.remove();
         list.prepend(commentNode(comment, 0, d));
         showToast('Reply posted');
     });
@@ -702,7 +716,10 @@ function renderPost(d, settings) {
             action('📋 Copy link', () => navigator.clipboard.writeText(permalink).then(() => showToast('Link copied'))),
             mine && d.is_self && action('✏ Edit', () => openEditor(body, d.selftext || '',
                 text => call('edit', { id: d.name, text }),
-                data => (body = mdNode(data.selftext_html || '', 'post-body')))),
+                data => {
+                    d.selftext = data.selftext; // so a second edit starts from the saved text
+                    return (body = mdNode(data.selftext_html || '', 'post-body'));
+                })),
             mine && action('🗑 Delete', async () => {
                 if (await deleteThing(d.name, 'post')) article.querySelector('h1').textContent = '[deleted] ' + d.title;
             })),
@@ -738,7 +755,16 @@ function renderThread(m) {
     state.lastVisit = m.lastVisit || null;
     const [postListing, commentListing] = m.data;
     const post = postListing.data.children[0].data;
+    const alreadyShown = !!(state.post && state.post.name === post.name && root.querySelector('.post'));
     renderPost(post);
+    if (alreadyShown) {
+        // The header was drawn from the (older) listing copy; refresh what can have changed
+        // without rebuilding it, so playing media isn't restarted.
+        syncPostState({ id: post.name, likes: post.likes ?? null, score: post.score, saved: !!post.saved });
+        const heading = root.querySelector('.comments-head h2');
+        if (heading) heading.textContent = `${count(post.num_comments || 0)} comments`;
+    }
+    state.newIndex = -1;
 
     const select = root.querySelector('.comments-head select');
     if (select) select.value = state.sort;
@@ -763,7 +789,7 @@ function renderThread(m) {
     const fragment = document.createDocumentFragment();
     renderChildren(commentListing.data.children, fragment, 0, post);
     list.replaceChildren(fragment);
-    if (!list.children.length) list.append(el('p', { class: 'muted' }, 'No comments yet.'));
+    if (!list.children.length) list.append(el('p', { class: 'muted no-comments' }, 'No comments yet.'));
 
     const newCount = list.querySelectorAll('.comment.new').length;
     const newNote = document.getElementById('new-note');
@@ -844,6 +870,11 @@ function commentNode(c, depth, post) {
                 return (body = mdNode(data.body_html || '', 'c-body'));
             })),
         mine && action('Delete', async () => {
+            // With the editor open the body is detached, and Cancel would bring it back.
+            if (!body.isConnected) {
+                showToast('Save or cancel your edit first');
+                return;
+            }
             if (!(await deleteThing(c.name, 'comment'))) return;
             const gone = mdNode('<p>[deleted]</p>', 'c-body');
             body.replaceWith(gone);
@@ -929,7 +960,10 @@ function nextNewComment() {
         showToast('No new comments since your last visit');
         return;
     }
-    const next = fresh.find(n => n.getBoundingClientRect().top > 60) || fresh[0];
+    // Walk them in order. (Picking "the first one below the viewport top" re-picked the
+    // comment just centred, and skipped ones inside collapsed threads.)
+    state.newIndex = ((state.newIndex ?? -1) + 1) % fresh.length;
+    const next = fresh[state.newIndex];
     expandAncestors(next);
     next.scrollIntoView({ block: 'center', behavior: 'smooth' });
     next.classList.remove('flash');
@@ -963,6 +997,14 @@ function openFind() {
 
 function closeFind() {
     findBar.hidden = true;
+    resetFind();
+}
+
+/** Drops matches (they point into the old DOM); the bar keeps its text for the next search. */
+function resetFind() {
+    findRanges = [];
+    findIndex = -1;
+    findCount.textContent = '';
     if (window.CSS && CSS.highlights) {
         CSS.highlights.delete('find');
         CSS.highlights.delete('find-current');
@@ -973,7 +1015,9 @@ function runFind() {
     const q = findInput.value.trim().toLowerCase();
     findRanges = [];
     if (q) {
-        for (const scope of root.querySelectorAll('h1, .md')) {
+        // Only the outer body wrappers: Reddit's HTML nests its own <div class="md"> inside ours,
+        // which counted every match twice, and reply-box previews aren't part of the thread.
+        for (const scope of root.querySelectorAll('.post h1, .post-body, .c-body')) {
             const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
             for (let n = walker.nextNode(); n; n = walker.nextNode()) {
                 const text = n.nodeValue.toLowerCase();
@@ -1332,9 +1376,11 @@ const NATIVE_KEYS = new Set([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRig
 
 document.addEventListener('keydown', e => {
     if (!lightbox.hidden) {
+        // Only claim the lightbox's own keys; Ctrl+C and friends keep working.
         if (e.key === 'Escape') closeLightbox();
         else if (e.key === 'ArrowRight') stepLightbox(1);
         else if (e.key === 'ArrowLeft') stepLightbox(-1);
+        else return;
         e.preventDefault();
         return;
     }

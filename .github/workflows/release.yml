@@ -103,7 +103,7 @@ jobs:
             else {
               if ($env:BEFORE -and $env:BEFORE -notmatch '^0+$') {
                 $appChanges = git diff --name-only $env:BEFORE HEAD |
-                  Where-Object { $_ -notmatch '(\.md$|^LICENSE$|^\.github/|^tests/|^\.gitignore$|^dotnet-tools\.json$)' }
+                  Where-Object { $_ -notmatch '(\.md$|^LICENSE$|^\.github/|^\.vscode/|^tests/|^\.gitignore$|^dotnet-tools\.json$|\.slnx?$)' }
                 if (-not $appChanges) { Skip 'only docs, tests, workflows or tooling changed' }
               }
               $version = Get-NextVersion 'patch'

@@ -109,6 +109,7 @@ public sealed partial class OfflineStore
         if (!_index.TryGetValue(postId, out var entry))
             _index[postId] = entry = new Entry { SavedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds() };
         entry.Tags = tags.Select(t => t.Trim()).Where(t => t.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        _searchText.Remove(postId); // cached search text includes tags
         SaveIndex();
     }
 
@@ -211,10 +212,11 @@ public sealed partial class OfflineStore
 
     public void Remove(string postId)
     {
-        if (FileFor(postId) is { } f && File.Exists(f)) File.Delete(f);
-        if (MediaDirFor(postId) is { } dir && Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        // Index first, so a locked media folder can't leave a stale entry behind.
         if (_index.Remove(postId)) SaveIndex();
         _searchText.Remove(postId);
+        if (FileFor(postId) is { } f && File.Exists(f)) File.Delete(f);
+        if (MediaDirFor(postId) is { } dir && Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
     }
 
     /// <summary>Saved posts, newest first, optionally filtered by search words and a tag.</summary>

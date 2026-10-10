@@ -217,6 +217,12 @@ public partial class MainWindow : Window
         var shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt)) return;
 
+        // WebView2 hands Ctrl combinations to WPF before the page sees them, so Ctrl+W while
+        // typing a reply would close the tab. Web panes handle their own keys: the post view
+        // forwards shortcuts itself when you're not typing, and the browser pane reports Esc.
+        if (DetailWebView.IsKeyboardFocusWithin || BrowserWebView.IsKeyboardFocusWithin || LoginWebView.IsKeyboardFocusWithin)
+            return;
+
         // Leave typing alone (Esc still backs out of reading mode / the browser pane).
         var typing = Keyboard.FocusedElement is TextBoxBase or PasswordBox ||
                      Keyboard.FocusedElement is ComboBox { IsDropDownOpen: true } ||

@@ -137,7 +137,8 @@ body.reading .post-body { font-size: 1.08em; line-height: 1.7; }
 #findbar button:disabled { opacity: 0.6; }
 .find-count { font-size: 12px; color: var(--muted); min-width: 64px; text-align: center; }
 ::highlight(find) { background-color: rgba(255, 200, 0, 0.45); color: inherit; }
-::highlight(find-current) { background-color: #ff8c00; color: #000; }
+/* No text colour here: forcing one would paint over spoilers' transparent text and reveal them. */
+::highlight(find-current) { background-color: #ff8c00; }
 
 /* ---- Hover cards ----------------------------------------------------------------------- */
 

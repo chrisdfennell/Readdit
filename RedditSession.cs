@@ -49,7 +49,16 @@ public sealed class RedditSession(WebView2 webView, string profile)
             // that opened it, so let WebView2 host those. Other pop-up links go to the real browser.
             if (IsSignInPopup(e.Uri)) return;
             e.Handled = true;
-            Process.Start(new ProcessStartInfo(e.Uri) { UseShellExecute = true });
+            // Only web links go to the shell; never arbitrary protocol handlers.
+            if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri) || (uri.Scheme != "https" && uri.Scheme != "http")) return;
+            try
+            {
+                Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+            }
+            catch
+            {
+                // No default browser registered; nothing sensible to do.
+            }
         };
     }
 
@@ -74,20 +83,47 @@ public sealed class RedditSession(WebView2 webView, string profile)
                host == "apple.com" || host.EndsWith(".apple.com");
     }
 
+    /// <summary>
+    /// Navigates and completes when *this* navigation finishes. Matching on the navigation id
+    /// matters: an earlier navigation that this one cancels also raises NavigationCompleted.
+    /// </summary>
     public Task NavigateAsync(string url)
     {
         var done = new TaskCompletionSource();
+        ulong? navigationId = null;
+
+        void OnStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
+        {
+            if (navigationId == null && SameUrl(e.Uri, url)) navigationId = e.NavigationId;
+        }
         void OnCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
         {
+            if (navigationId != e.NavigationId) return;
+            Finish();
+        }
+        void Finish()
+        {
+            Core.NavigationStarting -= OnStarting;
             Core.NavigationCompleted -= OnCompleted;
             done.TrySetResult();
         }
+
+        Core.NavigationStarting += OnStarting;
         Core.NavigationCompleted += OnCompleted;
         Core.Navigate(url);
+        // Never hang forever if the navigation is swallowed.
+        _ = Task.Delay(TimeSpan.FromSeconds(20)).ContinueWith(_ => webView.Dispatcher.Invoke(Finish));
         return done.Task;
     }
 
-    public Task ParkAsync() => NavigateAsync(ParkingPage);
+    static bool SameUrl(string a, string b) =>
+        Uri.TryCreate(a, UriKind.Absolute, out var x) && Uri.TryCreate(b, UriKind.Absolute, out var y) &&
+        Uri.Compare(x, y, UriComponents.HttpRequestUrl, UriFormat.Unescaped, StringComparison.OrdinalIgnoreCase) == 0;
+
+    Task? _parking;
+
+    /// <summary>Concurrent callers share one in-flight navigation instead of cancelling each other's.</summary>
+    public Task ParkAsync() => _parking is { IsCompleted: false } ? _parking : _parking = NavigateAsync(ParkingPage);
 
     public void ApplyTheme(string theme) => Appearance.ApplyToWebView(webView.CoreWebView2, theme);
 

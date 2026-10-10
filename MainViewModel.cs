@@ -320,6 +320,9 @@ public sealed partial class MainViewModel : ObservableObject
         {
             if (_selectedTab == value) return;
             if (_selectedTab != null) _selectedTab.PropertyChanged -= OnTabPropertyChanged;
+            // All tabs share one ListBox; while it swaps lists it pushes a null selection back.
+            _selectedTab?.HoldSelection();
+            value?.HoldSelection();
             Set(ref _selectedTab, value);
             if (value != null)
             {
@@ -376,7 +379,7 @@ public sealed partial class MainViewModel : ObservableObject
         if (feed == null) return null;
 
         feed.StatusChanged += (f, status) => { if (f == SelectedTab) Status = status; };
-        feed.AuthFailed += ex => { PromptLogin(); LoginMessage = ex.Message; };
+        feed.AuthFailed += ex => { if (Tabs.Contains(feed)) _ = HandleAuthFailureAsync(ex); };
         feed.SubscriptionsChanged += () => _ = LoadSubscriptionsAsync();
         feed.InboxRead += () => { UnreadCount = 0; };
         Tabs.Add(feed);
@@ -411,6 +414,7 @@ public sealed partial class MainViewModel : ObservableObject
         var old = SelectedTab;
         SelectedTab = feed;
         Tabs.Remove(old);
+        old.Close();
         SaveTabs();
     }
 
@@ -419,6 +423,7 @@ public sealed partial class MainViewModel : ObservableObject
         if (tab == null) return;
         var index = Tabs.IndexOf(tab);
         Tabs.Remove(tab);
+        tab.Close();
         if (Tabs.Count == 0) AddTab("home");
         else if (SelectedTab == tab || SelectedTab == null) SelectedTab = Tabs[Math.Min(index, Tabs.Count - 1)];
         SaveTabs();
@@ -590,6 +595,7 @@ public sealed partial class MainViewModel : ObservableObject
         var input = SearchInput.Trim();
         ShowSuggestions = false;
         _suggestTimer.Stop();
+        _suggestCts?.Cancel(); // an in-flight lookup would otherwise reopen the popup over the result
         if (input.Length == 0) return;
 
         if (input.StartsWith("http", StringComparison.OrdinalIgnoreCase))
@@ -621,6 +627,7 @@ public sealed partial class MainViewModel : ObservableObject
         var previous = post.Likes;
         bool? target = up ? (previous == true ? null : true) : (previous == false ? null : false);
         post.ApplyVote(target);
+        _detail.InvalidatePrefetch(post.Id);
         if (SelectedPost == post) _detail.SyncPostState(post);
         try
         {
@@ -639,19 +646,22 @@ public sealed partial class MainViewModel : ObservableObject
         if (post == null || post.Kind == ItemKind.Message) return;
         var save = !post.Saved;
         post.Saved = save;
+        _detail.InvalidatePrefetch(post.Id);
         if (SelectedPost == post) _detail.SyncPostState(post);
         try
         {
             await _services.Api.SaveAsync(post.FullName, save);
-            if (post.Kind == ItemKind.Link) await _detail.UpdateOfflineCopyAsync(post.Id, save);
-            Status = save ? "Saved." : "Removed from saved.";
         }
         catch (Exception ex)
         {
             post.Saved = !save;
             if (SelectedPost == post) _detail.SyncPostState(post);
             Status = $"Save failed: {ex.Message}";
+            return;
         }
+        Status = save ? "Saved." : "Removed from saved.";
+        // Reddit has the change; the offline copy is separate and reports its own problems.
+        if (post.Kind == ItemKind.Link) await _detail.UpdateOfflineCopyAsync(post.Id, save);
     }
 
     async Task HideAsync(Post? post)
@@ -694,6 +704,7 @@ public sealed partial class MainViewModel : ObservableObject
 
         if (host == "redd.it" && uri.AbsolutePath.Trim('/') is { Length: > 0 } shortId)
         {
+            ShowBrowser = false;
             _ = _detail.ShowThreadAsync(shortId, null);
             return;
         }
@@ -704,11 +715,12 @@ public sealed partial class MainViewModel : ObservableObject
             var thread = RedditThread().Match(path);
             if (thread.Success)
             {
+                ShowBrowser = false;
                 var comment = thread.Groups[2].Success ? thread.Groups[2].Value : null;
                 _ = _detail.ShowThreadAsync(thread.Groups[1].Value, comment);
                 return;
             }
-            var feed = SubredditOrUser().Match(path);
+            var feed = RedditFeedPath().Match(path);
             if (feed.Success)
             {
                 var prefix = feed.Groups[1].Value.ToLowerInvariant() == "r" ? "r/" : "u/";
@@ -722,6 +734,11 @@ public sealed partial class MainViewModel : ObservableObject
 
     [GeneratedRegex(@"/comments/([a-z0-9]+)(?:/[^/]*/([a-z0-9]+))?", RegexOptions.IgnoreCase)]
     private static partial Regex RedditThread();
+
+    /// <summary>Subreddit or profile pages, including sorted/sub-pages like /r/x/top or /user/x/submitted.</summary>
+    [GeneratedRegex(@"^/(r|u|user)/([A-Za-z0-9_+-]+)(?:/(?:hot|new|top|rising|controversial|best|submitted|comments|overview|about)/?)?/?$",
+        RegexOptions.IgnoreCase)]
+    private static partial Regex RedditFeedPath();
 
     void OpenExternal(string? url)
     {
@@ -784,7 +801,9 @@ public sealed partial class MainViewModel : ObservableObject
                 return true;
             case "O": if (SelectedPost != null) OpenExternal(SelectedPost.HasLink ? SelectedPost.Url : SelectedPost.PermalinkUrl); return true;
             case "r": case "F5": RefreshCommand.Execute(null); return true;
-            case "m": SelectedTab?.LoadMoreCommand.Execute(null); return true;
+            case "m":
+                if (SelectedTab?.LoadMoreCommand.CanExecute(null) == true) SelectedTab.LoadMoreCommand.Execute(null);
+                return true;
             case "/": FocusSearchRequested?.Invoke(); return true;
             case "n": SubmitCommand.Execute(null); return true;
             case "i": OpenFeed("inbox", newTab: false); return true;
@@ -800,7 +819,7 @@ public sealed partial class MainViewModel : ObservableObject
         var tab = SelectedTab;
         if (tab == null || tab.Posts.Count == 0) return;
         var index = tab.SelectedPost == null ? (delta > 0 ? 0 : tab.Posts.Count - 1) : tab.Posts.IndexOf(tab.SelectedPost) + delta;
-        if (index >= tab.Posts.Count && tab.HasMore) tab.LoadMoreCommand.Execute(null);
+        if (index >= tab.Posts.Count && tab.LoadMoreCommand.CanExecute(null)) tab.LoadMoreCommand.Execute(null);
         tab.SelectedPost = tab.Posts[Math.Clamp(index, 0, tab.Posts.Count - 1)];
     }
 
@@ -827,10 +846,11 @@ public sealed partial class MainViewModel : ObservableObject
             if (!_inboxPrimed)
             {
                 // First check after launch: remember what's already unread rather than announcing it.
-                _inboxPrimed = true;
-                UnreadCount = count;
+                // Only count as primed once that list is in, so a failure retries next poll.
                 if (count > 0)
                     foreach (var item in await _services.Api.GetUnreadAsync()) _notified.Add(item.FullName);
+                UnreadCount = count;
+                _inboxPrimed = true;
                 return;
             }
             var increased = count > UnreadCount;
@@ -878,6 +898,8 @@ public sealed partial class MainViewModel : ObservableObject
         ApplyAppearance();
         _detail.SetDisplay(ReadingFontSize, IsReadingMode);
         Raise(nameof(ReadingFontSize));
+        // Filters changed: reload this tab now, and the others when they're next opened.
+        foreach (var tab in Tabs.Where(t => t != SelectedTab)) tab.MarkStale();
         _ = SelectedTab?.ReloadAsync();
     }
 
@@ -974,7 +996,12 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>If the browser session is signed in, hide the browser and start loading.</summary>
     async Task<bool> TryCompleteLoginAsync(bool force)
     {
-        if (_checkingLogin) return false;
+        if (_checkingLogin)
+        {
+            // A navigation finished mid-check (e.g. the last sign-in redirect); look again after.
+            _recheckLogin = true;
+            return false;
+        }
         _checkingLogin = true;
         try
         {
@@ -994,7 +1021,31 @@ public sealed partial class MainViewModel : ObservableObject
         {
             _checkingLogin = false;
             CommandManager.InvalidateRequerySuggested();
+            if (_recheckLogin)
+            {
+                _recheckLogin = false;
+                if (_awaitingLogin) _ = TryCompleteLoginAsync(force: false);
+            }
         }
+    }
+
+    bool _recheckLogin;
+
+    /// <summary>
+    /// A feed got a login page instead of data. Only show sign-in if the session really is signed
+    /// out; otherwise it was a one-off (rate limit page, interstitial), and prompting would loop.
+    /// </summary>
+    async Task HandleAuthFailureAsync(RedditAuthException ex)
+    {
+        if (ShowLogin) return;
+        await _services.Session.ParkAsync();
+        if (await _services.Session.GetUserNameAsync() != null)
+        {
+            Status = "Reddit sent an unexpected page instead of data. Wait a moment and refresh (F5).";
+            return;
+        }
+        PromptLogin();
+        LoginMessage = ex.Message;
     }
 
     async Task OnSignedInAsync()
@@ -1007,9 +1058,11 @@ public sealed partial class MainViewModel : ObservableObject
 
         if (Tabs.Count == 0)
         {
-            foreach (var spec in Settings.OpenTabs) AddTab(spec, select: false);
+            // Read it before AddTab, which saves the tab list (and would reset the selection to 0).
+            var selected = Settings.SelectedTab;
+            foreach (var spec in Settings.OpenTabs.ToList()) AddTab(spec, select: false);
             if (Tabs.Count == 0) AddTab("home", select: false);
-            SelectedTab = Tabs[Math.Clamp(Settings.SelectedTab, 0, Tabs.Count - 1)];
+            SelectedTab = Tabs[Math.Clamp(selected, 0, Tabs.Count - 1)];
         }
         else
         {

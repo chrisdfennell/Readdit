@@ -72,6 +72,12 @@ try {
   runFind();
   const findResult = findCount.textContent;
   closeFind();
+
+  // Shift+N walks forward through new comments instead of re-picking the same one.
+  nextNewComment();
+  const firstNew = document.querySelector('.comment.new.flash')?.id;
+  nextNewComment();
+  const secondNew = [...document.querySelectorAll('.comment.new.flash')].map(n => n.id).find(id => id !== firstNew);
   window.scrollTo({ top: 0, behavior: 'instant' }); // cancel find's smooth scroll before measuring
 
   // Click a comment's upvote the way a user would: whatever is on top at that point gets it.
@@ -82,8 +88,9 @@ try {
   const r = up.getBoundingClientRect();
   const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
   hit.click();
+  const voteMessages = window.__sent.filter(m => m.type === 'vote');
 
-  document.body.setAttribute('data-result', JSON.stringify({
+  const result = {
     errors: window.__errors,
     pwned: window.__pwned || 0,
     title: document.querySelector('h1')?.textContent,
@@ -94,7 +101,8 @@ try {
     score: document.querySelector('.vote.large .score')?.textContent,
     sortOptions: document.querySelectorAll('.comments-head option').length,
     elementUnderUpvote: hit.tagName + (hit.className ? '.' + hit.className : ''),
-    voteMessages: window.__sent.filter(m => m.type === 'vote'),
+    voteMessages,
+    newNavigation: [firstNew, secondNew],
     editButtons,
     markdown: md.innerHTML,
     editorOpen,
@@ -103,7 +111,17 @@ try {
     mutedCollapsed,
     highlighted,
     findResult,
-  }));
+  };
+
+  // Last, because it clears the page: switching posts closes overlays and drops stale find results.
+  openLightbox(['https://example.com/a.png'], 0);
+  findInput.value = 'comment';
+  runFind();
+  clearView();
+  result.overlaysClearedOnSwitch = lightbox.hidden && findRanges.length === 0;
+  result.errors = window.__errors;
+
+  document.body.setAttribute('data-result', JSON.stringify(result));
 } catch (err) {
   document.body.setAttribute('data-result', JSON.stringify({ threw: err.message + ' ' + err.stack }));
 }

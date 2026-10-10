@@ -171,7 +171,16 @@ public sealed partial class UpdateService(AppSettings settings)
         // Windows lets a running exe be renamed, just not overwritten.
         var exe = Environment.ProcessPath!;
         File.Move(exe, exe + ".old", overwrite: true);
-        File.Move(_portableDownload, exe);
+        try
+        {
+            File.Move(_portableDownload, exe);
+        }
+        catch
+        {
+            // Never leave the user without an exe (e.g. antivirus is holding the download).
+            File.Move(exe + ".old", exe);
+            throw;
+        }
         _portableDownload = null;
         return true;
     }

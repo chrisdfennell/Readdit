@@ -212,6 +212,12 @@ public sealed class DetailBridge(WebView2 view, Services services)
         return DateTime.UtcNow - entry.At < PrefetchLifetime ? entry.Raw : null;
     }
 
+    /// <summary>Drops a prefetched thread after its vote/save state changed from the list.</summary>
+    public void InvalidatePrefetch(string postId)
+    {
+        foreach (var key in _prefetched.Keys.Where(k => k.StartsWith(postId + "|")).ToList()) _prefetched.Remove(key);
+    }
+
     public async Task PrefetchAsync(Post? post)
     {
         if (post == null || post.Kind != ItemKind.Link || post.Id.Length == 0) return;
@@ -353,7 +359,9 @@ public sealed class DetailBridge(WebView2 view, Services services)
                 {
                     // Only reveal files inside the download folder.
                     var path = Path.GetFullPath(m.Str("path"));
-                    var folder = Path.GetFullPath(services.Settings.DownloadFolder);
+                    // Trailing separator so "…\Readdit-other\x" doesn't pass as inside "…\Readdit".
+                    var folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(services.Settings.DownloadFolder)) +
+                                 Path.DirectorySeparatorChar;
                     if (path.StartsWith(folder, StringComparison.OrdinalIgnoreCase) && File.Exists(path))
                         System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{path}\"");
                     return null;
@@ -411,7 +419,15 @@ public sealed class DetailBridge(WebView2 view, Services services)
     {
         if (!keep)
         {
-            services.Offline.Remove(postId);
+            // Reddit already unsaved it; a locked offline file mustn't make that look like a failure.
+            try
+            {
+                services.Offline.Remove(postId);
+            }
+            catch (Exception ex)
+            {
+                StatusMessage?.Invoke($"Unsaved, but couldn't remove the offline copy yet: {ex.Message}");
+            }
             return;
         }
         if (!services.Settings.SaveOffline) return;

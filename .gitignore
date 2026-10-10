@@ -4,4 +4,5 @@ obj/
 *.user
 publish/
 portable/
+*_wpftmp.csproj
 Releases/

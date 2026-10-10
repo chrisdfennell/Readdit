@@ -65,13 +65,14 @@ public sealed class RedditApi(RedditSession session)
         var path = focusCommentId == null
             ? $"/comments/{postId}.json?"
             : $"/comments/{postId}/_/{focusCommentId}.json?context=3&";
-        var body = await GetBodyAsync($"{Base}{path}limit=300&depth=10&sort={sort}&raw_json=1", ct);
+        var body = await GetBodyAsync($"{Base}{path}limit=300&depth=10&sort={Uri.EscapeDataString(sort)}&raw_json=1", ct);
         return body;
     }
 
     public Task<string> GetMoreChildrenRawAsync(string linkFullName, IEnumerable<string> children, string sort) =>
         GetBodyAsync($"{Base}/api/morechildren.json?api_type=json&raw_json=1&limit_children=false" +
-                     $"&link_id={linkFullName}&sort={sort}&children={string.Join(",", children)}", default);
+                     $"&link_id={Uri.EscapeDataString(linkFullName)}&sort={Uri.EscapeDataString(sort)}" +
+                     $"&children={string.Join(",", children.Select(Uri.EscapeDataString))}", default);
 
     public async Task<List<SubredditRef>> GetSubscriptionsAsync()
     {
@@ -287,7 +288,7 @@ public sealed class RedditApi(RedditSession session)
                 return null;
             }
             var withModhash = new Dictionary<string, string>(form) { ["uh"] = _modhash };
-            var (status, body) = await session.SendAsync("POST", Base + path, withModhash, _modhash, default);
+            var (status, body) = await session.SendAsync("POST", Base + path + RawJson, withModhash, _modhash, default);
             ApiLog.Write($"POST {path} cookie route -> HTTP {status}: {ApiLog.Clip(body)}");
             if (status is >= 200 and < 300 && LooksLikeJson(body)) return body;
             failures.Add($"cookie route: HTTP {status}");
@@ -303,13 +304,26 @@ public sealed class RedditApi(RedditSession session)
                 ApiLog.Write($"POST {path} oauth route skipped: no token_v2 cookie");
                 return null;
             }
-            using var req = new HttpRequestMessage(HttpMethod.Post, "https://oauth.reddit.com" + path)
+            using var req = new HttpRequestMessage(HttpMethod.Post, "https://oauth.reddit.com" + path + RawJson)
             {
                 Content = new FormUrlEncodedContent(form),
             };
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            using var res = await Http.SendAsync(req);
-            var body = await res.Content.ReadAsStringAsync();
+            string body;
+            HttpResponseMessage res;
+            try
+            {
+                res = await Http.SendAsync(req);
+                body = await res.Content.ReadAsStringAsync();
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            {
+                // A network failure here mustn't stop the other route from being tried.
+                failures.Add($"oauth route: {ex.Message}");
+                ApiLog.Write($"POST {path} oauth route failed: {ex.Message}");
+                return null;
+            }
+            using var _ = res;
             ApiLog.Write($"POST {path} oauth route -> HTTP {(int)res.StatusCode}: {ApiLog.Clip(body)}");
             if (res.IsSuccessStatusCode && LooksLikeJson(body)) return body;
             failures.Add($"oauth route: HTTP {(int)res.StatusCode}");
@@ -323,6 +337,12 @@ public sealed class RedditApi(RedditSession session)
 
         throw new InvalidOperationException($"Reddit refused the request ({string.Join("; ", failures)}).");
     }
+
+    /// <summary>
+    /// Without raw_json=1 Reddit entity-escapes body_html in responses, so new replies and edits
+    /// would render as literal markup.
+    /// </summary>
+    const string RawJson = "?raw_json=1";
 
     /// <summary>Parses an api_type=json response, surfacing Reddit's own error messages.</summary>
     static JsonDocument Checked(string body)

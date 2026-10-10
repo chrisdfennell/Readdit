@@ -202,14 +202,15 @@ public sealed partial class Post : ObservableObject
     /// <summary>Best still image for a post, no wider than <paramref name="maxWidth"/> where possible.</summary>
     static string? FindPreview(JsonElement d, string url, int maxWidth)
     {
-        if (d.TryGetProperty("preview", out var preview) &&
+        if (d.Child("preview") is { } preview &&
             preview.TryGetProperty("images", out var images) &&
-            images.ValueKind == JsonValueKind.Array && images.GetArrayLength() > 0)
+            images.ValueKind == JsonValueKind.Array && images.GetArrayLength() > 0 &&
+            images[0].ValueKind == JsonValueKind.Object)
         {
             var image = images[0];
             // Resolutions are ascending; take the largest that fits.
             string? best = null;
-            if (image.TryGetProperty("resolutions", out var resolutions))
+            if (image.TryGetProperty("resolutions", out var resolutions) && resolutions.ValueKind == JsonValueKind.Array)
                 foreach (var r in resolutions.EnumerateArray())
                     if (r.Long("width") <= maxWidth) best = r.Str("url");
             if (best == null && image.TryGetProperty("source", out var source)) best = source.Str("url");
@@ -217,13 +218,15 @@ public sealed partial class Post : ObservableObject
         }
 
         // Galleries carry their images in media_metadata keyed by gallery_data order.
-        if (d.TryGetProperty("gallery_data", out var gallery) &&
-            gallery.TryGetProperty("items", out var items) && items.GetArrayLength() > 0 &&
-            d.TryGetProperty("media_metadata", out var meta) &&
-            meta.TryGetProperty(items[0].Str("media_id"), out var media))
+        // (Removed galleries can send null for either, so check kinds before indexing.)
+        if (d.Child("gallery_data") is { } gallery &&
+            gallery.TryGetProperty("items", out var items) &&
+            items.ValueKind == JsonValueKind.Array && items.GetArrayLength() > 0 &&
+            d.Child("media_metadata") is { } meta &&
+            meta.Child(items[0].Str("media_id")) is { } media)
         {
             string? best = null;
-            if (media.TryGetProperty("p", out var previews))
+            if (media.TryGetProperty("p", out var previews) && previews.ValueKind == JsonValueKind.Array)
                 foreach (var p in previews.EnumerateArray())
                     if (p.Long("x") <= maxWidth) best = p.Str("u");
             if (best == null && media.TryGetProperty("s", out var s)) best = s.Str("u");
@@ -341,6 +344,12 @@ static class Format
 
 static class JsonExtensions
 {
+    /// <summary>The named property if it's an object; Reddit often sends null or "" instead.</summary>
+    public static JsonElement? Child(this JsonElement e, string name) =>
+        e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Object
+            ? v
+            : null;
+
     public static string Str(this JsonElement e, string name) =>
         e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
             ? v.GetString() ?? ""

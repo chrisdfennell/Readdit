@@ -12,7 +12,11 @@ public partial class SubmitWindow : Window
         _api = api;
         Subreddit.Text = subreddit;
         Loaded += (_, _) => (subreddit.Length > 0 ? PostTitle : Subreddit).Focus();
+        // Closing mid-submit would lose the result (and setting DialogResult afterwards throws).
+        Closing += (_, e) => e.Cancel = _posting;
     }
+
+    bool _posting;
 
     public string? PostUrl { get; private set; }
 
@@ -39,14 +43,17 @@ public partial class SubmitWindow : Window
         }
 
         PostButton.IsEnabled = false;
-        ErrorText.Text = "";
+        ErrorText.Text = "Posting…";
+        _posting = true;
         try
         {
             PostUrl = await _api.SubmitAsync(sub, title, isLink, content, Nsfw.IsChecked == true, Spoiler.IsChecked == true);
+            _posting = false;
             DialogResult = true;
         }
         catch (Exception ex)
         {
+            _posting = false;
             ErrorText.Text = ex.Message;
             PostButton.IsEnabled = true;
         }

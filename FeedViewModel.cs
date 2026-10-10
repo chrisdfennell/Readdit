@@ -23,7 +23,7 @@ public sealed class FeedViewModel : ObservableObject
         Scope = scope;
         _sort = Sorts.Count > 0 ? Sorts[0] : "";
         LoadMoreCommand = new RelayCommand(_ => _ = LoadPageAsync(_cts?.Token ?? default), _ => HasMore && !IsLoading);
-        HeaderActionCommand = new RelayCommand(_ => _ = RunHeaderActionAsync(), _ => HeaderActionLabel.Length > 0);
+        HeaderActionCommand = new RelayCommand(_ => _ = RunHeaderActionAsync(), _ => HeaderActionLabel.Length > 0 && !_headerBusy);
     }
 
     public event Action<FeedViewModel, string>? StatusChanged;
@@ -133,7 +133,39 @@ public sealed class FeedViewModel : ObservableObject
     }
 
     Post? _selectedPost;
-    public Post? SelectedPost { get => _selectedPost; set => Set(ref _selectedPost, value); }
+    bool _holdSelection;
+
+    public Post? SelectedPost
+    {
+        get => _selectedPost;
+        set
+        {
+            // The shared post list writes null while swapping to another tab's items; keep ours.
+            if (value == null && _holdSelection)
+            {
+                Raise(nameof(SelectedPost));
+                return;
+            }
+            Set(ref _selectedPost, value);
+        }
+    }
+
+    /// <summary>Ignore null selections until the tab switch has settled.</summary>
+    public void HoldSelection()
+    {
+        _holdSelection = true;
+        System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(() =>
+        {
+            _holdSelection = false;
+            Raise(nameof(SelectedPost));
+        }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+    }
+
+    /// <summary>Stop loading; the tab was closed or replaced.</summary>
+    public void Close() => _cts?.Cancel();
+
+    /// <summary>Reload next time the tab is shown (e.g. after filters change).</summary>
+    public void MarkStale() => _loaded = false;
 
     bool _isLoading;
     public bool IsLoading { get => _isLoading; private set => Set(ref _isLoading, value); }
@@ -226,7 +258,8 @@ public sealed class FeedViewModel : ObservableObject
         _seen.Clear();
         _after = null;
         HasMore = false;
-        SelectedPost = null;
+        _selectedPost = null; // deliberate, so bypass the tab-switch hold
+        Raise(nameof(SelectedPost));
         _ = LoadHeaderAsync(ct);
         await LoadPageAsync(ct);
     }
@@ -408,8 +441,14 @@ public sealed class FeedViewModel : ObservableObject
         }
     }
 
+    bool _headerBusy;
+
     async Task RunHeaderActionAsync()
     {
+        // A second click while Join/Leave is in flight would flip the state twice.
+        if (_headerBusy) return;
+        _headerBusy = true;
+        CommandManager.InvalidateRequerySuggested();
         try
         {
             if (Kind == FeedKind.Inbox)
@@ -430,6 +469,11 @@ public sealed class FeedViewModel : ObservableObject
         catch (Exception ex)
         {
             Status = ex.Message;
+        }
+        finally
+        {
+            _headerBusy = false;
+            CommandManager.InvalidateRequerySuggested();
         }
     }
 }

@@ -1,0 +1,13 @@
+{
+  // Load only the real project. Without this, C# Dev Kit also picks up the temporary
+  // *_wpftmp.csproj files WPF creates mid-build and logs "Duplicate 'Compile' items" errors.
+  "dotnet.defaultSolution": "Readdit.slnx",
+  "files.watcherExclude": {
+    "**/*_wpftmp.csproj": true,
+    "**/bin/**": true,
+    "**/obj/**": true
+  },
+  "files.exclude": {
+    "**/*_wpftmp.csproj": true
+  }
+}

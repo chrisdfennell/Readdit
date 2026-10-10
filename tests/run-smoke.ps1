@@ -44,7 +44,9 @@ $checks = [ordered]@{
     'new-since-last-visit badges'         = $result.newBadges -eq 2
     'muted user collapsed'                = $result.mutedCollapsed -eq 1
     'highlighted user'                    = $result.highlighted -eq 1
-    'find in thread'                      = $result.findResult -eq '1 / 2'
+    'find counts each match once'         = $result.findResult -eq '1 / 1'
+    'Shift+N moves to the next new one'   = $result.newNavigation[0] -and $result.newNavigation[1] -and $result.newNavigation[0] -ne $result.newNavigation[1]
+    'switching posts clears overlays'     = $result.overlaysClearedOnSwitch
 }
 
 $failed = 0

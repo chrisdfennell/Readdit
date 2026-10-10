@@ -8,12 +8,21 @@ public partial class PreferencesWindow : Window
 {
     readonly AppSettings _settings;
     readonly UpdateService _updates;
+    readonly string _originalUpdateUrl;
 
     public PreferencesWindow(AppSettings settings, UpdateService updates)
     {
         InitializeComponent();
         _settings = settings;
         _updates = updates;
+        _originalUpdateUrl = settings.UpdateUrl;
+        // "Check now" tries the typed URL straight away; Cancel puts the old one back.
+        Closing += (_, _) =>
+        {
+            if (DialogResult == true || _settings.UpdateUrl == _originalUpdateUrl) return;
+            _settings.UpdateUrl = _originalUpdateUrl;
+            _updates.Reset();
+        };
 
         Theme.ItemsSource = Appearance.Themes;
         Theme.SelectedItem = Appearance.Themes.Contains(settings.Theme) ? settings.Theme : "System";
@@ -99,8 +108,7 @@ public partial class PreferencesWindow : Window
         var url = UpdateUrl.Text.Trim();
         if (url != _settings.UpdateUrl)
         {
-            _settings.UpdateUrl = url;
-            _settings.Save();
+            _settings.UpdateUrl = url; // saved only if the dialog is saved
             _updates.Reset();
         }
         CheckButton.IsEnabled = false;

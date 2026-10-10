@@ -15,21 +15,20 @@ public static partial class MediaExtractor
     public static List<MediaItem> Extract(JsonElement post)
     {
         // Crossposts carry their media on the original post.
-        var s = post.TryGetProperty("crosspost_parent_list", out var parents) &&
-                parents.ValueKind == JsonValueKind.Array && parents.GetArrayLength() > 0
-            ? parents[0]
-            : post;
+        var s = CrosspostSource(post);
         var url = s.Str("url_overridden_by_dest") is { Length: > 0 } o ? o : s.Str("url");
         var items = new List<MediaItem>();
 
+        // Removed galleries can send null for these, so check kinds before indexing.
         if (s.Bool("is_gallery") &&
-            s.TryGetProperty("gallery_data", out var gallery) && gallery.TryGetProperty("items", out var galleryItems) &&
-            s.TryGetProperty("media_metadata", out var meta))
+            s.Child("gallery_data") is { } gallery &&
+            gallery.TryGetProperty("items", out var galleryItems) && galleryItems.ValueKind == JsonValueKind.Array &&
+            s.Child("media_metadata") is { } meta)
         {
             foreach (var item in galleryItems.EnumerateArray())
             {
-                if (!meta.TryGetProperty(item.Str("media_id"), out var m) || m.Str("status") != "valid" ||
-                    !m.TryGetProperty("s", out var source))
+                if (meta.Child(item.Str("media_id")) is not { } m || m.Str("status") != "valid" ||
+                    m.Child("s") is not { } source)
                     continue;
                 if (m.Str("e") == "AnimatedImage" && source.Str("mp4") is { Length: > 0 } mp4)
                     items.Add(new MediaItem(mp4, true, []));
@@ -56,15 +55,20 @@ public static partial class MediaExtractor
         return items;
     }
 
+    /// <summary>Crossposts carry their media on the original post.</summary>
+    static JsonElement CrosspostSource(JsonElement post) =>
+        post.TryGetProperty("crosspost_parent_list", out var parents) &&
+        parents.ValueKind == JsonValueKind.Array && parents.GetArrayLength() > 0 &&
+        parents[0].ValueKind == JsonValueKind.Object
+            ? parents[0]
+            : post;
+
     static JsonElement? RedditVideo(JsonElement s)
     {
         foreach (var container in new[] { "secure_media", "media" })
-            if (s.TryGetProperty(container, out var media) && media.ValueKind == JsonValueKind.Object &&
-                media.TryGetProperty("reddit_video", out var video))
+            if (s.Child(container)?.Child("reddit_video") is { } video)
                 return video;
-        if (s.TryGetProperty("preview", out var preview) && preview.TryGetProperty("reddit_video_preview", out var gif))
-            return gif;
-        return null;
+        return s.Child("preview")?.Child("reddit_video_preview");
     }
 
     /// <summary>
@@ -86,15 +90,13 @@ public static partial class MediaExtractor
     public static List<string> Stills(JsonElement post)
     {
         var stills = new List<string>();
-        var s = post.TryGetProperty("crosspost_parent_list", out var parents) &&
-                parents.ValueKind == JsonValueKind.Array && parents.GetArrayLength() > 0
-            ? parents[0]
-            : post;
-        if (s.TryGetProperty("preview", out var preview) && preview.TryGetProperty("images", out var images) &&
-            images.ValueKind == JsonValueKind.Array && images.GetArrayLength() > 0)
+        var s = CrosspostSource(post);
+        if (s.Child("preview") is { } preview && preview.TryGetProperty("images", out var images) &&
+            images.ValueKind == JsonValueKind.Array && images.GetArrayLength() > 0 &&
+            images[0].ValueKind == JsonValueKind.Object)
         {
             string? best = null;
-            if (images[0].TryGetProperty("resolutions", out var resolutions))
+            if (images[0].TryGetProperty("resolutions", out var resolutions) && resolutions.ValueKind == JsonValueKind.Array)
                 foreach (var r in resolutions.EnumerateArray())
                     if (r.Long("width") <= 1080) best = r.Str("url");
             if (best == null && images[0].TryGetProperty("source", out var source)) best = source.Str("url");
@@ -157,18 +159,28 @@ public static partial class MediaDownloader
     /// <summary>Downloads a URL, picking the file extension from the URL or content type. Returns null on failure.</summary>
     public static async Task<string?> DownloadToAsync(string url, string pathWithoutExtension, CancellationToken ct)
     {
+        string? path = null;
         try
         {
             using var res = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
             if (!res.IsSuccessStatusCode) return null;
             var extension = ExtensionFor(url, res.Content.Headers.ContentType?.MediaType);
-            var path = UniquePath(pathWithoutExtension + extension);
+            path = UniquePath(pathWithoutExtension + extension);
             await using (var file = File.Create(path))
                 await res.Content.CopyToAsync(file, ct);
             return path;
         }
         catch (Exception) when (!ct.IsCancellationRequested)
         {
+            // Don't leave a truncated file behind.
+            try
+            {
+                if (path != null) File.Delete(path);
+            }
+            catch
+            {
+                // Best-effort.
+            }
             return null;
         }
     }
@@ -201,6 +213,17 @@ public static partial class MediaDownloader
             start.ArgumentList.Add(arg);
 
         using var process = Process.Start(start)!;
+        await using var kill = ct.Register(() =>
+        {
+            try
+            {
+                process.Kill();
+            }
+            catch
+            {
+                // Already exited.
+            }
+        });
         await process.StandardError.ReadToEndAsync(ct);
         await process.WaitForExitAsync(ct);
         if (process.ExitCode != 0 || !File.Exists(merged))
