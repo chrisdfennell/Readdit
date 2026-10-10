@@ -75,7 +75,11 @@ public static partial class MediaExtractor
     {
         var baseUrl = videoUrl.Split('?')[0];
         baseUrl = baseUrl[..baseUrl.LastIndexOf('/')];
-        return [$"{baseUrl}/DASH_AUDIO_128.mp4", $"{baseUrl}/DASH_AUDIO_64.mp4", $"{baseUrl}/DASH_audio.mp4", $"{baseUrl}/audio"];
+        return
+        [
+            $"{baseUrl}/CMAF_AUDIO_128.mp4", $"{baseUrl}/CMAF_AUDIO_64.mp4",
+            $"{baseUrl}/DASH_AUDIO_128.mp4", $"{baseUrl}/DASH_AUDIO_64.mp4", $"{baseUrl}/DASH_audio.mp4", $"{baseUrl}/audio",
+        ];
     }
 
     /// <summary>The still images the post view uses as posters and previews (≤1080 wide, else the source).</summary>

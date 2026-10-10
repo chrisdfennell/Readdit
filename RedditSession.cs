@@ -31,7 +31,15 @@ public sealed class RedditSession(WebView2 webView, string profile)
 
     public async Task InitializeAsync()
     {
-        Environment = await CoreWebView2Environment.CreateAsync(userDataFolder: Path.Combine(Paths.Local, "WebView2"));
+        // Video inside a WPF-hosted WebView froze at ~1 fps. Edge plays HD video through Media
+        // Foundation and presents it on a separate DirectComposition layer, which doesn't present
+        // reliably when hosted in WPF, so keep video on the normal Chromium decode/composite path.
+        // Occlusion tracking is off too: it can misread the hosted window as covered and throttle it.
+        // (All feature names go in one --disable-features switch; a repeated switch replaces the first.)
+        var args = "--disable-features=CalculateNativeWinOcclusion,MediaFoundationClearPlayback " +
+                   "--disable-direct-composition-video-overlays --disable-backgrounding-occluded-windows";
+        var options = new CoreWebView2EnvironmentOptions(args);
+        Environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(Paths.Local, "WebView2"), options);
         await webView.EnsureCoreWebView2Async(Environment, CreateControllerOptions());
 
         Core.NavigationCompleted += (_, _) => NavigationCompleted?.Invoke(this, EventArgs.Empty);

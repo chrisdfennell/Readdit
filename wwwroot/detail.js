@@ -13,7 +13,7 @@ const COMMENT_SORTS = [
     ['controversial', 'Controversial'], ['old', 'Old'], ['qa', 'Q&A'],
 ];
 
-const state = { post: null, settings: {}, sort: 'confidence', hls: [], lastVisit: null, localMedia: null };
+const state = { post: null, settings: {}, sort: 'confidence', hls: [], audios: [], lastVisit: null, localMedia: null };
 
 /** Swap a remote media URL for its offline-library copy when one exists. */
 const mapUrl = url => (url && state.localMedia && state.localMedia[url]) || url;
@@ -455,6 +455,71 @@ function videoPlayer(hlsUrl, mp4Url, poster, isGif) {
     return video;
 }
 
+/**
+ * Reddit-hosted video. Reddit's HLS streams stall in hls.js (it starves its buffer and crawls at
+ * a frame or two per second), so play the progressive MP4 instead. That file has no sound, so a
+ * hidden audio element plays Reddit's separate audio file, kept in sync with the video.
+ */
+function redditVideo(fallbackUrl, poster, isGif) {
+    const video = el('video', { controls: true, playsinline: true, preload: 'metadata', poster, loop: isGif, src: fallbackUrl });
+    if (isGif) {
+        video.muted = true;
+        video.autoplay = true;
+        return video;
+    }
+
+    // Reddit has renamed its audio files over the years; try current names first.
+    const base = fallbackUrl.split('?')[0].replace(/\/[^/]+$/, '');
+    const candidates = ['CMAF_AUDIO_128.mp4', 'CMAF_AUDIO_64.mp4', 'DASH_AUDIO_128.mp4', 'DASH_AUDIO_64.mp4', 'DASH_audio.mp4', 'audio']
+        .map(name => `${base}/${name}`);
+    if (!fallbackUrl.startsWith('https://v.redd.it/')) return video; // offline copy: no separate audio
+
+    const audio = new Audio();
+    audio.preload = 'auto';
+    let next = 0;
+    const tryNextAudio = () => {
+        if (next < candidates.length) audio.src = candidates[next++];
+        else audio.removeAttribute('src'); // genuinely silent video
+    };
+    audio.onerror = tryNextAudio;
+    tryNextAudio();
+    state.audios.push(audio);
+
+    const syncTime = () => {
+        if (audio.src && Math.abs(audio.currentTime - video.currentTime) > 0.25) audio.currentTime = video.currentTime;
+    };
+    const playAudio = () => {
+        if (!audio.src || video.paused) return;
+        syncTime();
+        audio.play().catch(() => {});
+    };
+    video.addEventListener('play', playAudio);
+    video.addEventListener('playing', playAudio);
+    video.addEventListener('pause', () => audio.pause());
+    video.addEventListener('waiting', () => audio.pause());
+    video.addEventListener('ended', () => audio.pause());
+    video.addEventListener('seeked', syncTime);
+    video.addEventListener('timeupdate', syncTime);
+    video.addEventListener('ratechange', () => { audio.playbackRate = video.playbackRate; });
+    // 'waiting' doesn't always fire when the video runs dry, so also hold the audio whenever the
+    // video can't actually advance, and resume once it can.
+    const guard = setInterval(() => {
+        if (!video.isConnected) {
+            clearInterval(guard);
+            audio.pause();
+            return;
+        }
+        const starved = video.readyState < 3;
+        if ((video.paused || starved) && !audio.paused) audio.pause();
+        else if (!video.paused && !starved && audio.paused) playAudio();
+    }, 250);
+    video.addEventListener('volumechange', () => {
+        audio.volume = video.volume;
+        audio.muted = video.muted;
+    });
+    return video;
+}
+
 function image(src, list, index) {
     const img = el('img', { src, class: 'zoomable', alt: '', loading: 'lazy' });
     img.onclick = () => openLightbox(list || [src], index || 0);
@@ -499,12 +564,8 @@ function buildMedia(s) {
 
     const rv = (s.secure_media && s.secure_media.reddit_video) || (s.media && s.media.reddit_video) ||
         (s.preview && s.preview.reddit_video_preview);
-    if (rv) {
-        // The offline copy is a plain MP4 (video only), so skip HLS when we have it.
-        const local = mapUrl(rv.fallback_url);
-        if (local !== rv.fallback_url) return videoPlayer(null, local, previewUrl(s), rv.is_gif);
-        return videoPlayer(rv.hls_url, rv.fallback_url, previewUrl(s), rv.is_gif);
-    }
+    if (rv && rv.fallback_url) return redditVideo(mapUrl(rv.fallback_url), previewUrl(s), rv.is_gif);
+    if (rv) return videoPlayer(rv.hls_url, null, previewUrl(s), rv.is_gif);
 
     if (/\.gifv(\?|$)/i.test(url)) {
         const mp4 = url.replace(/\.gifv/i, '.mp4');
@@ -554,6 +615,11 @@ function mediaFor(source, post) {
 function clearView() {
     for (const h of state.hls) h.destroy();
     state.hls = [];
+    for (const a of state.audios) {
+        a.pause();
+        a.removeAttribute('src');
+    }
+    state.audios = [];
     state.post = null;
     root.replaceChildren();
     empty.hidden = false;

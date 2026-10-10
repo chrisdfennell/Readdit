@@ -588,7 +588,7 @@
 
             <Grid Grid.Column="4">
                 <!-- Post + comments (HTML, see wwwroot/detail.*) -->
-                <wv2:WebView2 x:Name="DetailWebView" DefaultBackgroundColor="Transparent"
+                <wv2:WebView2 x:Name="DetailWebView"
                               Visibility="{Binding ShowBrowser, Converter={StaticResource InvVis}}" />
 
                 <!-- In-app browser for links. WebViews can't overlap, so it swaps with the post view. -->
