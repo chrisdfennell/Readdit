@@ -12,7 +12,8 @@ public partial class App : Application
         DispatcherUnhandledException += (_, args) =>
         {
             Log(args.Exception);
-            MessageBox.Show($"Something went wrong:\n\n{args.Exception.Message}\n\nDetails were written to {CrashLog}",
+            MessageBox.Show($"Something went wrong:\n\n{args.Exception.Message}\n\nDetails were written to {CrashLog}.\n" +
+                            "To send them in, use Preferences → Report a problem (or Ctrl+K → Report a problem).",
                 "Skein", MessageBoxButton.OK, MessageBoxImage.Error);
             args.Handled = true;
         };

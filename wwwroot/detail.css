@@ -141,6 +141,20 @@ body.reading .post-body { font-size: 1.08em; line-height: 1.7; }
 #menu.form button.danger { background: #d0142c; color: #fff; }
 #menu.form button.primary { background: var(--accent); color: #fff; }
 
+/* Private message conversations: their messages on the left, yours on the right. */
+.conversation { display: flex; flex-direction: column; gap: 10px; margin: 16px 0; }
+.bubble {
+    max-width: 82%;
+    padding: 8px 12px;
+    border-radius: 12px;
+    background: var(--soft);
+    align-self: flex-start;
+}
+.bubble.mine { align-self: flex-end; background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.bubble.focused { outline: 2px solid var(--accent); }
+.bubble .meta { font-size: 12px; margin-bottom: 2px; }
+.bubble .post-body { margin: 0; }
+
 /* Your own tag for a user, after their name. */
 .user-tag {
     font-size: 11px;

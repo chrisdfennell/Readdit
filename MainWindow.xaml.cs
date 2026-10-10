@@ -34,6 +34,7 @@ public partial class MainWindow : Window
         _vm.AlertNotification += OnAlertNotification;
         _vm.PaletteRequested += ShowPalette;
         _vm.FullscreenRequested += SetFullscreen;
+        _vm.MiniModeRequested += SetMiniMode;
         Loaded += (_, _) => { if (Program.StartupUrl is { } url) _vm.OpenWhenReady(url); };
         // Offer a reddit link you copied elsewhere when you come back to Skein.
         Activated += (_, _) =>
@@ -98,6 +99,10 @@ public partial class MainWindow : Window
         };
         Closed += (_, _) =>
         {
+            // Quitting from mini mode: close it without it asking for this window back.
+            var mini = _mini;
+            _mini = null;
+            mini?.Close();
             _tray.Dispose();
             // A restart is already starting the next copy; installing an update now would swap
             // files under it.
@@ -142,8 +147,43 @@ public partial class MainWindow : Window
         return node as T;
     }
 
+    // ---- Mini mode ----------------------------------------------------------------------------
+
+    MiniWindow? _mini;
+
+    /// <summary>Swaps this window for the small mini mode one (true), or back (false).</summary>
+    void SetMiniMode(bool on)
+    {
+        if (on == (_mini != null)) return;
+        if (on)
+        {
+            if (_vm.IsFullscreen) SetFullscreen(false);
+            _mini = new MiniWindow(_vm, _vm.CurrentSettings);
+            _mini.FullWindowRequested += () => SetMiniMode(false);
+            // Closing the mini window brings the full one back rather than leaving nothing on screen.
+            _mini.Closed += (_, _) => { if (_mini != null) SetMiniMode(false); };
+            _vm.IsMiniMode = true;
+            Hide();
+            _mini.Show();
+            _mini.Activate();
+        }
+        else
+        {
+            var mini = _mini;
+            _mini = null;
+            _vm.IsMiniMode = false;
+            mini?.Close();
+            BringToFront();
+        }
+    }
+
     public void BringToFront()
     {
+        if (_mini != null)
+        {
+            SetMiniMode(false); // shows this window
+            return;
+        }
         Show();
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
         Activate();

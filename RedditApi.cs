@@ -366,6 +366,21 @@ public sealed partial class RedditApi(RedditSession session)
         using var _ = await PostAsync("/api/read_all_messages", []);
     }
 
+    /// <summary>Sends a new private message to a user (u/ prefix optional).</summary>
+    public async Task ComposeAsync(string to, string subject, string text)
+    {
+        to = to.Trim().TrimStart('/');
+        if (to.StartsWith("u/", StringComparison.OrdinalIgnoreCase)) to = to[2..];
+        if (!NameChars().IsMatch(to)) throw new InvalidOperationException("That isn't a valid username.");
+        using var _ = await PostAsync("/api/compose", new() { ["to"] = to, ["subject"] = subject, ["text"] = text });
+    }
+
+    /// <summary>A private message conversation (the first message, with every reply under it), as raw JSON.</summary>
+    public Task<string> GetConversationRawAsync(string messageId, CancellationToken ct) =>
+        System.Text.RegularExpressions.Regex.IsMatch(messageId, "^[a-z0-9]+$")
+            ? GetBodyAsync($"{Base}/message/messages/{messageId}.json?raw_json=1", ct)
+            : throw new InvalidOperationException("That isn't a message.");
+
     /// <summary>Posts a comment or message reply; returns the new comment's raw JSON data object.</summary>
     public async Task<string> CommentAsync(string parentFullName, string text)
     {

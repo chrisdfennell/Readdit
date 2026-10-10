@@ -134,6 +134,24 @@ public sealed class AppSettings
     /// <summary>Order of the Subscriptions list: Name (A–Z) or Visits (most opened first).</summary>
     public string SubscriptionSort { get; set; } = "Name";
 
+    /// <summary>Sync folders, alerts, notes, filters and appearance through <see cref="SyncFolder"/>.</summary>
+    public bool SyncEnabled { get; set; }
+
+    /// <summary>A folder other PCs also see (OneDrive\Skein by default).</summary>
+    public string SyncFolder { get; set; } = SettingsSync.DefaultFolder() ?? "";
+
+    /// <summary>For each synced section: the sync file's "updated" time as of the last sync (this PC's bookkeeping).</summary>
+    public Dictionary<string, long> SyncStamps { get; set; } = [];
+
+    /// <summary>For each synced section: its hash when last synced, to notice changes made here.</summary>
+    public Dictionary<string, string> SyncHashes { get; set; } = [];
+
+    /// <summary>Mini mode window position and size: left, top, width, height.</summary>
+    public double[] MiniBounds { get; set; } = [];
+
+    /// <summary>Keep the mini mode window on top of other windows.</summary>
+    public bool MiniTopmost { get; set; } = true;
+
     /// <summary>Keyword alerts, checked in the background.</summary>
     public List<AlertRule> AlertRules { get; set; } = [];
 

@@ -522,6 +522,14 @@ public sealed class UserNotes
 
     public UserNote? Get(string user) => _notes.GetValueOrDefault(user);
 
+    /// <summary>Replaces every note (from another PC, through sync).</summary>
+    public void ReplaceAll(IReadOnlyDictionary<string, UserNote> notes)
+    {
+        _notes.Clear();
+        foreach (var (user, note) in notes) _notes[user] = note;
+        Save();
+    }
+
     /// <summary>Sets a user's tag and note; both empty removes the entry.</summary>
     public void Set(string user, string tag, string note)
     {
@@ -530,6 +538,11 @@ public sealed class UserNotes
         if (user.Length == 0) return;
         if (tag.Length == 0 && note.Length == 0) _notes.Remove(user);
         else _notes[user] = new UserNote(tag.Length > 40 ? tag[..40] : tag, note);
+        Save();
+    }
+
+    void Save()
+    {
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_file)!);

@@ -180,6 +180,17 @@ try {
   exitViewer();
   result.viewerClosed = lightbox.hidden && !viewer.browsing;
 
+  // A private message conversation: in order, yours marked, replying to the latest message.
+  const msg = (id, author, body, at, extra) => ({ kind: 't4', data: Object.assign({ id, name: 't4_' + id, author, subject: 'Hello',
+    body_html: '<div class="md"><p>' + body + '</p></div>', created_utc: at }, extra) });
+  const firstMsg = msg('m1', 'erin', 'Hi there', now - 300).data;
+  firstMsg.replies = { kind: 'Listing', data: { children: [msg('m3', 'erin', 'Great', now - 100), msg('m2', 'dave', 'Hi!', now - 200)] } };
+  renderConversation({ focus: 't4_m3', data: { kind: 'Listing', data: { children: [{ kind: 't4', data: firstMsg }] } } });
+  result.conversation = {
+    order: [...document.querySelectorAll('.conversation .bubble')].map(b => b.id).join(','),
+    mine: [...document.querySelectorAll('.conversation .bubble.mine')].map(b => b.id).join(','),
+    focused: document.querySelector('.conversation .bubble.focused')?.id,
+  };
   // Last, because it clears the page: switching posts closes overlays and drops stale find results.
   openLightbox(['https://example.com/a.png'], 0);
   findInput.value = 'comment';

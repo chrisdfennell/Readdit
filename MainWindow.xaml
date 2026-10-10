@@ -216,6 +216,9 @@
             <MenuItem Header="{Binding Author}" HeaderStringFormat="View u/{0}"
                       Command="{Binding PlacementTarget.Tag.OpenAuthorCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                       CommandParameter="{Binding}" />
+            <MenuItem Header="{Binding Author}" HeaderStringFormat="Send u/{0} a message…"
+                      Command="{Binding PlacementTarget.Tag.NewMessageCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
             <MenuItem Header="{Binding Author}" HeaderStringFormat="Note or tag on u/{0}…"
                       Command="{Binding PlacementTarget.Tag.EditUserNoteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                       CommandParameter="{Binding}" />
@@ -530,6 +533,8 @@
                       ItemsSource="{Binding LayoutModes}" SelectedItem="{Binding LayoutMode}" />
             <Button Content="{Binding ReadingModeLabel}" Margin="6,2,0,2"
                     Command="{Binding ToggleReadingModeCommand}" ToolTip="Reading mode (f, Esc to exit)" />
+            <Button Content="▣ Mini" Margin="6,2,0,2" Command="{Binding MiniModeCommand}"
+                    ToolTip="Mini mode: a small window with this feed, on top of your other windows (Ctrl+M)" />
             </WrapPanel>
         </DockPanel>
 
@@ -670,6 +675,9 @@
                                     <Button DockPanel.Dock="Right" VerticalAlignment="Top" Margin="10,0,0,0"
                                             Content="{Binding HeaderActionLabel}" Command="{Binding HeaderActionCommand}"
                                             Visibility="{Binding HeaderActionLabel, Converter={StaticResource Vis}}" />
+                                    <Button DockPanel.Dock="Right" VerticalAlignment="Top" Margin="10,0,0,0" Content="✉ New message"
+                                            Command="{Binding DataContext.NewMessageCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            Visibility="{Binding IsInbox, Converter={StaticResource Vis}}" />
                                     <StackPanel>
                                         <TextBlock Text="{Binding HeaderTitle}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" />
                                         <TextBlock Text="{Binding HeaderText}" TextWrapping="Wrap" Opacity="0.75" Margin="0,3,0,0"

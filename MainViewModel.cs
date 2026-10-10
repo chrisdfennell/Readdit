@@ -36,7 +36,7 @@ public sealed partial class MainViewModel : ObservableObject
         // Only the tab you're looking at, and only while Skein is on screen.
         _newPostsTimer.Tick += async (_, _) =>
         {
-            if (Settings.CheckForNewPosts && Application.Current.MainWindow is { IsVisible: true } && SelectedTab is { } tab)
+            if (Settings.CheckForNewPosts && (IsMiniMode || Application.Current.MainWindow is { IsVisible: true }) && SelectedTab is { } tab)
                 await tab.CheckForNewAsync();
         };
         _browser.PropertyChanged += (_, e) =>
@@ -73,6 +73,7 @@ public sealed partial class MainViewModel : ObservableObject
         _detail.PostStateChanged += OnDetailPostStateChanged;
         _detail.ModActionDone += OnModActionDone;
         _detail.UserNoteChanged += OnUserNoteChanged;
+        _detail.ComposeRequested += to => ShowCompose(to);
         _detail.MediaStepHandler = StepToPicturesAsync;
         _detail.FullscreenRequested += on => FullscreenRequested?.Invoke(on);
         _detail.ThreadVisited += postId =>
@@ -80,6 +81,8 @@ public sealed partial class MainViewModel : ObservableObject
             foreach (var post in Tabs.SelectMany(t => t.Posts).Where(p => p.Id == postId)) post.NewComments = 0;
         };
         _inboxTimer.Tick += async (_, _) => await RefreshInboxAsync();
+        _sync = new SettingsSync(services.Settings, services.UserNotes);
+        _syncTimer.Tick += (_, _) => RunSync();
         _alertMonitor = new AlertMonitor(services);
         _alertMonitor.Matched += OnAlertsMatched;
         _alertTimer.Tick += async (_, _) =>
@@ -127,6 +130,13 @@ public sealed partial class MainViewModel : ObservableObject
         AddToFolderCommand = new RelayCommand(p => { if (p is string spec) AddToFolder(spec); });
         RemoveFromFolderCommand = new RelayCommand(p => { if (p is SidebarItem item) RemoveFromFolder(item); });
         ManageAlertsCommand = new RelayCommand(_ => ShowAlerts());
+        ReportProblemCommand = new RelayCommand(_ => ShowReportProblem());
+        NewMessageCommand = new RelayCommand(p => ShowCompose(p switch
+        {
+            Post { Author.Length: > 0 } post when post.Author != "[deleted]" => post.Author,
+            string to => to,
+            _ => "",
+        }), _ => _isReady);
         CommandPaletteCommand = new RelayCommand(_ => PaletteRequested?.Invoke(), _ => _isReady);
         EditUserNoteCommand = new RelayCommand(p =>
         {
@@ -213,6 +223,18 @@ public sealed partial class MainViewModel : ObservableObject
 
     /// <summary>Raised when alerts match new posts: title, text, and the post when there's just one.</summary>
     public event Action<string, string, Post?>? AlertNotification;
+
+    /// <summary>Raised to switch to (true) or from (false) mini mode.</summary>
+    public event Action<bool>? MiniModeRequested;
+
+    /// <summary>Mini mode is showing (set by the window).</summary>
+    public bool IsMiniMode { get; set; }
+
+    public ICommand MiniModeCommand => _miniModeCommand ??= new RelayCommand(_ => MiniModeRequested?.Invoke(true));
+    ICommand? _miniModeCommand;
+
+    /// <summary>Settings, for windows the main window opens itself (mini mode).</summary>
+    internal AppSettings CurrentSettings => Settings;
 
     /// <summary>Raised to open the command palette (Ctrl+K).</summary>
     public event Action? PaletteRequested;
@@ -313,6 +335,8 @@ public sealed partial class MainViewModel : ObservableObject
     public ICommand ExportLibraryCommand { get; }
     public ICommand TagShownCommand { get; }
     public ICommand ManageAlertsCommand { get; }
+    public ICommand ReportProblemCommand { get; }
+    public ICommand NewMessageCommand { get; }
     public ICommand CommandPaletteCommand { get; }
     public ICommand EditUserNoteCommand { get; }
     public ICommand OpenCopiedLinkCommand { get; }
@@ -471,6 +495,7 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>Called as Skein exits: installs a downloaded update quietly if auto-update is on.</summary>
     public void OnExit()
     {
+        if (Settings.SyncEnabled) _sync.RunOnce(); // last changes out before closing
         if (Settings.AutoUpdate && _updates.IsUpdateReady) _updates.ApplyOnExit();
     }
 
@@ -1358,6 +1383,7 @@ public sealed partial class MainViewModel : ObservableObject
                 case "f": _detail.OpenFind(); return true;
                 case "r": RefreshCommand.Execute(null); return true;
                 case "k": PaletteRequested?.Invoke(); return true;
+                case "m": MiniModeRequested?.Invoke(!IsMiniMode); return true;
                 default: return false;
             }
         }
@@ -1479,6 +1505,116 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    // ---- Sync between PCs -----------------------------------------------------------------------
+
+    readonly SettingsSync _sync;
+    readonly DispatcherTimer _syncTimer = new() { Interval = TimeSpan.FromSeconds(20) };
+    System.IO.FileSystemWatcher? _syncWatcher;
+    DispatcherTimer? _syncSoon;
+
+    /// <summary>For Preferences: whether sync is working.</summary>
+    public string SyncStatus =>
+        !Settings.SyncEnabled ? "Off."
+        : _sync.LastError != null ? $"Couldn't use the sync folder just now ({_sync.LastError}). Trying again shortly."
+        : _sync.LastSynced is { } at ? $"✓ In sync. Last checked at {at:t}."
+        : "Waiting to sync…";
+
+    /// <summary>Starts (or restarts) syncing: a round now, then every so often and whenever the file changes.</summary>
+    void StartSync()
+    {
+        _syncTimer.Stop();
+        _syncWatcher?.Dispose();
+        _syncWatcher = null;
+        if (!Settings.SyncEnabled || Settings.SyncFolder.Length == 0) return;
+        RunSync();
+        _syncTimer.Start();
+        try
+        {
+            System.IO.Directory.CreateDirectory(Settings.SyncFolder);
+            _syncWatcher = new System.IO.FileSystemWatcher(Settings.SyncFolder, SettingsSync.FileName)
+            {
+                NotifyFilter = System.IO.NotifyFilters.LastWrite | System.IO.NotifyFilters.FileName | System.IO.NotifyFilters.Size,
+                EnableRaisingEvents = true,
+            };
+            // Another PC's changes arrive as the file changes; wait a moment for OneDrive to finish writing it.
+            void Soon(object? _, System.IO.FileSystemEventArgs __) => Application.Current.Dispatcher.BeginInvoke(() =>
+            {
+                _syncSoon ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+                _syncSoon.Tick -= OnSyncSoon;
+                _syncSoon.Tick += OnSyncSoon;
+                _syncSoon.Stop();
+                _syncSoon.Start();
+            });
+            _syncWatcher.Changed += Soon;
+            _syncWatcher.Created += Soon;
+            _syncWatcher.Renamed += (s, e) => Soon(s, e);
+        }
+        catch
+        {
+            // The timer still syncs.
+        }
+    }
+
+    void OnSyncSoon(object? sender, EventArgs e)
+    {
+        _syncSoon?.Stop();
+        RunSync();
+    }
+
+    void RunSync()
+    {
+        var applied = _sync.RunOnce();
+        if (applied is { Count: > 0 }) OnSyncApplied(applied);
+    }
+
+    /// <summary>Settings arrived from another PC: show them.</summary>
+    void OnSyncApplied(IReadOnlyList<string> sections)
+    {
+        if (sections.Contains("folders"))
+        {
+            RefreshSidebar();
+            foreach (var tab in Tabs.Where(t => t.Kind == FeedKind.Folder)) tab.MarkStale();
+        }
+        if (sections.Contains("alerts"))
+        {
+            _alertTimer.Interval = AlertInterval;
+            RefreshAlertTabs();
+        }
+        if (sections.Contains("notes"))
+            foreach (var post in Tabs.SelectMany(t => t.Posts))
+                post.AuthorTag = _services.UserNotes.Get(post.Author)?.Tag ?? "";
+        if (sections.Contains("filters"))
+            foreach (var tab in Tabs.Where(t => t != SelectedTab)) tab.MarkStale();
+        if (sections.Contains("notes") || sections.Contains("filters")) _detail.RefreshSettings();
+        if (sections.Contains("appearance"))
+        {
+            ApplyAppearance();
+            Raise(nameof(LayoutMode));
+            Raise(nameof(ReadingFontSize));
+            _detail.SetDisplay(ReadingFontSize, IsReadingMode);
+        }
+        Status = $"Synced {string.Join(", ", sections)} from your other PC.";
+    }
+
+    /// <summary>After Preferences: sync was turned on or pointed somewhere else.</summary>
+    void OnSyncSettingsChanged(bool wasEnabled, string oldFolder)
+    {
+        if (!Settings.SyncEnabled)
+        {
+            StartSync(); // stops it
+            return;
+        }
+        if (wasEnabled && oldFolder.Equals(Settings.SyncFolder, StringComparison.OrdinalIgnoreCase)) return;
+        // Starting fresh with this folder. If another PC already syncs there, ask which copy to keep.
+        var preferFile = _sync.FileExists && MessageBox.Show(Application.Current.MainWindow,
+            "Another PC already syncs Skein's settings in this folder.\n\n" +
+            "Yes: use those (folders, alerts, notes, filters and appearance on this PC are replaced).\n" +
+            "No: use this PC's settings everywhere instead.",
+            "Sync between PCs", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
+        _sync.Reset(preferFile);
+        StartSync();
+    }
+
     // ---- Alerts --------------------------------------------------------------------------------
 
     void ShowAlerts()
@@ -1547,17 +1683,20 @@ public sealed partial class MainViewModel : ObservableObject
         [
             new PaletteItem("⟳", "Refresh", "R", () => RefreshCommand.Execute(null)),
             new PaletteItem("✏", "New post", "N", () => ShowSubmit()),
+            new PaletteItem("✉", "New message", "Inbox", () => ShowCompose("")),
             new PaletteItem("🔔", "Manage alerts", "Alerts", ShowAlerts),
             new PaletteItem("📁", "New folder", "Folders", () => EditFolder(null)),
             new PaletteItem("🧹", "Clean up subscriptions", "Subscriptions", ShowCleanup),
             new PaletteItem("⇅", Settings.SubscriptionSort == "Visits" ? "Sort subscriptions A–Z" : "Sort subscriptions by most visited",
                 "Subscriptions", ToggleSubscriptionSort),
             new PaletteItem("⤢", IsReadingMode ? "Leave reading mode" : "Reading mode", "F", () => IsReadingMode = !IsReadingMode),
+            new PaletteItem("▣", "Mini mode", "Ctrl+M", () => MiniModeRequested?.Invoke(true)),
             new PaletteItem("▤", "Layout: Compact", "1", () => LayoutMode = "Compact"),
             new PaletteItem("▦", "Layout: Cards", "2", () => LayoutMode = "Cards"),
             new PaletteItem("▩", "Layout: Grid", "3", () => LayoutMode = "Grid"),
             new PaletteItem("⚙", "Preferences", "Settings", ShowPreferences),
             new PaletteItem("⌨", "Keyboard shortcuts", "?", () => ShortcutsCommand.Execute(null)),
+            new PaletteItem("🐞", "Report a problem", "Help", ShowReportProblem),
         ]);
         foreach (var account in Accounts.Where(a => a.Profile != ActiveProfile && a.UserName.Length > 0))
             items.Add(new PaletteItem("👤", $"Switch to u/{account.UserName}", "Account", () => SwitchAccount(account.Profile)));
@@ -1653,9 +1792,30 @@ public sealed partial class MainViewModel : ObservableObject
 
     // ---- Dialogs ----------------------------------------------------------------------------
 
+    void ShowCompose(string to)
+    {
+        var window = new ComposeMessageWindow(_services.Api, to)
+        {
+            Owner = Application.Current.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive) ?? Application.Current.MainWindow,
+        };
+        if (window.ShowDialog() != true) return;
+        Status = $"Message sent to u/{window.Recipient}.";
+        // It shows up under Inbox → sent.
+        foreach (var tab in Tabs.Where(t => t.Kind == FeedKind.Inbox && t.Sort == "sent")) tab.MarkStale();
+    }
+
+    void ShowReportProblem() =>
+        new ReportProblemWindow(_updates.CurrentVersion, _updates.Kind, Settings.UpdateUrl, _services.Api.UserName)
+        {
+            // Over Preferences when opened from there.
+            Owner = Application.Current.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive) ?? Application.Current.MainWindow,
+        }.ShowDialog();
+
     void ShowPreferences()
     {
-        var window = new PreferencesWindow(Settings, _updates) { Owner = Application.Current.MainWindow };
+        var (syncWas, syncFolderWas) = (Settings.SyncEnabled, Settings.SyncFolder);
+        var window = new PreferencesWindow(Settings, _updates, SyncStatus) { Owner = Application.Current.MainWindow };
+        window.ReportProblemRequested += () => ShowReportProblem();
         var saved = window.ShowDialog() == true;
         UpdateReady = _updates.IsUpdateReady;
         Raise(nameof(UpdateButtonLabel));
@@ -1667,6 +1827,7 @@ public sealed partial class MainViewModel : ObservableObject
         // Filters changed: reload this tab now, and the others when they're next opened.
         foreach (var tab in Tabs.Where(t => t != SelectedTab)) tab.MarkStale();
         _ = SelectedTab?.ReloadAsync();
+        if (Settings.SyncEnabled != syncWas || Settings.SyncFolder != syncFolderWas) OnSyncSettingsChanged(syncWas, syncFolderWas);
     }
 
     /// <summary>Raised after theme/scale changes so the window can restyle itself.</summary>
@@ -1738,6 +1899,8 @@ public sealed partial class MainViewModel : ObservableObject
             await _browser.InitializeAsync(_services.Session.Environment, _services.Session.CreateControllerOptions());
             _detail.SetDisplay(ReadingFontSize, IsReadingMode);
             ApplyAppearance();
+            // Once the views exist, since synced appearance restyles them.
+            StartSync();
         }
         catch (Exception ex)
         {

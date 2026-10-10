@@ -310,6 +310,129 @@ public class PostingTests : TempFolderTest
     }
 }
 
+public class SyncTests : TempFolderTest
+{
+    /// <summary>A PC: its own settings and notes, sharing the sync folder.</summary>
+    (AppSettings Settings, UserNotes Notes, SettingsSync Sync) Pc(string name)
+    {
+        var settings = new AppSettings { SyncEnabled = true, SyncFolder = Path.Combine(Dir, "OneDrive") };
+        var notes = new UserNotes(Path.Combine(Dir, name + "-notes.json"));
+        return (settings, notes, new SettingsSync(settings, notes, save: () => { }));
+    }
+
+    [Fact]
+    public void Changes_on_one_pc_arrive_on_the_other()
+    {
+        var a = Pc("a");
+        var b = Pc("b");
+        a.Settings.SubscriptionFolders.Add(new SubscriptionFolder { Name = "Tech", Subreddits = ["linux", "dotnet"] });
+        a.Settings.AlertRules.Add(new AlertRule { Name = "GPUs", Keywords = "RTX", LastChecked = 123 });
+        a.Settings.MutedUsers.Add("spammer");
+        a.Notes.Set("alice", "friend", "met at a conference");
+        a.Settings.Theme = "Dark";
+
+        Assert.Empty(a.Sync.RunOnce()!); // writes everything out
+        Assert.True(File.Exists(Path.Combine(Dir, "OneDrive", SettingsSync.FileName)));
+
+        b.Sync.Reset(preferFile: true);
+        var applied = b.Sync.RunOnce()!;
+        Assert.Contains("folders", applied);
+        Assert.Equal(["linux", "dotnet"], Assert.Single(b.Settings.SubscriptionFolders).Subreddits);
+        var rule = Assert.Single(b.Settings.AlertRules);
+        Assert.Equal("RTX", rule.Keywords);
+        Assert.Equal(0, rule.LastChecked); // "checked up to" belongs to each PC
+        Assert.Equal(["spammer"], b.Settings.MutedUsers);
+        Assert.Equal("friend", b.Notes.Get("alice")?.Tag);
+        Assert.Equal("Dark", b.Settings.Theme);
+
+        // Nothing changed: a second round does nothing either way.
+        Assert.Empty(b.Sync.RunOnce()!);
+        Assert.Empty(a.Sync.RunOnce()!);
+    }
+
+    [Fact]
+    public void Edits_go_back_and_forth_and_only_changed_sections_move()
+    {
+        var a = Pc("a");
+        var b = Pc("b");
+        a.Sync.RunOnce();
+        b.Sync.Reset(preferFile: true);
+        b.Sync.RunOnce();
+
+        b.Settings.KeywordFilters.Add("spoilers");
+        Thread.Sleep(5); // distinct timestamps
+        b.Sync.RunOnce();
+        Assert.Equal(["filters"], a.Sync.RunOnce());
+        Assert.Equal(["spoilers"], a.Settings.KeywordFilters);
+
+        // Alerts running (their "checked up to" moving on) isn't a change to sync.
+        a.Settings.AlertRules.Add(new AlertRule { Name = "x", Keywords = "y" });
+        a.Sync.RunOnce();
+        b.Sync.RunOnce();
+        a.Settings.AlertRules[0].LastChecked = 999;
+        Assert.Empty(a.Sync.RunOnce()!);
+    }
+
+    [Fact]
+    public void Starting_with_this_pcs_settings_overwrites_the_file()
+    {
+        var a = Pc("a");
+        a.Settings.Theme = "Light";
+        a.Sync.RunOnce();
+
+        var b = Pc("b");
+        b.Settings.Theme = "Black";
+        b.Sync.Reset(preferFile: false);
+        b.Sync.RunOnce();
+        Assert.Equal("Black", b.Settings.Theme);
+        a.Sync.RunOnce();
+        Assert.Equal("Black", a.Settings.Theme);
+    }
+
+    [Fact]
+    public void Plan_prefers_edits_made_here()
+    {
+        var local = new Dictionary<string, string> { ["folders"] = "[1]", ["notes"] = "{}" };
+        var hashes = new Dictionary<string, string> { ["folders"] = SyncEngine.Hash("[0]"), ["notes"] = SyncEngine.Hash("{}") };
+        var stamps = new Dictionary<string, long> { ["folders"] = 10, ["notes"] = 10 };
+        var remote = new SyncDocument
+        {
+            Sections = { ["folders"] = new SyncEntry { Updated = 20 }, ["notes"] = new SyncEntry { Updated = 20 } },
+        };
+        var plan = SyncEngine.Plan(local, hashes, stamps, remote);
+        Assert.Equal(["folders"], plan.Push);  // changed here, and newer there: this PC's edit wins
+        Assert.Equal(["notes"], plan.Apply);   // unchanged here, newer there
+    }
+}
+
+public class ProblemReportTests
+{
+    [Fact]
+    public void Removes_names_paths_and_secrets()
+    {
+        var text = "user=Fennellc path C:\\Users\\chris.f\\AppData\\x \"modhash\": \"abc123\" Bearer xyz.789 fennellcool stays";
+        var clean = ProblemReport.Sanitize(text, "fennellc", "C:\\Users\\chris.f");
+        Assert.Equal("user=<you> path %USERPROFILE%\\AppData\\x \"modhash\": \"<removed>\" Bearer <removed> fennellcool stays", clean);
+    }
+
+    [Fact]
+    public void Api_log_keeps_requests_but_not_what_reddit_sent()
+    {
+        var log = "[2026-10-10 10:00:00] POST /api/comment cookie route -> HTTP 200: {\"json\":{\"data\":{\"body\":\"secret\"}}}\n" +
+                  "[2026-10-10 10:00:01] identity: user=fennellc, modhash present";
+        var clean = ProblemReport.SanitizeApiLog(log, "fennellc", "C:\\Users\\x");
+        Assert.Equal("[2026-10-10 10:00:00] POST /api/comment cookie route -> HTTP 200\n[2026-10-10 10:00:01] identity: user=<you>, modhash present", clean);
+    }
+
+    [Fact]
+    public void Issue_link_goes_to_the_repository()
+    {
+        var url = ProblemReport.IssueUrl("https://github.com/chrisdfennell/Skein/", "It crashed\nwhen I clicked", "Skein 0.5.0");
+        Assert.StartsWith("https://github.com/chrisdfennell/Skein/issues/new?title=It%20crashed%20when%20I%20clicked&body=", url);
+        Assert.Null(ProblemReport.IssueUrl("https://evil.example/x", "a", "b"));
+    }
+}
+
 public class SidebarStoreTests : TempFolderTest
 {
     [Fact]

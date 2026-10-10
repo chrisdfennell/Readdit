@@ -103,6 +103,12 @@ public sealed partial class Post : ObservableObject
     /// <summary>Offline library tags, comma separated.</summary>
     public string LibraryTags { get; set; } = "";
 
+    /// <summary>A message you sent: who it went to (u/name, or r/name for a community).</summary>
+    public string SentTo { get; set; } = "";
+
+    /// <summary>The message's recipient as Reddit gives it (a username, or #community).</summary>
+    public string Destination { get; init; } = "";
+
     /// <summary>The alert this post matched (Alerts feed only).</summary>
     public string AlertName { get; set; } = "";
 
@@ -185,7 +191,7 @@ public sealed partial class Post : ObservableObject
     {
         ItemKind.Comment =>
             $"💬 u/{Author} in r/{Subreddit} · {Format.Age(Created)} · {Format.Count(Score)} points",
-        ItemKind.Message => $"✉ from u/{Author} · {Format.Age(Created)}",
+        ItemKind.Message => SentTo.Length > 0 ? $"✉ to {SentTo} · {Format.Age(Created)}" : $"✉ from u/{Author} · {Format.Age(Created)}",
         _ => $"r/{Subreddit} · u/{Author} · {Format.Age(Created)} · {Format.Count(NumComments)} comments" +
              (IsSelf ? "" : $" · {Domain}"),
     };
@@ -367,6 +373,7 @@ public sealed partial class Post : ObservableObject
         Title = d.Str("subject"),
         Author = d.Str("author") is { Length: > 0 } a ? a : d.Str("subreddit_name_prefixed"),
         PermalinkUrl = "https://www.reddit.com/message/messages/" + d.Str("id"),
+        Destination = d.Str("dest"),
         SelfText = d.Str("body"),
         Created = DateTimeOffset.FromUnixTimeSeconds((long)d.Double("created_utc")),
         IsUnread = d.Bool("new"),

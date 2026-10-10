@@ -149,9 +149,11 @@ public sealed class DetailBridge(WebView2 view, Services services)
 
         if (item.Kind == ItemKind.Message || item.Id.Length == 0)
         {
-            _version++;
+            var version = ++_version;
             _postId = null;
             Send($$"""{"type":"message","settings":{{SettingsJson}},"data":{{item.RawJson}}}""");
+            // Then the whole back-and-forth it belongs to.
+            if (item.Kind == ItemKind.Message) await ShowConversationAsync(item, version);
             return;
         }
 
@@ -163,6 +165,31 @@ public sealed class DetailBridge(WebView2 view, Services services)
 
         await ShowThreadAsync(item.Id, item.CommentId);
     }
+
+    /// <summary>Replaces a single private message with its whole conversation, once loaded.</summary>
+    async Task ShowConversationAsync(Post message, int version)
+    {
+        try
+        {
+            string rootId;
+            using (var doc = JsonDocument.Parse(message.RawJson))
+            {
+                // Replies point at the conversation's first message; the first message doesn't.
+                var root = doc.RootElement.Str("first_message_name") is { Length: > 3 } first ? first : message.FullName;
+                rootId = root.StartsWith("t4_") ? root[3..] : root;
+            }
+            var raw = await services.Api.GetConversationRawAsync(rootId, default);
+            if (version != _version) return;
+            Send($$"""{"type":"conversation","focus":{{JsonSerializer.Serialize(message.FullName)}},"settings":{{SettingsJson}},"data":{{raw}}}""");
+        }
+        catch
+        {
+            // The single message is already showing.
+        }
+    }
+
+    /// <summary>The page asks to write a new private message to someone.</summary>
+    public event Action<string>? ComposeRequested;
 
     /// <summary>
     /// Opens a thread from a link: clears the current post first, so a failure isn't shown
@@ -462,6 +489,10 @@ public sealed class DetailBridge(WebView2 view, Services services)
                     services.Settings.Save();
                     return SettingsJson;
                 }
+
+            case "compose":
+                ComposeRequested?.Invoke(m.Str("to"));
+                return null;
 
             case "mediaStep":
                 {

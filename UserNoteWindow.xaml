@@ -9,7 +9,7 @@
         <TextBlock Text="Tag (shown next to their name)" Margin="0,14,0,0" />
         <TextBox x:Name="TagBox" Margin="0,6,0,0" MaxLength="40" />
         <TextBlock Text="Note" Margin="0,12,0,0" />
-        <TextBox x:Name="NoteBox" Margin="0,6,0,0" MinHeight="70" AcceptsReturn="True" TextWrapping="Wrap"
+        <TextBox x:Name="NoteBox" SpellCheck.IsEnabled="True" Margin="0,6,0,0" MinHeight="70" AcceptsReturn="True" TextWrapping="Wrap"
                  VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" />
         <DockPanel Margin="0,16,0,0">
             <Button Content="Clear" Click="OnClear" />

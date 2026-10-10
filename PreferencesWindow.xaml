@@ -131,6 +131,25 @@
                     <TextBox x:Name="UpdateUrl" />
                 </DockPanel>
                 <TextBlock x:Name="UpdateStatus" TextWrapping="Wrap" Opacity="0.85" Margin="0,6,0,0" />
+
+                <TextBlock Text="Sync between PCs" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />
+                <CheckBox x:Name="SyncEnabled" Margin="0,8,0,0">
+                    <TextBlock TextWrapping="Wrap"
+                               Text="Keep folders, alerts, user notes, filters and appearance the same on every PC that uses this folder" />
+                </CheckBox>
+                <TextBlock Text="Sync folder (a OneDrive folder works well)" Margin="0,8,0,4" />
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="Browse…" Margin="8,0,0,0" Click="OnBrowseSyncFolder" />
+                    <TextBox x:Name="SyncFolder" />
+                </DockPanel>
+                <TextBlock x:Name="SyncStatusText" TextWrapping="Wrap" Opacity="0.75" Margin="0,6,0,0" />
+
+                <TextBlock Text="Help" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />
+                <DockPanel Margin="0,8,0,0">
+                    <Button DockPanel.Dock="Left" Content="🐞 Report a problem…" Click="OnReportProblem" />
+                    <TextBlock Text="Makes a report with Skein's logs (personal details removed) and opens a GitHub issue."
+                               TextWrapping="Wrap" Opacity="0.7" Margin="12,0,0,0" VerticalAlignment="Center" />
+                </DockPanel>
             </StackPanel>
         </ScrollViewer>
     </DockPanel>

@@ -145,10 +145,26 @@ public sealed class FeedViewModel : ObservableObject
         FeedKind.User => ["new", "hot", "top", "controversial"],
         // For queues the "sort" picks which queue to show.
         FeedKind.ModQueue => ["modqueue", "reports", "unmoderated", "spam", "edited"],
+        // For the inbox the "sort" picks the folder.
+        FeedKind.Inbox => [.. InboxFolders.Keys],
         _ => [],
     };
 
     public bool HasSorts => Sorts.Count > 0;
+
+    /// <summary>Inbox folders, as shown → Reddit's name for them.</summary>
+    static readonly Dictionary<string, string> InboxFolders = new()
+    {
+        ["all"] = "inbox",
+        ["unread"] = "unread",
+        ["messages"] = "messages",
+        ["comment replies"] = "comments",
+        ["post replies"] = "selfreply",
+        ["mentions"] = "mentions",
+        ["sent"] = "sent",
+    };
+
+    public bool IsInbox => Kind == FeedKind.Inbox;
 
     public IReadOnlyList<string> TimeFilters { get; } = ["hour", "day", "week", "month", "year", "all"];
 
@@ -460,6 +476,9 @@ public sealed class FeedViewModel : ObservableObject
         post.BlurThumbnail = _services.Settings.BlurNsfw && (post.Over18 || post.Spoiler);
         post.IsHighlightedAuthor = _services.IsHighlighted(post.Author);
         post.AuthorTag = _services.UserNotes.Get(post.Author)?.Tag ?? "";
+        if (post.Kind == ItemKind.Message && post.Destination.Length > 0 &&
+            post.Author.Equals(_services.Api.UserName, StringComparison.OrdinalIgnoreCase))
+            post.SentTo = post.Destination.StartsWith('#') ? "r/" + post.Destination[1..] : "u/" + post.Destination;
         post.CanModerate = post.Kind != ItemKind.Message && _services.IsModeratorOf(post.Subreddit);
         if (post.Kind == ItemKind.Link && _services.Visits.Get(post.Id) is { } visit)
             post.NewComments = Math.Max(0, post.NumComments - visit.CommentCount);
@@ -479,7 +498,7 @@ public sealed class FeedViewModel : ObservableObject
             FeedKind.Saved => _services.Api.UserName is { } me
                 ? $"/user/{me}/saved.json"
                 : throw new InvalidOperationException("Skein doesn't know your username yet. Refresh in a moment."),
-            FeedKind.Inbox => "/message/inbox.json",
+            FeedKind.Inbox => $"/message/{InboxFolders.GetValueOrDefault(Sort, "inbox")}.json",
             FeedKind.ModQueue => $"/r/{Target}/about/{Sort}.json?",
             FeedKind.Folder => FolderSubreddits.Count > 0
                 ? $"/r/{string.Join("+", FolderSubreddits.Take(MaxFolderSize))}/{Sort}.json?{time}"

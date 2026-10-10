@@ -10,7 +10,7 @@ public partial class PreferencesWindow : Window
     readonly UpdateService _updates;
     readonly string _originalUpdateUrl;
 
-    public PreferencesWindow(AppSettings settings, UpdateService updates)
+    public PreferencesWindow(AppSettings settings, UpdateService updates, string syncStatus = "")
     {
         InitializeComponent();
         _settings = settings;
@@ -68,9 +68,29 @@ public partial class PreferencesWindow : Window
         Domains.Text = string.Join(Environment.NewLine, settings.DomainFilters);
         Subreddits.Text = string.Join(Environment.NewLine, settings.SubredditFilters);
         ShowLinkHandlerStatus();
+        SyncEnabled.IsChecked = settings.SyncEnabled;
+        SyncFolder.Text = settings.SyncFolder;
+        SyncStatusText.Text = SettingsSync.DefaultFolder() == null && settings.SyncFolder.Length == 0
+            ? "OneDrive isn't set up on this PC; pick any folder your PCs share."
+            : syncStatus;
         // Coming back from Windows' settings: show whether Skein was picked.
         Activated += (_, _) => ShowLinkHandlerStatus();
     }
+
+    void OnBrowseSyncFolder(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = "Choose a folder your PCs share",
+            InitialDirectory = SyncFolder.Text.Length > 0 && System.IO.Directory.Exists(SyncFolder.Text) ? SyncFolder.Text : SettingsSync.DefaultFolder() ?? "",
+        };
+        if (dialog.ShowDialog(this) == true) SyncFolder.Text = dialog.FolderName;
+    }
+
+    /// <summary>"Report a problem…" was clicked (the main window shows the report dialog).</summary>
+    public event Action? ReportProblemRequested;
+
+    void OnReportProblem(object sender, RoutedEventArgs e) => ReportProblemRequested?.Invoke();
 
     // ---- Links from other apps ------------------------------------------------------------------
 
@@ -136,6 +156,8 @@ public partial class PreferencesWindow : Window
         _settings.SaveOffline = SaveOffline.IsChecked == true;
         _settings.InboxNotifications = InboxNotifications.IsChecked == true;
         _settings.CloseAction = (CloseAction.SelectedItem as ComboBoxItem)?.Tag as string ?? "Ask";
+        _settings.SyncFolder = SyncFolder.Text.Trim();
+        _settings.SyncEnabled = SyncEnabled.IsChecked == true && _settings.SyncFolder.Length > 0;
         _settings.MinScore = int.TryParse(MinScore.Text.Trim(), out var min) ? min : null;
         _settings.CollapseBelowScore = int.TryParse(CollapseBelow.Text.Trim(), out var collapse) ? collapse : null;
         _settings.MutedUsers = Lines(MutedUsers.Text).Select(StripUserPrefix).ToList();

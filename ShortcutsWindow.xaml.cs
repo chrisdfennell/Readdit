@@ -16,6 +16,7 @@ public partial class ShortcutsWindow : Window
             ["Shift+P"] = "Next comment by the original poster",
             ["v"] = "Picture viewer: ← → step through pictures and on to the next post, Space for a slideshow",
             ["F11"] = "Full screen (Esc to leave)",
+            ["Ctrl+M"] = "Mini mode: a small always-on-top window with the current feed (Ctrl+M again to go back)",
             ["Ctrl+F"] = "Find in thread",
             ["d"] = "Download the post's images or video",
             ["Space"] = "Scroll the post (Shift+Space scrolls back)",

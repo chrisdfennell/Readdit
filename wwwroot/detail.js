@@ -60,6 +60,7 @@ if (host) {
             case 'download': downloadPost(); break;
             case 'thread': renderThread(m); break;
             case 'message': renderMessage(m.data, m.settings); break;
+            case 'conversation': renderConversation(m); break;
             case 'error': showError(m.message); break;
             case 'scroll':
                 window.scrollBy({ top: m.direction * window.innerHeight * 0.85, behavior: 'smooth' });
@@ -186,7 +187,7 @@ function renderMarkdown(text) {
 
 /** A textarea with a live preview underneath; used for replies and edits. */
 function markdownEditor(initial, placeholder) {
-    const textarea = el('textarea', { placeholder });
+    const textarea = el('textarea', { placeholder, spellcheck: 'true' });
     textarea.value = initial || '';
     const preview = el('div', { class: 'md preview', hidden: true });
     let timer;
@@ -1183,6 +1184,8 @@ function openUserMenu(anchor, name) {
             highlighted ? `Stop highlighting u/${name}` : `⭐ Highlight u/${name}`),
         el('button', { onclick: () => setUserPref(name, 'muted', !muted) },
             muted ? `Unmute u/${name}` : `🔇 Mute u/${name}`),
+        !sameUser(name, state.settings.me) &&
+            el('button', { onclick: () => { closeMenu(); send({ type: 'compose', to: name }); } }, `✉ Send u/${name} a message…`),
         el('button', { onclick: () => openNoteForm(menu, name) },
             noteFor(name) ? `📝 Edit your note on u/${name}…` : `📝 Note or tag on u/${name}…`));
     document.body.append(menu);
@@ -1218,7 +1221,7 @@ function refreshUserTags() {
 function openNoteForm(menu, name) {
     const current = noteFor(name) || { tag: '', note: '' };
     const tag = el('input', { type: 'text', maxlength: '40', placeholder: 'Tag, shown next to their name', value: current.tag });
-    const note = el('textarea', { rows: '3', placeholder: 'Note (only you see it)' });
+    const note = el('textarea', { rows: '3', placeholder: 'Note (only you see it)', spellcheck: 'true' });
     note.value = current.note;
     const status = el('div', { class: 'reply-status' });
     const save = async (tagValue, noteValue) => {
@@ -1362,7 +1365,7 @@ async function runModAction(action, thing, sub, badges) {
 function openBanForm(menu, user, sub) {
     const reason = el('input', { type: 'text', maxlength: '100', placeholder: 'Reason (shown to other mods)' });
     const days = el('input', { type: 'number', min: '1', max: '999', placeholder: 'Days (blank = permanent)' });
-    const message = el('textarea', { rows: '3', placeholder: 'Message to the user (optional)' });
+    const message = el('textarea', { rows: '3', placeholder: 'Message to the user (optional)', spellcheck: 'true' });
     const note = el('input', { type: 'text', maxlength: '300', placeholder: 'Mod note (optional)' });
     const status = el('div', { class: 'reply-status' });
     const ban = el('button', { class: 'danger' }, `Ban u/${user}`);
@@ -1623,6 +1626,51 @@ function renderMessage(d, settings) {
         mdNode(d.body_html, 'post-body', d.media_metadata),
         el('div', { class: 'actions' }, action('💬 Reply', () => box.open())),
         box));
+}
+
+/**
+ * A private message conversation: every message in order, yours on the right, with a reply
+ * box (answering the latest message) at the end.
+ */
+function renderConversation(m) {
+    if (m.settings) state.settings = m.settings;
+    const children = (m.data && m.data.data && m.data.data.children) || [];
+    if (!children.length) return;
+    const first = children[0].data;
+    const replies = (first.replies && first.replies.data && first.replies.data.children) || [];
+    const messages = [first, ...replies.map(r => r.data)].sort((a, b) => a.created_utc - b.created_utc);
+    if (messages.length < 2) return; // nothing more than the message already showing
+
+    clearView();
+    empty.hidden = true;
+    const others = [...new Set(messages.map(x => x.author).filter(a => a && !sameUser(a, state.settings.me)))];
+    const list = el('div', { class: 'conversation' });
+    const bubble = x => {
+        const mine = sameUser(x.author, state.settings.me);
+        return el('div', { class: 'bubble' + (mine ? ' mine' : '') + (x.name === m.focus ? ' focused' : ''), id: 'm_' + x.id },
+            el('div', { class: 'meta' },
+                mine ? 'You' : (x.author ? link('u/' + x.author, '/user/' + x.author) : (x.subreddit_name_prefixed || 'Reddit')),
+                ' · ', el('span', { title: fullDate(x.created_utc) }, age(x.created_utc))),
+            mdNode(x.body_html, 'post-body', x.media_metadata));
+    };
+    for (const x of messages) list.append(bubble(x));
+
+    const last = messages[messages.length - 1];
+    const box = replyBox(last.name, sent => {
+        list.append(bubble(sent));
+        showToast('Reply sent');
+        list.lastElementChild.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+    root.append(el('article', { class: 'post' },
+        el('h1', null, first.subject || 'Conversation'),
+        el('div', { class: 'meta' },
+            others.length ? ['with ', others.map((o, i) => [i ? ', ' : '', link('u/' + o, '/user/' + o)])] : 'Conversation',
+            ` · ${messages.length} messages`),
+        list,
+        el('div', { class: 'actions' }, action('💬 Reply', () => box.open())),
+        box));
+    const focused = list.querySelector('.bubble.focused');
+    if (focused) focused.scrollIntoView({ block: 'center' });
 }
 
 // ---- Display and navigation ------------------------------------------------------------

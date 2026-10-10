@@ -94,6 +94,7 @@ $checks = [ordered]@{
     'closing the viewer stops browsing'   = $result.viewerClosed
     'unsent reply comes back'             = $result.draftRestored
     'cancel discards the draft'           = $result.draftCleared
+    'conversation in order, yours marked' = $result.conversation.order -eq 'm_m1,m_m2,m_m3' -and $result.conversation.mine -eq 'm_m2' -and $result.conversation.focused -eq 'm_m3'
 }
 
 $failed = 0

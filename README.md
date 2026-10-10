@@ -45,7 +45,7 @@ Skein is a native Windows app (WPF on .NET 10) for browsing Reddit. It signs in 
 - A picture viewer that steps from one post's pictures into the next post's, with a slideshow and full screen (<kbd>F11</kbd>).
 - Collapsible comment threads, "load more replies", and find-in-thread (Ctrl+F) that can load the whole thread.
 - Jump between top-level comments, comments new since your last visit (highlighted), or the original poster's comments.
-- Vote, save, reply, and edit or delete your own posts and comments, with a live formatting preview. Unsent replies and edits are kept as drafts.
+- Vote, save, reply, and edit or delete your own posts and comments, with a live formatting preview and spell check. Unsent replies and edits are kept as drafts.
 - New posts: text, links, a picture, a gallery of up to 20, or a video. Unfinished posts are kept as drafts too.
 
 **Moderation** (for communities you moderate)
@@ -57,6 +57,8 @@ Skein is a native Windows app (WPF on .NET 10) for browsing Reddit. It signs in 
 - Filters: keywords, domains, subreddits, minimum score, auto-collapsing low-scored comments, muted users and highlighted users.
 - Read tracking (hide or dim posts you've opened) and hiding posts.
 - Notifications for replies and messages, with a system tray icon. A single new message can be answered straight from its notification.
+- Private messages: write new ones, read each conversation as one thread, and browse inbox folders (unread, messages, comment and post replies, mentions, sent).
+- Mini mode (<kbd>Ctrl</kbd>+<kbd>M</kbd>): a small window, on top of your others if you like, for keeping an eye on one feed.
 - Keyword alerts: get notified when new posts match your words, anywhere on Reddit or in communities you pick.
 - Private notes and tags on users, shown next to their names.
 - Subscription cleanup: find banned, private, quarantined and long-quiet communities and unsubscribe in one go.
@@ -64,6 +66,8 @@ Skein is a native Windows app (WPF on .NET 10) for browsing Reddit. It signs in 
 - Open reddit links from other apps in Skein (optional; other links still go to your browser), plus `skein://` links.
 - One-click download of images, galleries and video (merged with sound if [ffmpeg](https://ffmpeg.org) is installed).
 - Multiple accounts.
+- Sync between PCs: folders, alerts, user notes, filters and appearance stay the same on every PC, through a shared folder such as OneDrive.
+- Report a problem from Preferences: Skein bundles its logs, with personal details removed, and opens a GitHub issue.
 - Light, dark and true-black themes, with accent colors and an interface size setting.
 - Automatic updates.
 
