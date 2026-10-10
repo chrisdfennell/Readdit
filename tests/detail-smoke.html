@@ -48,6 +48,15 @@ try {
           { kind: 'more', data: { id: 'm1', count: 4, children: ['x1', 'x2'], parent_id: 't1_c1' } },
         ]),
         comment('c3', 'dave', 'Image: <a href="https://preview.redd.it/foo.png?width=100">https://preview.redd.it/foo.png?width=100</a>'),
+        // GIFs: a Giphy pick (as Reddit sends it), an imgur .gifv with its own link text, a bare .gif link.
+        { kind: 't1', data: {
+          id: 'c4', name: 't1_c4', author: 'erin', body: '', score: 2, created_utc: now - 30,
+          permalink: '/r/csharp/comments/abc/test/c4', parent_id: 't3_abc', replies: '',
+          body_html: '<div class="md"><p>![gif](giphy|abc123XYZ)</p><p><a href="https://i.imgur.com/xyz.gifv">funny</a></p>' +
+                     '<p><a href="https://example.com/cat.gif">https://example.com/cat.gif</a></p></div>',
+          media_metadata: { 'giphy|abc123XYZ': { status: 'valid', e: 'AnimatedImage',
+            s: { gif: 'https://media.giphy.com/media/abc123XYZ/giphy.gif', mp4: 'https://media.giphy.com/media/abc123XYZ/giphy.mp4' } } },
+        } },
         { kind: 'more', data: { id: '_', count: 0, children: [], parent_id: 't1_c3' } },
       ] } },
     ],
@@ -63,6 +72,13 @@ try {
   document.querySelector('#c_c3 .reply-box .reply-actions button:nth-child(2)').click();
   const editorClosed = !document.querySelector('#c_c3 > .c-content > .reply-box:not([hidden])') && !!document.querySelector('#c_c3 .c-body');
 
+  const c4 = document.querySelector('#c_c4 .c-body');
+  const gifs = {
+    videos: [...c4.querySelectorAll('video.md-gif')].map(v => v.getAttribute('src')),
+    images: [...c4.querySelectorAll('img.md-img')].map(i => i.getAttribute('src')),
+    keptLinkText: [...c4.querySelectorAll('a')].map(a => a.textContent),
+    leftoverMarkdown: c4.textContent.includes('![gif]'),
+  };
   const newBadges = document.querySelectorAll('.comment.new').length;
   const mutedCollapsed = document.querySelectorAll('.comment.muted.collapsed').length;
   const highlighted = document.querySelectorAll('.comment.highlight').length;
@@ -103,6 +119,7 @@ try {
     elementUnderUpvote: hit.tagName + (hit.className ? '.' + hit.className : ''),
     voteMessages,
     newNavigation: [firstNew, secondNew],
+    gifs,
     editButtons,
     markdown: md.innerHTML,
     editorOpen,

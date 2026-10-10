@@ -316,6 +316,7 @@ img.zoomable { cursor: zoom-in; }
 .md hr { border: 0; border-top: 1px solid var(--line); }
 .md sup { font-size: 0.8em; }
 .md img.md-img { max-width: min(100%, 480px); max-height: 420px; border-radius: 8px; display: block; margin: 6px 0; cursor: zoom-in; }
+.md video.md-gif { max-width: min(100%, 480px); max-height: 420px; border-radius: 8px; display: block; margin: 6px 0; background: var(--soft); }
 .md-spoiler-text { background: var(--fg); color: transparent; border-radius: 3px; cursor: pointer; }
 .md-spoiler-text * { visibility: hidden; }
 .md-spoiler-text.revealed { background: var(--soft); color: inherit; }

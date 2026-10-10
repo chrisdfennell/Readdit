@@ -189,9 +189,12 @@ const BLOCKED_TAGS = new Set([
     'TEXTAREA', 'SELECT', 'LINK', 'META', 'BASE', 'SVG', 'MATH',
 ]);
 
-function sanitize(html) {
+function sanitize(html, mediaMetadata) {
     const tpl = document.createElement('template');
-    tpl.innerHTML = html || '';
+    // Reddit leaves media markdown like ![gif](giphy|abc123) or ![img](id) as text in body_html;
+    // turn it into a link the media step below understands.
+    tpl.innerHTML = (html || '').replace(/!\[(?:gif|img)\]\(([^)\s]+)\)/gi,
+        (_, key) => `<a href="reddit-media:${encodeURIComponent(key)}">${key}</a>`);
     const walk = node => {
         for (const child of [...node.children]) {
             if (BLOCKED_TAGS.has(child.tagName.toUpperCase())) {
@@ -209,19 +212,93 @@ function sanitize(html) {
     };
     walk(tpl.content);
 
-    // Image links Reddit renders as plain URLs in comments become inline images.
-    for (const a of tpl.content.querySelectorAll('a[href]')) {
-        const href = a.getAttribute('href');
-        if (/^https:\/\/(preview|i)\.redd\.it\/\S+\.(jpe?g|png|gif|webp)/i.test(href)) {
-            a.replaceWith(el('img', { src: mapUrl(href), class: 'md-img', loading: 'lazy', alt: '' }));
-        }
-    }
+    inlineMedia(tpl.content, mediaMetadata);
     return tpl.content;
 }
 
-function mdNode(html, cls) {
+// ---- Inline GIFs and images in comments, post text and messages --------------------------
+
+const MAX_INLINE_MEDIA = 8;
+
+/** Media Reddit itself describes (uploads, Giphy picks): prefer the MP4 for animations. */
+function fromMetadata(m) {
+    if (!m || m.status !== 'valid' || !m.s) return null;
+    if (m.e === 'AnimatedImage') {
+        if (m.s.mp4) return { video: m.s.mp4 };
+        if (m.s.gif) return { image: m.s.gif };
+    }
+    if (m.e === 'Image' && (m.s.u || m.s.gif)) return { image: m.s.u || m.s.gif };
+    return null;
+}
+
+/** What a link points at, if it's a GIF, short looping video or Reddit-hosted image. */
+function linkedMedia(href, meta) {
+    meta = meta || {};
+    if (href.startsWith('reddit-media:')) {
+        const key = decodeURIComponent(href.slice('reddit-media:'.length));
+        return fromMetadata(meta[key]) ||
+            (key.startsWith('giphy|') ? { image: `https://media.giphy.com/media/${key.split('|')[1]}/giphy.gif` } : null);
+    }
+
+    let url;
+    try {
+        url = new URL(href, 'https://www.reddit.com');
+    } catch {
+        return null;
+    }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    const host = url.hostname.toLowerCase();
+    const path = url.pathname.toLowerCase();
+
+    // Giphy page or media links → the GIF itself (or Reddit's copy of it).
+    const giphy = /giphy\.com$/.test(host) && /\/(?:gifs|media|embed)\/(?:[\w-]*-)?([A-Za-z0-9]{6,})/.exec(url.pathname);
+    if (giphy) {
+        const key = Object.keys(meta).find(k => k.startsWith('giphy|' + giphy[1]));
+        return fromMetadata(key && meta[key]) || { image: `https://media.giphy.com/media/${giphy[1]}/giphy.gif` };
+    }
+
+    // Reddit uploads: the file name is the media_metadata key.
+    if (host === 'preview.redd.it' || host === 'i.redd.it') {
+        const id = path.split('/').pop().replace(/\.\w+$/, '');
+        const known = fromMetadata(meta[id]);
+        if (known) return known;
+        if (url.searchParams.get('format') === 'mp4') return { video: url.href };
+        if (/\.(gif|jpe?g|png|webp)$/.test(path)) return { image: url.href };
+        return null;
+    }
+
+    if (/\.gifv$/.test(path)) return { video: url.href.replace(/\.gifv(\?|$)/i, '.mp4$1') };
+    if (/\.(mp4|webm)$/.test(path) && /(^|\.)(imgur\.com|giphy\.com|tenor\.com|redd\.it|gfycat\.com)$/.test(host)) return { video: url.href };
+    if (/\.gif$/.test(path)) return { image: url.href };
+    return null;
+}
+
+function inlineMedia(fragment, meta) {
+    let added = 0;
+    for (const a of fragment.querySelectorAll('a[href]')) {
+        if (added >= MAX_INLINE_MEDIA) break;
+        const media = linkedMedia(a.getAttribute('href'), meta);
+        if (!media) continue;
+
+        const node = media.video
+            ? el('video', { src: mapUrl(media.video), class: 'md-gif', autoplay: true, loop: true, muted: true, playsinline: true, preload: 'metadata' })
+            : el('img', { src: mapUrl(media.image), class: 'md-img', loading: 'lazy', alt: '' });
+        if (media.video) node.muted = true;
+
+        // A bare link (text is just the URL or a placeholder) becomes the media itself;
+        // a link with its own wording keeps the text and shows the media right after it.
+        const text = a.textContent.trim();
+        const bare = text === '' || text === a.getAttribute('href') || /^(<image>|<gif>|image|gif|img)$/i.test(text) ||
+            a.getAttribute('href').startsWith('reddit-media:') || (a.children.length === 1 && a.firstElementChild.tagName === 'IMG');
+        if (bare) a.replaceWith(node);
+        else a.after(node);
+        added++;
+    }
+}
+
+function mdNode(html, cls, mediaMetadata) {
     const node = el('div', { class: 'md ' + (cls || '') });
-    node.append(sanitize(html));
+    node.append(sanitize(html, mediaMetadata));
     return node;
 }
 
@@ -683,7 +760,7 @@ function renderPost(d, settings) {
     const mine = !!state.settings.me && sameUser(d.author, state.settings.me);
     // An empty placeholder keeps a slot the editor can swap into for self posts with no text yet.
     let body = (d.selftext_html || source.selftext_html)
-        ? mdNode(d.selftext_html || source.selftext_html, 'post-body')
+        ? mdNode(d.selftext_html || source.selftext_html, 'post-body', d.media_metadata || source.media_metadata)
         : el('div', { class: 'md post-body' });
 
     const box = replyBox(d.name, comment => {
@@ -718,7 +795,7 @@ function renderPost(d, settings) {
                 text => call('edit', { id: d.name, text }),
                 data => {
                     d.selftext = data.selftext; // so a second edit starts from the saved text
-                    return (body = mdNode(data.selftext_html || '', 'post-body'));
+                    return (body = mdNode(data.selftext_html || '', 'post-body', data.media_metadata));
                 })),
             mine && action('🗑 Delete', async () => {
                 if (await deleteThing(d.name, 'post')) article.querySelector('h1').textContent = '[deleted] ' + d.title;
@@ -857,7 +934,7 @@ function commentNode(c, depth, post) {
     });
 
     const mine = !!state.settings.me && sameUser(c.author, state.settings.me);
-    let body = mdNode(c.body_html, 'c-body');
+    let body = mdNode(c.body_html, 'c-body', c.media_metadata);
 
     const actions = el('div', { class: 'c-actions' },
         voteWidget(c, false),
@@ -867,7 +944,7 @@ function commentNode(c, depth, post) {
             text => call('edit', { id: c.name, text }),
             data => {
                 c.body = data.body;
-                return (body = mdNode(data.body_html || '', 'c-body'));
+                return (body = mdNode(data.body_html || '', 'c-body', data.media_metadata));
             })),
         mine && action('Delete', async () => {
             // With the editor open the body is detached, and Cancel would bring it back.
@@ -1162,7 +1239,7 @@ function renderMessage(d, settings) {
     root.append(el('article', { class: 'post' },
         el('h1', null, d.subject || 'Message'),
         el('div', { class: 'meta' }, 'from ', from, ' · ', el('span', { title: fullDate(d.created_utc) }, age(d.created_utc))),
-        mdNode(d.body_html, 'post-body'),
+        mdNode(d.body_html, 'post-body', d.media_metadata),
         el('div', { class: 'actions' }, action('💬 Reply', () => box.open())),
         box));
 }
