@@ -9,9 +9,42 @@ static class Paths
     public static readonly string Roaming =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Readdit");
 
-    /// <summary>Machine-local data: browser profile, read history, offline library.</summary>
+    /// <summary>
+    /// Machine-local data: browser profile (sign-in), read history, offline library.
+    /// Not %LocalAppData%\Readdit: that's where the installer puts the app, and it replaces
+    /// that folder on install and deletes it on uninstall.
+    /// </summary>
     public static readonly string Local =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ReadditData");
+
+    static readonly string OldLocal =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Readdit");
+
+    /// <summary>
+    /// Moves data from the old location (shared with the install folder) to <see cref="Local"/>.
+    /// Runs at startup before anything opens these files.
+    /// </summary>
+    public static void MigrateLocalData()
+    {
+        string[] entries = ["WebView2", "offline", "read.txt", "visits.json", "api.log", "crash.log"];
+        try
+        {
+            if (!Directory.Exists(OldLocal)) return;
+            Directory.CreateDirectory(Local);
+            foreach (var name in entries)
+            {
+                var from = Path.Combine(OldLocal, name);
+                var to = Path.Combine(Local, name);
+                if (Path.Exists(to)) continue;
+                if (Directory.Exists(from)) Directory.Move(from, to);
+                else if (File.Exists(from)) File.Move(from, to);
+            }
+        }
+        catch
+        {
+            // Worst case Readdit starts fresh (sign in again); never block startup over it.
+        }
+    }
 }
 
 public sealed class AccountInfo

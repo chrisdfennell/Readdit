@@ -19,7 +19,7 @@ dotnet tool restore
 # Installer: Velopack wants a normal (multi-file) self-contained publish.
 dotnet publish Readdit.csproj -c Release -r win-x64 --self-contained -p:Version=$Version -o publish
 dotnet vpk pack --packId Readdit --packVersion $Version --packDir publish --mainExe Readdit.exe `
-    --packTitle Readdit --icon Assets\readdit.ico --outputDir Releases
+    --packTitle Readdit --icon Assets\readdit.ico --shortcuts Desktop,StartMenuRoot --outputDir Releases
 
 # Portable: everything (runtime and web assets) in one exe that unpacks itself on first run.
 dotnet publish Readdit.csproj -c Release -r win-x64 --self-contained -p:Version=$Version `

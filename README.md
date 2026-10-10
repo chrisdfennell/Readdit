@@ -49,7 +49,7 @@ Press <kbd>?</kbd> in the app for all keyboard shortcuts (`j`/`k` to move, `a`/`
 
 From the [latest release](https://github.com/chrisdfennell/Readdit/releases/latest), download one of these:
 
-- **`Readdit-win-Setup.exe`** installs Readdit with a Start menu entry. It updates itself when new releases come out.
+- **`Readdit-win-Setup.exe`** installs Readdit with a desktop icon and a Start menu entry. It updates itself when new releases come out.
 - **`Readdit-Portable.exe`** is a single file you can run from anywhere, including a USB stick, with no install. It doesn't auto-update. On first run it unpacks itself to a temp folder, so the first start takes a moment.
 
 The installer isn't code-signed yet, so Windows SmartScreen may warn you. Choose **More info → Run anyway**.
@@ -83,6 +83,7 @@ Releases are automatic.
 | What | Where |
 | --- | --- |
 | Settings | `%AppData%\Readdit\settings.json` |
-| Sign-in (browser profile), read history, offline library | `%LocalAppData%\Readdit\` |
-| Crash log | `%LocalAppData%\Readdit\crash.log` |
+| Sign-in (browser profile), read history, offline library | `%LocalAppData%\ReadditData\` |
+| Crash log | `%LocalAppData%\ReadditData\crash.log` |
+| The installed app itself | `%LocalAppData%\Readdit\` (managed by the installer) |
 | Downloads | `Pictures\Readdit` (configurable) |
