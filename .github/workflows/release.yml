@@ -1,14 +1,18 @@
 # Publishes a GitHub release with the installer and portable exe; installed and portable copies
 # of Readdit update from these.
 #
-# One click: Actions → Release → Run workflow, choose patch / minor / major. The next version is
-# worked out from the latest v* tag (the first release uses the version in Readdit.csproj).
-# Or push a tag yourself: git tag v1.2.3 && git push origin v1.2.3
+# Automatic: every push to main (except docs-only changes) runs CI and, if it passes, releases
+# the next patch version. Put [skip release] in the commit message to skip one.
+# Manual: Actions → Release → Run workflow for a minor/major bump or an exact version,
+# or push a tag yourself: git tag v1.2.3 && git push origin v1.2.3
+# The version comes from the latest v* tag (the first release uses the one in Readdit.csproj).
 name: Release
 
 on:
   push:
+    branches: [main]
     tags: ['v*']
+    paths-ignore: ['**.md', 'LICENSE']
   workflow_dispatch:
     inputs:
       bump:
@@ -30,6 +34,7 @@ concurrency:
 jobs:
   version:
     name: Decide version
+    if: ${{ !contains(github.event.head_commit.message, '[skip release]') }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
@@ -41,7 +46,8 @@ jobs:
       - id: v
         shell: pwsh
         run: |
-          if ('${{ github.event_name }}' -eq 'push') {
+          $bump = if ('${{ inputs.bump }}') { '${{ inputs.bump }}' } else { 'patch' }   # pushes to main bump the patch
+          if ('${{ github.ref_type }}' -eq 'tag') {
             $version = $env:GITHUB_REF_NAME.TrimStart('v')
           } elseif ('${{ inputs.version }}') {
             $version = '${{ inputs.version }}'.TrimStart('v')
@@ -52,7 +58,7 @@ jobs:
               $version = ([xml](Get-Content Readdit.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
             } else {
               $parts = $last.TrimStart('v').Split('.') | ForEach-Object { [int]$_ }
-              switch ('${{ inputs.bump }}') {
+              switch ($bump) {
                 'major' { $version = "$($parts[0] + 1).0.0" }
                 'minor' { $version = "$($parts[0]).$($parts[1] + 1).0" }
                 default { $version = "$($parts[0]).$($parts[1]).$($parts[2] + 1)" }
@@ -60,7 +66,7 @@ jobs:
             }
           }
           if ($version -notmatch '^\d+\.\d+\.\d+([-+].+)?$') { throw "'$version' isn't a version like 1.2.3" }
-          if ('${{ github.event_name }}' -ne 'push' -and (git tag --list "v$version")) { throw "v$version already exists" }
+          if ('${{ github.ref_type }}' -ne 'tag' -and (git tag --list "v$version")) { throw "v$version already exists" }
           Write-Host "Releasing $version"
           echo "version=$version" >> $env:GITHUB_OUTPUT
 
@@ -82,9 +88,9 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # Manual runs create the tag here. (Pushes made with GITHUB_TOKEN don't start new workflow runs.)
+      # Unless a tag started this run, create it. (Pushes made with GITHUB_TOKEN don't start new runs.)
       - name: Tag
-        if: github.event_name == 'workflow_dispatch'
+        if: github.ref_type != 'tag'
         run: |
           git tag v${{ env.VERSION }}
           git push origin v${{ env.VERSION }}

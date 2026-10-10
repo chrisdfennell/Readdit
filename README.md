@@ -7,7 +7,7 @@
 <p align="center">A fast, keyboard-friendly desktop Reddit client for Windows.</p>
 
 <p align="center">
-  <a href="https://github.com/chrisdfennell/Readdit/actions/workflows/ci.yml"><img src="https://github.com/chrisdfennell/Readdit/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/chrisdfennell/Readdit/actions/workflows/release.yml"><img src="https://github.com/chrisdfennell/Readdit/actions/workflows/release.yml/badge.svg" alt="Build and release"></a>
   <a href="https://github.com/chrisdfennell/Readdit/releases/latest"><img src="https://img.shields.io/github/v/release/chrisdfennell/Readdit?include_prereleases&label=release" alt="Latest release"></a>
 </p>
 
@@ -68,10 +68,11 @@ dotnet run                                # run a development build
 
 ## CI/CD
 
-- **CI** ([ci.yml](.github/workflows/ci.yml)) runs on every push to `main` and every pull request. It builds with warnings treated as errors, runs the post view smoke test in headless Edge, and packages the installer and portable exe. Download them from the run's **Artifacts** to try that exact build.
-- **Release** ([release.yml](.github/workflows/release.yml)) runs CI first, then builds both and publishes a GitHub release. Installed copies of Readdit update from there automatically.
+Releases are automatic.
 
-**To release:** on GitHub, open **Actions → Release → Run workflow** and pick `patch`, `minor` or `major`. The next version number is worked out from the last release. You can also type an exact version, or push a tag yourself:
+- **Every push to `main`** runs [release.yml](.github/workflows/release.yml). It runs CI ([ci.yml](.github/workflows/ci.yml)): a build with warnings treated as errors, the post view smoke test in headless Edge, and packaging of the installer and portable exe. If everything passes, it publishes the next patch release (0.4.0 → 0.4.1 → …). Changes that only touch docs don't release. Add `[skip release]` to a commit message to skip one.
+- **Pull requests** run CI only. Try that exact build from the run's **Artifacts**.
+- **For a minor or major version,** open **Actions → Release → Run workflow** and pick `minor` or `major`, or type an exact version. You can also push a tag yourself:
 
 ```powershell
 git tag v0.4.1

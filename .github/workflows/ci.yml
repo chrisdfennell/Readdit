@@ -1,12 +1,11 @@
-# Builds and tests every push to main and every pull request, and packages a test installer
-# and portable exe. The release workflow also calls this, so nothing ships without passing it.
+# Builds and tests every pull request and packages a test installer and portable exe.
+# Pushes to main run this through the Release workflow, so nothing ships without passing it.
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_call:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
