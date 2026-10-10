@@ -86,6 +86,9 @@ public sealed class AppSettings
     public List<string> OpenTabs { get; set; } = ["home"];
     public int SelectedTab { get; set; }
 
+    /// <summary>Sidebar sections you've collapsed: feeds, moderation, favorites, subscriptions.</summary>
+    public List<string> CollapsedSidebarSections { get; set; } = [];
+
     /// <summary>Cache of your Reddit favorites (starred communities), refreshed after sign-in.</summary>
     public List<string> Favorites { get; set; } = [];
 

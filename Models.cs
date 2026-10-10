@@ -350,7 +350,8 @@ public sealed partial class Post : ObservableObject
 }
 
 /// <summary>An entry in the sidebar: a label, the feed spec it opens, and an optional icon.</summary>
-public sealed record SidebarItem(string Label, string Spec, string? Icon = null)
+/// <param name="IsFeed">Built-in feeds (Home, Popular…) carry their own emoji, so no community badge.</param>
+public sealed record SidebarItem(string Label, string Spec, string? Icon = null, bool IsFeed = false)
 {
     public bool HasIcon => Icon != null;
 
@@ -367,7 +368,7 @@ public sealed record SidebarItem(string Label, string Spec, string? Icon = null)
     }
 
     /// <summary>Shows a community icon: subreddits and per-community mod queues.</summary>
-    public bool IsCommunity => Spec.StartsWith("r/") || (Spec.StartsWith("mod:") && Spec != "mod:mod");
+    public bool IsCommunity => !IsFeed && (Spec.StartsWith("r/") || (Spec.StartsWith("mod:") && Spec != "mod:mod"));
 }
 
 /// <summary>A subreddit name, its icon URL if it has one, and whether you've starred it on Reddit.</summary>

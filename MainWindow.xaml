@@ -32,6 +32,47 @@
             <Setter Property="Margin" Value="10,14,10,4" />
         </Style>
 
+        <!-- Collapsible sidebar section header: "▾ FAVORITES"; IsChecked = expanded. -->
+        <Style x:Key="SectionToggle" TargetType="ToggleButton">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Margin" Value="2,10,2,2" />
+            <Setter Property="Opacity" Value="0.85" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Box" Background="Transparent" Padding="8,5" CornerRadius="5">
+                            <StackPanel Orientation="Horizontal">
+                                <!-- Chevron glyphs from Windows' icon font (ChevronDown / ChevronRight). -->
+                                <TextBlock x:Name="Chevron" Text="&#xE70D;" Width="18" FontSize="10"
+                                           FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" VerticalAlignment="Center" />
+                                <ContentPresenter VerticalAlignment="Center" TextElement.FontSize="12"
+                                                  TextElement.FontWeight="Bold" />
+                            </StackPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="False">
+                                <Setter TargetName="Chevron" Property="Text" Value="&#xE76C;" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Box" Property="Background" Value="#22808080" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Box" Property="Background" Value="#22808080" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Opacity" Value="1" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <!-- Bare glyph button for vote arrows and tab close boxes. -->
         <Style x:Key="GlyphButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent" />
@@ -487,29 +528,41 @@
                                Visibility="{Binding SidebarFilter, Converter={StaticResource InvVis}}" />
                 </Grid>
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <!-- Each heading collapses its section (remembered between sessions). While
+                         filtering, sections show their matches even when collapsed. -->
                     <StackPanel Margin="4,0,4,12">
-                        <TextBlock Text="FEEDS" Style="{StaticResource SectionHeader}" />
-                        <ItemsControl ItemsSource="{Binding Feeds}" ItemTemplate="{StaticResource SidebarItemTemplate}" />
+                        <ToggleButton Content="FEEDS" Style="{StaticResource SectionToggle}"
+                                      IsChecked="{Binding FeedsExpanded}" ToolTip="Show or hide" />
+                        <ItemsControl ItemsSource="{Binding Feeds}" ItemTemplate="{StaticResource SidebarItemTemplate}"
+                                      Visibility="{Binding FeedsExpanded, Converter={StaticResource Vis}}" />
 
                         <StackPanel Visibility="{Binding HasModeration, Converter={StaticResource Vis}}">
-                            <TextBlock Text="MODERATION" Style="{StaticResource SectionHeader}"
-                                       ToolTip="Mod queues for the communities you moderate" />
-                            <ItemsControl ItemsSource="{Binding ModerationItems}" ItemTemplate="{StaticResource SidebarItemTemplate}" />
+                            <ToggleButton Content="MODERATION" Style="{StaticResource SectionToggle}"
+                                          IsChecked="{Binding ModerationExpanded}"
+                                          ToolTip="Mod queues for the communities you moderate" />
+                            <ItemsControl ItemsSource="{Binding ModerationItems}" ItemTemplate="{StaticResource SidebarItemTemplate}"
+                                          Visibility="{Binding ShowModeration, Converter={StaticResource Vis}}" />
                         </StackPanel>
 
-                        <TextBlock Text="FAVORITES" Style="{StaticResource SectionHeader}"
-                                   ToolTip="Your favorite communities on Reddit. Starring one here stars it on Reddit too." />
-                        <ItemsControl ItemsSource="{Binding FavoriteItems}" ItemTemplate="{StaticResource SidebarItemTemplate}" />
-                        <TextBlock Text="Star a community with ☆ Favorite (or right-click it) and it shows up here and on Reddit."
-                                   TextWrapping="Wrap" FontSize="12" Opacity="0.55" Margin="10,2,10,0"
-                                   Visibility="{Binding HasNoFavorites, Converter={StaticResource Vis}}" />
+                        <ToggleButton Content="{Binding FavoritesHeader}" Style="{StaticResource SectionToggle}"
+                                      IsChecked="{Binding FavoritesExpanded}"
+                                      ToolTip="Your favorite communities on Reddit. Starring one here stars it on Reddit too." />
+                        <StackPanel Visibility="{Binding ShowFavorites, Converter={StaticResource Vis}}">
+                            <ItemsControl ItemsSource="{Binding FavoriteItems}" ItemTemplate="{StaticResource SidebarItemTemplate}" />
+                            <TextBlock Text="Star a community with ☆ Favorite (or right-click it) and it shows up here and on Reddit."
+                                       TextWrapping="Wrap" FontSize="12" Opacity="0.55" Margin="10,2,10,0"
+                                       Visibility="{Binding HasNoFavorites, Converter={StaticResource Vis}}" />
+                        </StackPanel>
 
                         <DockPanel>
-                            <Button DockPanel.Dock="Right" Content="⟳" Style="{StaticResource GlyphButton}" Margin="0,10,6,0"
+                            <Button DockPanel.Dock="Right" Content="⟳" Style="{StaticResource GlyphButton}" Margin="0,12,6,0"
+                                    VerticalAlignment="Top"
                                     Command="{Binding RefreshSubscriptionsCommand}" ToolTip="Reload subscriptions" />
-                            <TextBlock Text="{Binding SubscriptionsHeader}" Style="{StaticResource SectionHeader}" />
+                            <ToggleButton Content="{Binding SubscriptionsHeader}" Style="{StaticResource SectionToggle}"
+                                          IsChecked="{Binding SubscriptionsExpanded}" ToolTip="Show or hide" />
                         </DockPanel>
-                        <ItemsControl ItemsSource="{Binding SubscriptionItems}" ItemTemplate="{StaticResource SidebarItemTemplate}" />
+                        <ItemsControl ItemsSource="{Binding SubscriptionItems}" ItemTemplate="{StaticResource SidebarItemTemplate}"
+                                      Visibility="{Binding ShowSubscriptions, Converter={StaticResource Vis}}" />
                     </StackPanel>
                 </ScrollViewer>
             </DockPanel>

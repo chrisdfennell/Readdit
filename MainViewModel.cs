@@ -156,8 +156,8 @@ public sealed partial class MainViewModel : ObservableObject
     public IReadOnlyList<SidebarItem> Feeds { get; } =
     [
         new("🏠 Home", "home"),
-        new("🔥 Popular", "r/popular"),
-        new("🌐 All", "r/all"),
+        new("🔥 Popular", "r/popular", IsFeed: true),
+        new("🌐 All", "r/all", IsFeed: true),
         new("★ Saved", "saved"),
         new("✉ Inbox", "inbox"),
         new("📥 Offline library", "offline"),
@@ -557,6 +557,9 @@ public sealed partial class MainViewModel : ObservableObject
             Raise(nameof(FavoriteItems));
             Raise(nameof(SubscriptionItems));
             Raise(nameof(ModerationItems));
+            Raise(nameof(ShowModeration));
+            Raise(nameof(ShowFavorites));
+            Raise(nameof(ShowSubscriptions));
         }
     }
 
@@ -570,6 +573,53 @@ public sealed partial class MainViewModel : ObservableObject
         _subscriptions.Where(s => MatchesFilter(s.Name))
             .Select(s => new SidebarItem("r/" + s.Name, "r/" + s.Name, s.Icon))
             .ToList();
+
+    // ---- Collapsible sidebar sections (remembered in settings) ---------------------------------
+
+    bool IsExpanded(string section) =>
+        !Settings.CollapsedSidebarSections.Contains(section, StringComparer.OrdinalIgnoreCase);
+
+    void SetExpanded(string section, bool expanded, params string[] changed)
+    {
+        if (expanded == IsExpanded(section)) return;
+        if (expanded) Settings.CollapsedSidebarSections.RemoveAll(s => s.Equals(section, StringComparison.OrdinalIgnoreCase));
+        else Settings.CollapsedSidebarSections.Add(section);
+        Settings.Save();
+        foreach (var name in changed) Raise(name);
+    }
+
+    bool IsFiltering => SidebarFilter.Trim().Length > 0;
+
+    public bool FeedsExpanded
+    {
+        get => IsExpanded("feeds");
+        set => SetExpanded("feeds", value, nameof(FeedsExpanded));
+    }
+
+    public bool ModerationExpanded
+    {
+        get => IsExpanded("moderation");
+        set => SetExpanded("moderation", value, nameof(ModerationExpanded), nameof(ShowModeration));
+    }
+
+    public bool FavoritesExpanded
+    {
+        get => IsExpanded("favorites");
+        set => SetExpanded("favorites", value, nameof(FavoritesExpanded), nameof(ShowFavorites));
+    }
+
+    public bool SubscriptionsExpanded
+    {
+        get => IsExpanded("subscriptions");
+        set => SetExpanded("subscriptions", value, nameof(SubscriptionsExpanded), nameof(ShowSubscriptions));
+    }
+
+    // A collapsed section still shows its matches while you filter.
+    public bool ShowModeration => ModerationExpanded || IsFiltering;
+    public bool ShowFavorites => FavoritesExpanded || IsFiltering;
+    public bool ShowSubscriptions => SubscriptionsExpanded || IsFiltering;
+
+    public string FavoritesHeader => Favorites.Count == 0 ? "FAVORITES" : $"FAVORITES ({Favorites.Count})";
 
     public string SubscriptionsHeader =>
         _subscriptions.Count == 0 ? "SUBSCRIPTIONS" : $"SUBSCRIPTIONS ({_subscriptions.Count})";
@@ -659,6 +709,7 @@ public sealed partial class MainViewModel : ObservableObject
         Raise(nameof(FavoriteLabel));
         Raise(nameof(FavoriteItems));
         Raise(nameof(HasNoFavorites));
+        Raise(nameof(FavoritesHeader));
     }
 
     public bool HasNoFavorites => Favorites.Count == 0;
