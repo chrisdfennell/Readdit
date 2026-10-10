@@ -60,6 +60,11 @@ public sealed partial class MainViewModel : ObservableObject
         // Last session's list, so the sidebar is full straight away; Reddit's copy replaces it after sign-in.
         _subscriptions = _services.SubscriptionCache.Load(Settings.ActiveProfile);
         foreach (var sub in _subscriptions.Where(s => s.Icon != null)) _icons[sub.Name] = sub.Icon!;
+        if (DemoMode)
+        {
+            _subscriptions = DemoCommunities.Select(n => new SubredditRef(n, _icons.GetValueOrDefault(n))).ToList();
+            Favorites = new ObservableCollection<string>(DemoFavorites);
+        }
 
         _detail.OpenUrlRequested += url => OpenUrl(url);
         _detail.ExternalUrlRequested += url => OpenLink(url);
@@ -170,6 +175,32 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     AppSettings Settings => _services.Settings;
+
+    // ---- Screenshot mode -----------------------------------------------------------------------
+    //
+    // With READDIT_DEMO=1 set, the sidebar shows a stand-in set of popular communities (and a
+    // sample folder) and the account button hides your username, so pictures of Readdit don't
+    // show whose it is. Nothing shown in this mode is saved.
+
+    static readonly bool DemoMode = Environment.GetEnvironmentVariable("READDIT_DEMO") == "1";
+
+    static readonly string[] DemoCommunities =
+    [
+        "AskReddit", "aww", "Cooking", "dataisbeautiful", "DIY", "dotnet", "csharp", "explainlikeimfive", "Fitness",
+        "food", "gadgets", "gaming", "gardening", "history", "homelab", "InternetIsBeautiful", "interestingasfuck",
+        "Jokes", "LifeProTips", "linux", "MadeMeSmile", "Minecraft", "movies", "Music", "nature", "NoStupidQuestions",
+        "oddlysatisfying", "PCgaming", "photography", "pics", "programming", "science", "selfhosted", "space",
+        "sports", "technology", "television", "todayilearned", "travel", "UpliftingNews", "videos", "wholesomememes",
+        "woodworking", "worldnews", "YouShouldKnow",
+    ];
+
+    static readonly string[] DemoFavorites = ["aww", "explainlikeimfive", "space", "programming"];
+
+    static readonly List<SubscriptionFolder> DemoFolders =
+        [new SubscriptionFolder { Name = "Tech", Subreddits = ["dotnet", "csharp", "linux", "programming", "selfhosted"] }];
+
+    /// <summary>Your folders (or, in screenshot mode, the sample one).</summary>
+    List<SubscriptionFolder> Folders => DemoMode ? DemoFolders : Settings.SubscriptionFolders;
 
     /// <summary>Raised to ask the window to focus the search box.</summary>
     public event Action? FocusSearchRequested;
@@ -352,6 +383,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     async Task LoadModeratedAsync()
     {
+        if (DemoMode) return;
         try
         {
             _moderated = await _services.Api.GetModeratedAsync();
@@ -725,7 +757,7 @@ public sealed partial class MainViewModel : ObservableObject
                 : FavoriteItems);
 
         // Folders: your own groups. Each folder is its own collapsible heading inside the section.
-        var folders = Settings.SubscriptionFolders;
+        var folders = Folders;
         Section("folders", folders.Count == 0 ? "FOLDERS" : $"FOLDERS ({folders.Count})", false,
             "Your own groups of communities. Open one to see all of their posts together.", [],
             [new SidebarAction("+", "New folder", NewFolderCommand)]);
@@ -970,7 +1002,7 @@ public sealed partial class MainViewModel : ObservableObject
     // ---- Collapsible sidebar sections (remembered in settings) ---------------------------------
 
     bool IsExpanded(string section) =>
-        !Settings.CollapsedSidebarSections.Contains(section, StringComparer.OrdinalIgnoreCase);
+        DemoMode || !Settings.CollapsedSidebarSections.Contains(section, StringComparer.OrdinalIgnoreCase);
 
     void SetExpanded(string section, bool expanded, params string[] changed)
     {
@@ -1020,6 +1052,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     async Task LoadSubscriptionsAsync()
     {
+        if (DemoMode) return; // keep the stand-in list
         try
         {
             _subscriptions = await _services.Api.GetSubscriptionsAsync();
@@ -1507,7 +1540,7 @@ public sealed partial class MainViewModel : ObservableObject
         foreach (var feed in Feeds)
             items.Add(new PaletteItem("", feed.Label, "Feed", () => OpenFeed(feed.Spec, newTab: false)));
         foreach (var name in Favorites) Community("★", name, "Favorite");
-        foreach (var folder in Settings.SubscriptionFolders)
+        foreach (var folder in Folders)
             items.Add(new PaletteItem("📁", folder.Name, $"Folder · {folder.Subreddits.Count}", () => OpenFeed("folder:" + folder.Name, newTab: false)));
 
         items.AddRange(
@@ -1694,7 +1727,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    public string AccountLabel => UserName.Length > 0 ? $"👤 u/{UserName}" : "👤 Account";
+    public string AccountLabel => UserName.Length > 0 && !DemoMode ? $"👤 u/{UserName}" : "👤 Account";
 
     public async Task InitializeAsync()
     {

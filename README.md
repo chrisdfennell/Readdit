@@ -17,6 +17,17 @@ Readdit is a native Windows app (WPF on .NET 10) for browsing Reddit. It signs i
 
 > Readdit is an independent project and isn't affiliated with or endorsed by Reddit.
 
+![Readdit showing r/aww in the card layout, with a video post open beside the list, and favorites, a folder and subscriptions in the sidebar](docs/screenshots/main.png)
+
+## Screenshots
+
+| | |
+| --- | --- |
+| ![Compact list with a comment thread open](docs/screenshots/comments.png) | ![Picture grid with a post open](docs/screenshots/grid.png) |
+| **Compact list and comments.** Threads collapse, and jump keys move between top-level comments, new comments or the original poster's. | **Picture grid.** Image-heavy communities as tiles. |
+| ![The picture viewer over a post](docs/screenshots/viewer.png) | ![The Ctrl+K command palette searching for "tech", with a folder as the top match](docs/screenshots/palette.png) |
+| **Picture viewer.** Arrow keys carry on into the next post's pictures. Space runs a slideshow, and F11 goes full screen. | **Command palette (Ctrl+K).** Jump to any community, folder, tab or command. |
+
 ## Features
 
 **Browsing**
@@ -79,6 +90,8 @@ dotnet test tests/Readdit.Tests           # unit tests: parsing, media, links, u
 ./tests/run-smoke.ps1                     # post view smoke test (needs Edge or Chrome)
 ./build-installer.ps1 -Version 0.4.0      # build the installer and Readdit-Portable.exe into Releases/
 ```
+
+For screenshots, start Readdit with the environment variable `READDIT_DEMO=1`. The sidebar then shows a stand-in set of communities (with a sample folder) and the account button hides your username. Nothing shown in that mode is saved.
 
 ## CI/CD
 
