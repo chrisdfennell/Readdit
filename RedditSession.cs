@@ -4,7 +4,7 @@ using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>
 /// Talks to Reddit through an embedded WebView2 so requests carry the user's own logged-in
@@ -77,7 +77,7 @@ public sealed class RedditSession(WebView2 webView, string profile)
     }
 
     /// <summary>
-    /// Options selecting this account's browser profile (cookies, logins). Each Readdit account
+    /// Options selecting this account's browser profile (cookies, logins). Each Skein account
     /// is a separate WebView2 profile; "" keeps the original default profile.
     /// </summary>
     public CoreWebView2ControllerOptions CreateControllerOptions()

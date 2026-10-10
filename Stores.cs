@@ -2,7 +2,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>Remembers which posts have been opened, so feeds can dim or hide them.</summary>
 public sealed class ReadTracker
@@ -82,7 +82,7 @@ public sealed partial class OfflineStore
         }
     }
 
-    /// <summary>Folder served to the post view as https://offline.readdit/…</summary>
+    /// <summary>Folder served to the post view as https://offline.skein/…</summary>
     public string MediaRoot => Path.Combine(_dir, "media");
 
     string IndexFile => Path.Combine(_dir, "index.json");
@@ -431,7 +431,7 @@ public sealed class CommunityVisits
     }
 }
 
-/// <summary>An unfinished new post, kept so closing the window (or Readdit) doesn't lose it.</summary>
+/// <summary>An unfinished new post, kept so closing the window (or Skein) doesn't lose it.</summary>
 public sealed record PostDraft(
     string Subreddit, string Title, string Kind, string Body, bool Nsfw, bool Spoiler, List<PostDraft.MediaFile> Media)
 {

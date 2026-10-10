@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace Readdit.Tests;
+namespace Skein.Tests;
 
 static class TestJson
 {

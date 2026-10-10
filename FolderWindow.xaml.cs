@@ -1,6 +1,6 @@
 using System.Windows;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>Creates or edits a sidebar folder: its name and the communities in it.</summary>
 public partial class FolderWindow : Window

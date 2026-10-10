@@ -1,4 +1,4 @@
-namespace Readdit.Tests;
+namespace Skein.Tests;
 
 /// <summary>Saved tab identities ("specs") and how links/typed text open.</summary>
 public class FeedSpecTests

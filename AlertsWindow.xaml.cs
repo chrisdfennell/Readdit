@@ -2,7 +2,7 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>Adds, edits and removes keyword alerts.</summary>
 public partial class AlertsWindow : Window

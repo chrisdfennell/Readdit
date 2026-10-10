@@ -1,6 +1,0 @@
-<Solution>
-  <Folder Name="/tests/">
-    <Project Path="tests/Readdit.Tests/Readdit.Tests.csproj" />
-  </Folder>
-  <Project Path="Readdit.csproj" />
-</Solution>

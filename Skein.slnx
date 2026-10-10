@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/tests/">
+    <Project Path="tests/Skein.Tests/Skein.Tests.csproj" />
+  </Folder>
+  <Project Path="Skein.csproj" />
+</Solution>

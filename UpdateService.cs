@@ -6,19 +6,19 @@ using System.Text.RegularExpressions;
 using Velopack;
 using Velopack.Sources;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>
-/// Keeps Readdit up to date from GitHub releases (published by the Release workflow):
+/// Keeps Skein up to date from GitHub releases (published by the Release workflow):
 /// <list type="bullet">
 /// <item>Installed copies (Setup.exe) update through Velopack.</item>
-/// <item>The portable exe downloads the new Readdit-Portable.exe beside itself and swaps it in on restart.</item>
+/// <item>The portable exe downloads the new Skein-Portable.exe beside itself and swaps it in on restart.</item>
 /// </list>
 /// Development builds (dotnet run) never update.
 /// </summary>
 public sealed partial class UpdateService(AppSettings settings)
 {
-    const string PortableAssetName = "Readdit-Portable.exe";
+    const string PortableAssetName = "Skein-Portable.exe";
 
     static readonly HttpClient Http = CreateHttp();
 
@@ -30,7 +30,7 @@ public sealed partial class UpdateService(AppSettings settings)
     static HttpClient CreateHttp()
     {
         var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
-        http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Readdit-Updater");
+        http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Skein-Updater");
         http.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/vnd.github+json");
         return http;
     }
@@ -54,7 +54,7 @@ public sealed partial class UpdateService(AppSettings settings)
 
     // Asking Velopack means locating the install on disk; do it once (WarmUp does it off the UI thread).
     // Without an update source there's no manager to ask, so fall back to Velopack's layout:
-    // <install>\Update.exe next to <install>\current\Readdit.exe.
+    // <install>\Update.exe next to <install>\current\Skein.exe.
     bool IsInstalled => _isInstalled ??= Manager() is { } manager
         ? manager.IsInstalled
         : File.Exists(Path.Combine(Path.GetDirectoryName(Environment.ProcessPath) ?? "", "..", "Update.exe"));
@@ -134,7 +134,7 @@ public sealed partial class UpdateService(AppSettings settings)
         });
     }
 
-    string ReadyMessage => $"Version {_readyVersion} is ready and installs when you restart Readdit.";
+    string ReadyMessage => $"Version {_readyVersion} is ready and installs when you restart Skein.";
 
     const string SourceChanged = "The update source changed; check again.";
 
@@ -200,7 +200,7 @@ public sealed partial class UpdateService(AppSettings settings)
         }
         catch (UnauthorizedAccessException)
         {
-            return $"Version {tag} is out, but Readdit can't write to its folder. Download it from the releases page.";
+            return $"Version {tag} is out, but Skein can't write to its folder. Download it from the releases page.";
         }
 
         if (!IsCurrent(generation))
@@ -243,7 +243,7 @@ public sealed partial class UpdateService(AppSettings settings)
         return true;
     }
 
-    /// <summary>Installs a ready update quietly once Readdit exits (no restart).</summary>
+    /// <summary>Installs a ready update quietly once Skein exits (no restart).</summary>
     public void ApplyOnExit()
     {
         if (_velopackUpdate != null)

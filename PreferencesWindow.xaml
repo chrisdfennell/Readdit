@@ -1,4 +1,4 @@
-<Window x:Class="Readdit.PreferencesWindow"
+<Window x:Class="Skein.PreferencesWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Preferences" Width="560" Height="640" MinHeight="400"
@@ -53,7 +53,7 @@
                 <CheckBox x:Name="HideNsfw" Content="Hide NSFW posts in Home, Popular, All and search" Margin="0,4,0,0" />
                 <CheckBox x:Name="HideRead" Content="Hide posts I've already opened" Margin="0,4,0,0" />
                 <CheckBox x:Name="CheckForNewPosts" Content="Check the open feed for new posts every 90 seconds" Margin="0,4,0,0" />
-                <CheckBox x:Name="OpenLinksInApp" Content="Open links inside Readdit (instead of your default browser)" Margin="0,4,0,0" />
+                <CheckBox x:Name="OpenLinksInApp" Content="Open links inside Skein (instead of your default browser)" Margin="0,4,0,0" />
 
                 <TextBlock Text="Library and inbox" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />
                 <CheckBox x:Name="SaveOffline" Content="Keep an offline copy of posts I save" Margin="0,8,0,0" />
@@ -63,13 +63,13 @@
                     <ComboBox x:Name="CloseAction" MinWidth="200" HorizontalAlignment="Left">
                         <ComboBoxItem Content="Ask me" Tag="Ask" />
                         <ComboBoxItem Content="Minimize to tray" Tag="Tray" />
-                        <ComboBoxItem Content="Exit Readdit" Tag="Exit" />
+                        <ComboBoxItem Content="Exit Skein" Tag="Exit" />
                     </ComboBox>
                 </DockPanel>
 
                 <TextBlock Text="Links from other apps" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />
                 <TextBlock TextWrapping="Wrap" Opacity="0.8" Margin="0,4,0,0"
-                           Text="Make Readdit the app Windows uses for web links. Reddit links (from Discord, email, anywhere) then open in Readdit, and every other link goes straight on to your usual browser." />
+                           Text="Make Skein the app Windows uses for web links. Reddit links (from Discord, email, anywhere) then open in Skein, and every other link goes straight on to your usual browser." />
                 <TextBlock x:Name="LinkHandlerStatus" TextWrapping="Wrap" Margin="0,8,0,0" FontWeight="SemiBold" />
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <Button x:Name="LinkHandlerSetUp" Content="Set up…" Click="OnSetUpLinkHandler" />
@@ -124,7 +124,7 @@
                 <TextBlock Text="Updates" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />
                 <TextBlock x:Name="VersionText" Opacity="0.75" Margin="0,4,0,0" />
                 <CheckBox x:Name="AutoUpdate" Margin="0,8,0,0"
-                          Content="Update automatically (checks every few hours, installs when Readdit closes)" />
+                          Content="Update automatically (checks every few hours, installs when Skein closes)" />
                 <TextBlock Text="Update source (GitHub repository URL)" Margin="0,8,0,4" />
                 <DockPanel>
                     <Button x:Name="CheckButton" DockPanel.Dock="Right" Content="Check now" Margin="8,0,0,0" Click="OnCheckUpdates" />

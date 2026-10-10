@@ -1,6 +1,6 @@
 using System.Windows;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>A one-line text prompt.</summary>
 public partial class TextInputWindow : Window

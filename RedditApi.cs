@@ -2,7 +2,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
-namespace Readdit;
+namespace Skein;
 
 public sealed class RedditAuthException(string message) : Exception(message);
 
@@ -25,7 +25,7 @@ public sealed partial class RedditApi(RedditSession session)
     static HttpClient CreateHttp()
     {
         var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "windows:Readdit:0.2.0 (desktop Reddit client)");
+        http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "windows:Skein:0.2.0 (desktop Reddit client)");
         return http;
     }
 
@@ -248,7 +248,7 @@ public sealed partial class RedditApi(RedditSession session)
     }
 
     /// <summary>
-    /// The moderator actions Readdit offers, mapped to Reddit's endpoints. Anything else is
+    /// The moderator actions Skein offers, mapped to Reddit's endpoints. Anything else is
     /// refused, so the page can't call arbitrary endpoints.
     /// </summary>
     static readonly Dictionary<string, (string Path, Func<string, Dictionary<string, string>> Form)> ModActions = new()

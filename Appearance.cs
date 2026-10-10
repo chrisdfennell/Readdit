@@ -2,7 +2,7 @@ using System.Windows;
 using System.Windows.Media;
 using Microsoft.Web.WebView2.Core;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>Applies the theme and accent colour chosen in Preferences.</summary>
 public static class Appearance

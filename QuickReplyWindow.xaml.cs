@@ -1,7 +1,7 @@
 using System.Windows;
 using System.Windows.Input;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>
 /// Opened from a new-message notification: read the message and answer it without bringing up
@@ -34,7 +34,7 @@ public partial class QuickReplyWindow : Window
         };
     }
 
-    /// <summary>"Open in Readdit" was clicked: show the conversation in the main window.</summary>
+    /// <summary>"Open in Skein" was clicked: show the conversation in the main window.</summary>
     public event Action<Post>? OpenRequested;
 
     /// <summary>The item was marked read here (the main window updates its count).</summary>

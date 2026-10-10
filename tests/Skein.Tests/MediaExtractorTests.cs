@@ -1,4 +1,4 @@
-namespace Readdit.Tests;
+namespace Skein.Tests;
 
 /// <summary>Finding the downloadable media in a post (also used for the offline library).</summary>
 public class MediaExtractorTests

@@ -2,7 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 
-namespace Readdit;
+namespace Skein;
 
 public partial class PreferencesWindow : Window
 {
@@ -49,7 +49,7 @@ public partial class PreferencesWindow : Window
         UiScale.Value = Math.Round(settings.UiScale * 100);
         DownloadFolder.Text = settings.DownloadFolder;
         UpdateUrl.Text = settings.UpdateUrl;
-        VersionText.Text = $"Readdit version {updates.CurrentVersion} ({updates.Kind})";
+        VersionText.Text = $"Skein version {updates.CurrentVersion} ({updates.Kind})";
         AutoUpdate.IsChecked = settings.AutoUpdate;
         BlurNsfw.IsChecked = settings.BlurNsfw;
         HideNsfw.IsChecked = settings.HideNsfw;
@@ -68,7 +68,7 @@ public partial class PreferencesWindow : Window
         Domains.Text = string.Join(Environment.NewLine, settings.DomainFilters);
         Subreddits.Text = string.Join(Environment.NewLine, settings.SubredditFilters);
         ShowLinkHandlerStatus();
-        // Coming back from Windows' settings: show whether Readdit was picked.
+        // Coming back from Windows' settings: show whether Skein was picked.
         Activated += (_, _) => ShowLinkHandlerStatus();
     }
 
@@ -79,9 +79,9 @@ public partial class PreferencesWindow : Window
         var isDefault = LinkHandler.IsDefaultForWebLinks();
         var browser = _settings.FallbackBrowserName.Length > 0 ? _settings.FallbackBrowserName : "your browser";
         LinkHandlerStatus.Text = isDefault
-            ? $"✓ Readdit opens reddit links. Other links go to {browser}."
+            ? $"✓ Skein opens reddit links. Other links go to {browser}."
             : _settings.LinkHandlerEnabled
-                ? "Readdit is set up, but Windows still sends web links elsewhere. Click Set up… and choose Readdit for HTTP and HTTPS."
+                ? "Skein is set up, but Windows still sends web links elsewhere. Click Set up… and choose Skein for HTTP and HTTPS."
                 : "Off: links from other apps open in your browser as usual.";
         LinkHandlerUndo.IsEnabled = _settings.LinkHandlerEnabled || isDefault;
     }
@@ -105,9 +105,9 @@ public partial class PreferencesWindow : Window
             return;
         }
         MessageBox.Show(this,
-            "Windows will now show Readdit's default apps page.\n\nSet Readdit as the default for HTTP and for HTTPS. " +
-            $"Readdit will open reddit links and pass every other link to {(_settings.FallbackBrowserName.Length > 0 ? _settings.FallbackBrowserName : "your browser")}.",
-            "Open reddit links in Readdit", MessageBoxButton.OK, MessageBoxImage.Information);
+            "Windows will now show Skein's default apps page.\n\nSet Skein as the default for HTTP and for HTTPS. " +
+            $"Skein will open reddit links and pass every other link to {(_settings.FallbackBrowserName.Length > 0 ? _settings.FallbackBrowserName : "your browser")}.",
+            "Open reddit links in Skein", MessageBoxButton.OK, MessageBoxImage.Information);
         LinkHandler.OpenDefaultAppsSettings();
     }
 
@@ -122,8 +122,8 @@ public partial class PreferencesWindow : Window
         MessageBox.Show(this,
             "Windows will now show its default apps page. Pick your browser for web links again " +
             $"({(_settings.FallbackBrowserName.Length > 0 ? _settings.FallbackBrowserName : "for example Edge or Chrome")}).",
-            "Stop opening links in Readdit", MessageBoxButton.OK, MessageBoxImage.Information);
-        LinkHandler.OpenDefaultAppsSettings(forReaddit: false);
+            "Stop opening links in Skein", MessageBoxButton.OK, MessageBoxImage.Information);
+        LinkHandler.OpenDefaultAppsSettings(forSkein: false);
     }
 
     void OnSave(object sender, RoutedEventArgs e)

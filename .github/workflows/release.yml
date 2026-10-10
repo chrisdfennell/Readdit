@@ -1,5 +1,5 @@
 # Tests every push to main and, when it passes, publishes the next release (installer + portable
-# exe). Installed and portable copies of Readdit update from these releases.
+# exe). Installed and portable copies of Skein update from these releases.
 #
 # Automatic: a push to main that changes the app releases the next patch version. Pushes that only
 # touch docs, tests, workflows or tooling are tested but not released. Put [skip release] in any
@@ -68,7 +68,7 @@ jobs:
             $last = git tag --list 'v*' --sort=-v:refname | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' } | Select-Object -First 1
             if (-not $last) {
               # First release: use the version the project declares.
-              return ([xml](Get-Content Readdit.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+              return ([xml](Get-Content Skein.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
             }
             $p = $last.TrimStart('v').Split('.') | ForEach-Object { [int]$_ }
             switch ($bump) {
@@ -158,11 +158,11 @@ jobs:
         run: >
           dotnet vpk upload github --repoUrl ${{ github.server_url }}/${{ github.repository }}
           --token ${{ secrets.GITHUB_TOKEN }} --outputDir Releases --publish
-          --releaseName "Readdit ${{ steps.plan.outputs.version }}" --tag v${{ steps.plan.outputs.version }}
+          --releaseName "Skein ${{ steps.plan.outputs.version }}" --tag v${{ steps.plan.outputs.version }}
           ${{ steps.plan.outputs.prerelease == 'True' && '--pre' || '' }}
 
       - name: Attach portable exe
         if: steps.plan.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload v${{ steps.plan.outputs.version }} Releases/Readdit-Portable.exe --clobber
+        run: gh release upload v${{ steps.plan.outputs.version }} Releases/Skein-Portable.exe --clobber

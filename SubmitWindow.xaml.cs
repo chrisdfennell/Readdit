@@ -5,7 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>A picture or video chosen for a new post.</summary>
 public sealed class SubmitMedia(string path, string caption = "") : ObservableObject

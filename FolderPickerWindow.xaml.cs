@@ -1,6 +1,6 @@
 using System.Windows;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>Picks an existing folder, or names a new one, to put a community in.</summary>
 public partial class FolderPickerWindow : Window

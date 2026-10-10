@@ -1,6 +1,6 @@
 using System.Windows;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>Asked when the window is closed: keep running in the tray, or exit?</summary>
 public partial class CloseChoiceWindow : Window

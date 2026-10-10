@@ -14,7 +14,7 @@ if (-not $browser) { throw 'Microsoft Edge or Google Chrome is required to run t
 
 $page = (Resolve-Path (Join-Path $PSScriptRoot 'detail-smoke.html')).Path
 $url = 'file:///' + ($page -replace '\\', '/' -replace '#', '%23')
-$profileDir = Join-Path ([IO.Path]::GetTempPath()) "readdit-smoke-$([guid]::NewGuid().ToString('N'))"
+$profileDir = Join-Path ([IO.Path]::GetTempPath()) "skein-smoke-$([guid]::NewGuid().ToString('N'))"
 
 # Run the browser directly (not through PowerShell's pipeline, which turns its harmless stderr
 # noise into errors) and give up after 90 seconds so a stuck page can't hang CI.

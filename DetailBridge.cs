@@ -3,7 +3,7 @@ using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>
 /// Drives the post/comments view, an HTML page (wwwroot/detail.html) rendered in a WebView2.
@@ -12,7 +12,7 @@ namespace Readdit;
 /// </summary>
 public sealed class DetailBridge(WebView2 view, Services services)
 {
-    const string AppHost = "readdit.app";
+    const string AppHost = "skein.app";
 
     static readonly TimeSpan PrefetchLifetime = TimeSpan.FromMinutes(3);
     const int PrefetchCapacity = 8;
@@ -67,7 +67,7 @@ public sealed class DetailBridge(WebView2 view, Services services)
         Core.Navigate($"https://{AppHost}/detail.html");
     }
 
-    const string OfflineHost = "offline.readdit";
+    const string OfflineHost = "offline.skein";
 
     string LocalMediaJson(string postId) =>
         JsonSerializer.Serialize(services.Offline.LocalMedia(postId, OfflineHost));
@@ -428,7 +428,7 @@ public sealed class DetailBridge(WebView2 view, Services services)
                 {
                     // Only reveal files inside the download folder.
                     var path = Path.GetFullPath(m.Str("path"));
-                    // Trailing separator so "…\Readdit-other\x" doesn't pass as inside "…\Readdit".
+                    // Trailing separator so "…\Skein-other\x" doesn't pass as inside "…\Skein".
                     var folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(services.Settings.DownloadFolder)) +
                                  Path.DirectorySeparatorChar;
                     if (path.StartsWith(folder, StringComparison.OrdinalIgnoreCase) && File.Exists(path))

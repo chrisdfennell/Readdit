@@ -5,7 +5,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>
 /// Browser-style middle-click auto-scroll for a WPF list. Press and hold the wheel button and

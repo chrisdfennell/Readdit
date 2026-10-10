@@ -1,11 +1,11 @@
 using System.IO;
 using System.Text.Json;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>
 /// "Tell me when a post matching this appears": keywords, optionally limited to communities.
-/// Kept in settings; Readdit checks them in the background while it runs (tray included).
+/// Kept in settings; Skein checks them in the background while it runs (tray included).
 /// </summary>
 public sealed class AlertRule
 {

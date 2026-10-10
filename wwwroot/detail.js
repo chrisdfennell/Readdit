@@ -474,9 +474,9 @@ function syncPostState(m) {
 
 // ---- Drafts ----------------------------------------------------------------------------
 // What you're writing in a reply or an edit is kept (in this browser profile) until you send or
-// cancel it, so switching posts, closing Readdit or a crash doesn't lose it.
+// cancel it, so switching posts, closing Skein or a crash doesn't lose it.
 
-const DRAFT_PREFIX = 'readdit-draft:';
+const DRAFT_PREFIX = 'skein-draft:';
 const DRAFT_DAYS = 30;
 
 function loadDraft(key) {
@@ -1839,7 +1839,7 @@ function continueViewer(d) {
     viewer.pending = 0;
     const pics = postImages(d);
     if (pics.length) openLightbox(pics, direction > 0 ? 0 : pics.length - 1, true);
-    else stepPost(direction); // Readdit only picks posts with pictures, but just in case
+    else stepPost(direction); // Skein only picks posts with pictures, but just in case
 }
 
 function startSlideshow() {

@@ -1,4 +1,4 @@
-<Window x:Class="Readdit.AlertsWindow"
+<Window x:Class="Skein.AlertsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Alerts" Width="820" Height="520" MinWidth="620" MinHeight="360"
@@ -6,7 +6,7 @@
     <DockPanel Margin="20">
         <TextBlock DockPanel.Dock="Top" Text="Keyword alerts" FontSize="16" FontWeight="SemiBold" />
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Opacity="0.8" Margin="0,6,0,0">
-            Readdit watches for new posts whose titles contain any of the words, and lets you know.
+            Skein watches for new posts whose titles contain any of the words, and lets you know.
             Separate words or phrases with commas; put a minus in front to exclude one (<Run FontFamily="Consolas" Text="RTX, 4090, -broken" />).
             Leave Communities empty to search all of Reddit, or list them (<Run FontFamily="Consolas" Text="hardwareswap, buildapcsales" />).
             With no words, every new post in those communities counts.

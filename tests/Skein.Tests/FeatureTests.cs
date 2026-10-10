@@ -1,7 +1,7 @@
 using System.IO;
 using System.Text.Json;
 
-namespace Readdit.Tests;
+namespace Skein.Tests;
 
 public class AlertMatcherTests
 {
@@ -126,11 +126,11 @@ public class PaletteMatcherTests
 public class LinkHandlerTests
 {
     [Theory]
-    [InlineData("readdit://r/pics", "https://www.reddit.com/r/pics")]
-    [InlineData("readdit:r/pics", "https://www.reddit.com/r/pics")]
-    [InlineData("readdit://", "https://www.reddit.com/")]
-    [InlineData("readdit://https://www.reddit.com/r/aww/comments/abc/x/", "https://www.reddit.com/r/aww/comments/abc/x/")]
-    [InlineData("readdit://https:/www.reddit.com/r/aww", "https://www.reddit.com/r/aww")]
+    [InlineData("skein://r/pics", "https://www.reddit.com/r/pics")]
+    [InlineData("skein:r/pics", "https://www.reddit.com/r/pics")]
+    [InlineData("skein://", "https://www.reddit.com/")]
+    [InlineData("skein://https://www.reddit.com/r/aww/comments/abc/x/", "https://www.reddit.com/r/aww/comments/abc/x/")]
+    [InlineData("skein://https:/www.reddit.com/r/aww", "https://www.reddit.com/r/aww")]
     [InlineData("\"https://redd.it/abc\"", "https://redd.it/abc")]
     [InlineData("https://example.com/page", "https://example.com/page")]
     [InlineData("--restarted", null)]

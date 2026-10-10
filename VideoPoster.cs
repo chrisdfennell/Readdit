@@ -3,7 +3,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>
 /// Reddit wants a still picture ("poster") with every uploaded video. This grabs a frame from the
@@ -14,7 +14,7 @@ static class VideoPoster
     /// <summary>Writes a PNG poster for <paramref name="videoPath"/> into a temporary file and returns its path.</summary>
     public static async Task<string> CreateAsync(string videoPath)
     {
-        var output = Path.Combine(Path.GetTempPath(), $"readdit-poster-{Guid.NewGuid():N}.png");
+        var output = Path.Combine(Path.GetTempPath(), $"skein-poster-{Guid.NewGuid():N}.png");
         var frame = await TryGrabFrameAsync(videoPath) ?? Placeholder();
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(frame));

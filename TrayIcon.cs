@@ -1,7 +1,7 @@
 using System.Windows;
 using Forms = System.Windows.Forms;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>System tray icon with a small menu and Windows notifications.</summary>
 public sealed class TrayIcon : IDisposable
@@ -18,15 +18,15 @@ public sealed class TrayIcon : IDisposable
 
     public TrayIcon()
     {
-        using var stream = Application.GetResourceStream(new Uri("pack://application:,,,/Assets/readdit.ico"))!.Stream;
+        using var stream = Application.GetResourceStream(new Uri("pack://application:,,,/Assets/skein.ico"))!.Stream;
         _icon = new Forms.NotifyIcon
         {
             Icon = new System.Drawing.Icon(stream),
-            Text = "Readdit",
+            Text = "Skein",
             Visible = true,
             ContextMenuStrip = new Forms.ContextMenuStrip(),
         };
-        _icon.ContextMenuStrip.Items.Add("Open Readdit", null, (_, _) => OpenRequested?.Invoke());
+        _icon.ContextMenuStrip.Items.Add("Open Skein", null, (_, _) => OpenRequested?.Invoke());
         _icon.ContextMenuStrip.Items.Add("Inbox", null, (_, _) => InboxRequested?.Invoke());
         _icon.ContextMenuStrip.Items.Add(new Forms.ToolStripSeparator());
         _icon.ContextMenuStrip.Items.Add("Exit", null, (_, _) => ExitRequested?.Invoke());

@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace Readdit;
+namespace Skein;
 
 public enum ItemKind { Link, Comment, Message }
 

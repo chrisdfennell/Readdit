@@ -1,11 +1,11 @@
 using System.IO;
 
-namespace Readdit.Tests;
+namespace Skein.Tests;
 
 /// <summary>A throwaway folder per test, deleted afterwards.</summary>
 public abstract class TempFolderTest : IDisposable
 {
-    protected readonly string Dir = Path.Combine(Path.GetTempPath(), "readdit-tests-" + Guid.NewGuid().ToString("N"));
+    protected readonly string Dir = Path.Combine(Path.GetTempPath(), "skein-tests-" + Guid.NewGuid().ToString("N"));
 
     protected TempFolderTest() => Directory.CreateDirectory(Dir);
 
@@ -143,9 +143,9 @@ public class OfflineStoreTests : TempFolderTest
         Directory.CreateDirectory(media);
         File.WriteAllText(Path.Combine(media, "map.json"), """{"https://i.redd.it/a.jpg":"0.jpg"}""");
 
-        var map = new OfflineStore(Dir).LocalMedia("abc", "offline.readdit");
-        Assert.Equal("https://offline.readdit/abc/0.jpg", map!["https://i.redd.it/a.jpg"]);
-        Assert.Null(new OfflineStore(Dir).LocalMedia("none", "offline.readdit"));
+        var map = new OfflineStore(Dir).LocalMedia("abc", "offline.skein");
+        Assert.Equal("https://offline.skein/abc/0.jpg", map!["https://i.redd.it/a.jpg"]);
+        Assert.Null(new OfflineStore(Dir).LocalMedia("none", "offline.skein"));
     }
 }
 
@@ -154,8 +154,8 @@ public class MigrationTests : TempFolderTest
     [Fact]
     public void Moves_app_data_and_leaves_installer_files()
     {
-        var oldDir = Path.Combine(Dir, "Readdit");
-        var newDir = Path.Combine(Dir, "ReadditData");
+        var oldDir = Path.Combine(Dir, "Skein");
+        var newDir = Path.Combine(Dir, "SkeinData");
         Directory.CreateDirectory(Path.Combine(oldDir, "WebView2", "Default"));
         File.WriteAllText(Path.Combine(oldDir, "WebView2", "Default", "Cookies"), "c");
         Directory.CreateDirectory(Path.Combine(oldDir, "offline"));
@@ -174,10 +174,36 @@ public class MigrationTests : TempFolderTest
     }
 
     [Fact]
+    public void Moves_everything_from_the_old_named_folders_and_removes_them()
+    {
+        // The rename from Readdit: %LocalAppData%\ReadditData → SkeinData, keeping newer files.
+        var oldDir = Path.Combine(Dir, "ReadditData");
+        var newDir = Path.Combine(Dir, "SkeinData");
+        Directory.CreateDirectory(Path.Combine(oldDir, "WebView2", "Default"));
+        File.WriteAllText(Path.Combine(oldDir, "WebView2", "Default", "Cookies"), "c");
+        File.WriteAllText(Path.Combine(oldDir, "subscriptions.json"), "[]");
+        File.WriteAllText(Path.Combine(oldDir, "user-notes.json"), "{}");
+        Directory.CreateDirectory(newDir);
+        File.WriteAllText(Path.Combine(newDir, "user-notes.json"), "newer");
+
+        Paths.MigrateFolder(oldDir, newDir, null, TimeSpan.Zero);
+
+        Assert.True(File.Exists(Path.Combine(newDir, "WebView2", "Default", "Cookies")));
+        Assert.True(File.Exists(Path.Combine(newDir, "subscriptions.json")));
+        Assert.Equal("newer", File.ReadAllText(Path.Combine(newDir, "user-notes.json")));
+        // The one file that couldn't move keeps the old folder around (for a later launch).
+        Assert.True(File.Exists(Path.Combine(oldDir, "user-notes.json")));
+
+        File.Delete(Path.Combine(oldDir, "user-notes.json"));
+        Paths.MigrateFolder(oldDir, newDir, null, TimeSpan.Zero);
+        Assert.False(Directory.Exists(oldDir));
+    }
+
+    [Fact]
     public void Never_overwrites_data_already_in_the_new_place()
     {
-        var oldDir = Path.Combine(Dir, "Readdit");
-        var newDir = Path.Combine(Dir, "ReadditData");
+        var oldDir = Path.Combine(Dir, "Skein");
+        var newDir = Path.Combine(Dir, "SkeinData");
         Directory.CreateDirectory(oldDir);
         Directory.CreateDirectory(newDir);
         File.WriteAllText(Path.Combine(oldDir, "read.txt"), "old");
@@ -191,8 +217,8 @@ public class MigrationTests : TempFolderTest
     [Fact]
     public void One_locked_item_does_not_stop_the_rest()
     {
-        var oldDir = Path.Combine(Dir, "Readdit");
-        var newDir = Path.Combine(Dir, "ReadditData");
+        var oldDir = Path.Combine(Dir, "Skein");
+        var newDir = Path.Combine(Dir, "SkeinData");
         Directory.CreateDirectory(oldDir);
         File.WriteAllText(Path.Combine(oldDir, "read.txt"), "r");
         File.WriteAllText(Path.Combine(oldDir, "visits.json"), "{}");
@@ -211,7 +237,7 @@ public class MigrationTests : TempFolderTest
     [Fact]
     public void Nothing_to_do_without_an_old_folder()
     {
-        var newDir = Path.Combine(Dir, "ReadditData");
+        var newDir = Path.Combine(Dir, "SkeinData");
         Paths.MigrateLocalData(Path.Combine(Dir, "missing"), newDir, TimeSpan.Zero);
         Assert.False(Directory.Exists(newDir));
     }

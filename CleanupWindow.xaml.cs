@@ -3,7 +3,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>A community the cleanup window suggests leaving, and why.</summary>
 public sealed class CleanupCandidate(string name, long members, string reason) : ObservableObject
@@ -159,7 +159,7 @@ public partial class CleanupWindow : Window
             {
                 var result = await _api.GetNewestPostAsync(name, ct);
                 if (result.Status != 429 || attempt >= 4) return result;
-                Progress.Text = "Reddit asked Readdit to slow down; waiting a moment…";
+                Progress.Text = "Reddit asked Skein to slow down; waiting a moment…";
                 await Task.Delay(TimeSpan.FromSeconds(15 * (attempt + 1)), ct);
             }
             catch (OperationCanceledException)

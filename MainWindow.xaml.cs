@@ -7,7 +7,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 
-namespace Readdit;
+namespace Skein;
 
 public partial class MainWindow : Window
 {
@@ -35,7 +35,7 @@ public partial class MainWindow : Window
         _vm.PaletteRequested += ShowPalette;
         _vm.FullscreenRequested += SetFullscreen;
         Loaded += (_, _) => { if (Program.StartupUrl is { } url) _vm.OpenWhenReady(url); };
-        // Offer a reddit link you copied elsewhere when you come back to Readdit.
+        // Offer a reddit link you copied elsewhere when you come back to Skein.
         Activated += (_, _) =>
         {
             try
@@ -92,7 +92,7 @@ public partial class MainWindow : Window
             e.Cancel = true;
             Hide();
             if (_vm.TakeTrayHint())
-                _tray.Notify("Readdit is still running",
+                _tray.Notify("Skein is still running",
                     "It'll let you know about new messages. Right-click the tray icon to exit, or change this in Preferences.",
                     BringToFront);
         };
@@ -192,7 +192,7 @@ public partial class MainWindow : Window
         _quickReply.Activate();
     }
 
-    /// <summary>A link handed over by another app (Readdit as link handler, or readdit://).</summary>
+    /// <summary>A link handed over by another app (Skein as link handler, or skein://).</summary>
     public void OpenIncomingLink(string url)
     {
         BringToFront();
@@ -309,7 +309,7 @@ public partial class MainWindow : Window
         if (_vm.Accounts.Count > 1)
         {
             var active = _vm.Accounts.FirstOrDefault(a => a.Profile == _vm.ActiveProfile);
-            var remove = new MenuItem { Header = $"Remove {(active?.UserName is { Length: > 0 } n ? "u/" + n : "this account")} from Readdit" };
+            var remove = new MenuItem { Header = $"Remove {(active?.UserName is { Length: > 0 } n ? "u/" + n : "this account")} from Skein" };
             remove.Click += (_, _) => _vm.RemoveAccount(_vm.ActiveProfile);
             menu.Items.Add(remove);
         }

@@ -1,4 +1,4 @@
-namespace Readdit;
+namespace Skein;
 
 /// <summary>One thing the command palette can do: open a community, switch tab, run an action…</summary>
 /// <param name="Glyph">A small symbol shown before the label.</param>

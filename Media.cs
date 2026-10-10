@@ -4,7 +4,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>A downloadable piece of a post: an image, or a video plus its separate audio track.</summary>
 public sealed record MediaItem(string Url, bool IsVideo, IReadOnlyList<string> AudioCandidates);
@@ -119,7 +119,7 @@ public static partial class MediaDownloader
     static HttpClient CreateHttp()
     {
         var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-        http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "windows:Readdit:0.3.0 (desktop Reddit client)");
+        http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "windows:Skein:0.3.0 (desktop Reddit client)");
         return http;
     }
 
@@ -199,7 +199,7 @@ public static partial class MediaDownloader
         var ffmpeg = FindFfmpeg();
         if (ffmpeg == null)
             return (videoFile, "Reddit stores video and sound separately; both were saved. " +
-                               "Install ffmpeg (winget install ffmpeg) and Readdit will merge them automatically.");
+                               "Install ffmpeg (winget install ffmpeg) and Skein will merge them automatically.");
 
         var merged = UniquePath(Path.Combine(Path.GetDirectoryName(videoFile)!,
             Path.GetFileNameWithoutExtension(videoFile) + "_merged.mp4"));

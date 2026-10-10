@@ -1,13 +1,13 @@
-<Window x:Class="Readdit.CleanupWindow"
+<Window x:Class="Skein.CleanupWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:local="clr-namespace:Readdit"
+        xmlns:local="clr-namespace:Skein"
         Title="Clean up subscriptions" Width="680" Height="640" MinWidth="520" MinHeight="420"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
     <DockPanel Margin="20">
         <TextBlock DockPanel.Dock="Top" Text="Communities you might not need any more" FontSize="16" FontWeight="SemiBold" />
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Opacity="0.8" Margin="0,6,0,0"
-                   Text="Readdit first looks for communities that are banned, deleted, private or quarantined. &quot;Check activity&quot; then looks at when each community last had a post, smallest communities first. Nothing is changed until you unsubscribe." />
+                   Text="Skein first looks for communities that are banned, deleted, private or quarantined. &quot;Check activity&quot; then looks at when each community last had a post, smallest communities first. Nothing is changed until you unsubscribe." />
 
         <DockPanel DockPanel.Dock="Top" Margin="0,14,0,0">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">

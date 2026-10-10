@@ -3,7 +3,7 @@ using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media.Imaging;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>Collapsed for null / empty string / false; Visible otherwise. Invert flips it.</summary>
 public sealed class VisibilityConverter : IValueConverter

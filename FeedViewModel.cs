@@ -1,7 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows.Input;
 
-namespace Readdit;
+namespace Skein;
 
 public enum FeedKind { Home, Subreddit, Search, User, Saved, Inbox, Offline, ModQueue, Folder, Alerts }
 
@@ -478,7 +478,7 @@ public sealed class FeedViewModel : ObservableObject
             FeedKind.User => $"/user/{Target}/overview.json?sort={Sort}&{time}",
             FeedKind.Saved => _services.Api.UserName is { } me
                 ? $"/user/{me}/saved.json"
-                : throw new InvalidOperationException("Readdit doesn't know your username yet. Refresh in a moment."),
+                : throw new InvalidOperationException("Skein doesn't know your username yet. Refresh in a moment."),
             FeedKind.Inbox => "/message/inbox.json",
             FeedKind.ModQueue => $"/r/{Target}/about/{Sort}.json?",
             FeedKind.Folder => FolderSubreddits.Count > 0
@@ -581,7 +581,7 @@ public sealed class FeedViewModel : ObservableObject
                     HeaderText = rules.Count == 0
                         ? "Get notified when a post matching your keywords appears, in any community or the ones you pick."
                         : $"Watching {rules.Count(r => r.Enabled)} of {rules.Count} alerts, every " +
-                          $"{_services.Settings.AlertIntervalMinutes} minutes while Readdit runs (in the tray too).";
+                          $"{_services.Settings.AlertIntervalMinutes} minutes while Skein runs (in the tray too).";
                     HeaderActionLabel = "Manage alerts…";
                     break;
 

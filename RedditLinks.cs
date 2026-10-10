@@ -1,8 +1,8 @@
 using System.Text.RegularExpressions;
 
-namespace Readdit;
+namespace Skein;
 
-/// <summary>Where a link should go inside Readdit.</summary>
+/// <summary>Where a link should go inside Skein.</summary>
 public abstract record LinkTarget;
 
 /// <summary>A Reddit thread, optionally focused on one comment.</summary>
@@ -14,7 +14,7 @@ public sealed record FeedLink(string Spec) : LinkTarget;
 /// <summary>Anything else: opened as a web page.</summary>
 public sealed record WebLink(string Url) : LinkTarget;
 
-/// <summary>Decides how Reddit URLs and typed shortcuts open in Readdit.</summary>
+/// <summary>Decides how Reddit URLs and typed shortcuts open in Skein.</summary>
 public static partial class RedditLinks
 {
     /// <summary>Classifies an absolute URL; null if it isn't one.</summary>

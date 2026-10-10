@@ -1,39 +1,62 @@
 using System.IO;
 using System.Text.Json;
 
-namespace Readdit;
+namespace Skein;
 
 static class Paths
 {
     /// <summary>Small user settings (roams with the profile).</summary>
     public static readonly string Roaming =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Readdit");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Skein");
 
     /// <summary>
     /// Machine-local data: browser profile (sign-in), read history, offline library.
-    /// Not %LocalAppData%\Readdit: that's where the installer puts the app, and it replaces
+    /// Not %LocalAppData%\Skein: that's where the installer puts the app, and it replaces
     /// that folder on install and deletes it on uninstall.
     /// </summary>
     public static readonly string Local =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ReadditData");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SkeinData");
 
-    static readonly string OldLocal =
+    // Skein used to be called Readdit. Its data lived here:
+    static readonly string LegacyRoaming =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Readdit");
+    static readonly string LegacyLocal =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ReadditData");
+    // …and before that, inside Readdit's install folder.
+    static readonly string LegacyInstallFolder =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Readdit");
 
-    /// <summary>
-    /// Moves data from the old location (shared with the install folder) to <see cref="Local"/>.
-    /// Runs at startup before anything opens these files.
-    /// </summary>
-    public static void MigrateLocalData() => MigrateLocalData(OldLocal, Local, TimeSpan.FromMilliseconds(500));
+    /// <summary>The data the oldest versions kept inside their install folder (the rest there is the app).</summary>
+    static readonly string[] InstallFolderData = ["WebView2", "offline", "read.txt", "visits.json", "api.log", "crash.log"];
 
-    /// <summary>The migration between any two folders (tests use temporary ones).</summary>
-    public static void MigrateLocalData(string oldLocal, string newLocal, TimeSpan retryDelay)
+    /// <summary>
+    /// Moves data from earlier locations (Readdit's folders) to <see cref="Local"/> and
+    /// <see cref="Roaming"/>. Runs at startup before anything opens these files.
+    /// </summary>
+    public static void MigrateLocalData()
     {
-        string[] entries = ["WebView2", "offline", "read.txt", "visits.json", "api.log", "crash.log"];
-        if (!Directory.Exists(oldLocal)) return;
+        var retry = TimeSpan.FromMilliseconds(500);
+        MigrateLocalData(LegacyInstallFolder, Local, retry);
+        MigrateFolder(LegacyLocal, Local, null, retry);
+        MigrateFolder(LegacyRoaming, Roaming, null, retry);
+    }
+
+    /// <summary>The oldest migration, out of an install folder (tests use temporary folders).</summary>
+    public static void MigrateLocalData(string oldLocal, string newLocal, TimeSpan retryDelay) =>
+        MigrateFolder(oldLocal, newLocal, InstallFolderData, retryDelay);
+
+    /// <summary>
+    /// Moves the named entries (or, with null, everything) from one folder to another, skipping
+    /// anything already there. A folder emptied by moving everything is removed.
+    /// </summary>
+    public static void MigrateFolder(string oldDir, string newDir, IReadOnlyList<string>? only, TimeSpan retryDelay)
+    {
+        if (!Directory.Exists(oldDir)) return;
+        IReadOnlyList<string> entries;
         try
         {
-            Directory.CreateDirectory(newLocal);
+            Directory.CreateDirectory(newDir);
+            entries = only ?? Directory.EnumerateFileSystemEntries(oldDir).Select(e => Path.GetFileName(e)).ToList();
         }
         catch
         {
@@ -42,8 +65,8 @@ static class Paths
 
         foreach (var name in entries)
         {
-            var from = Path.Combine(oldLocal, name);
-            var to = Path.Combine(newLocal, name);
+            var from = Path.Combine(oldDir, name);
+            var to = Path.Combine(newDir, name);
             if (!Path.Exists(from) || Path.Exists(to)) continue;
 
             // Each entry on its own, so one locked item doesn't strand the rest. Right after an
@@ -70,6 +93,16 @@ static class Paths
                     break; // Give up on this entry; it's retried on the next launch.
                 }
             }
+        }
+
+        if (only != null) return;
+        try
+        {
+            if (!Directory.EnumerateFileSystemEntries(oldDir).Any()) Directory.Delete(oldDir);
+        }
+        catch
+        {
+            // Something still in use; it's moved on a later launch.
         }
     }
 }
@@ -108,12 +141,12 @@ public sealed class AppSettings
     public int AlertIntervalMinutes { get; set; } = 5;
 
     /// <summary>
-    /// Readdit is set up as Windows' handler for web links: it opens reddit links itself and
+    /// Skein is set up as Windows' handler for web links: it opens reddit links itself and
     /// passes everything else to <see cref="FallbackBrowserCommand"/>.
     /// </summary>
     public bool LinkHandlerEnabled { get; set; }
 
-    /// <summary>The browser that had web links before Readdit (its shell command, with %1 for the URL).</summary>
+    /// <summary>The browser that had web links before Skein (its shell command, with %1 for the URL).</summary>
     public string FallbackBrowserCommand { get; set; } = "";
 
     /// <summary>That browser's name, for display.</summary>
@@ -134,13 +167,13 @@ public sealed class AppSettings
     /// <summary>Scale for the app's own interface (sidebar, list, toolbar); 1.0 = 100%.</summary>
     public double UiScale { get; set; } = 1.0;
 
-    /// <summary>GitHub repository URL that publishes Readdit releases (enables auto-update).</summary>
-    public string UpdateUrl { get; set; } = "https://github.com/chrisdfennell/Readdit";
+    /// <summary>GitHub repository URL that publishes Skein releases (enables auto-update).</summary>
+    public string UpdateUrl { get; set; } = "https://github.com/chrisdfennell/Skein";
 
-    /// <summary>Check for updates regularly, download them, and install when Readdit closes.</summary>
+    /// <summary>Check for updates regularly, download them, and install when Skein closes.</summary>
     public bool AutoUpdate { get; set; } = true;
 
-    /// <summary>Open web links in Readdit's own browser pane instead of the default browser.</summary>
+    /// <summary>Open web links in Skein's own browser pane instead of the default browser.</summary>
     public bool OpenLinksInApp { get; set; } = true;
 
     /// <summary>Check the open feed for new posts in the background and offer to show them.</summary>
@@ -170,7 +203,7 @@ public sealed class AppSettings
 
     /// <summary>Where the Download button saves images and videos.</summary>
     public string DownloadFolder { get; set; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Readdit");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Skein");
 
     /// <summary>Signed-in accounts; each has its own browser profile.</summary>
     public List<AccountInfo> Accounts { get; set; } = [];
@@ -185,11 +218,15 @@ public sealed class AppSettings
     public List<string> DomainFilters { get; set; } = [];
     public List<string> SubredditFilters { get; set; } = [];
 
+    /// <summary>Where releases came from before the rename (the repository was called Readdit).</summary>
+    const string LegacyUpdateUrl = "https://github.com/chrisdfennell/Readdit";
+
     public static AppSettings Load()
     {
+        AppSettings settings;
         try
         {
-            return File.Exists(FilePath)
+            settings = File.Exists(FilePath)
                 ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new()
                 : new();
         }
@@ -197,6 +234,9 @@ public sealed class AppSettings
         {
             return new();
         }
+        if (settings.UpdateUrl.TrimEnd('/').Equals(LegacyUpdateUrl, StringComparison.OrdinalIgnoreCase))
+            settings.UpdateUrl = new AppSettings().UpdateUrl;
+        return settings;
     }
 
     public void Save()

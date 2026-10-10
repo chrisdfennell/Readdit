@@ -173,7 +173,7 @@ try {
   openLightbox(['https://example.com/1.png', 'https://example.com/2.png'], 1, true);
   stepLightbox(1);
   result.viewerAsked = window.__sent.some(m => m.type === 'mediaStep' && m.direction === 1);
-  // Readdit selects the next post with pictures; when it renders, the viewer carries on there.
+  // Skein selects the next post with pictures; when it renders, the viewer carries on there.
   renderPost({ name: 't3_img', id: 'img', title: 'A picture', subreddit: 'pics', author: 'zed', created_utc: now,
     permalink: '/r/pics/comments/img/a/', post_hint: 'image', url: 'https://i.redd.it/next.png', domain: 'i.redd.it', score: 1, num_comments: 0 });
   result.viewerContinued = !lightbox.hidden && lightboxImg.getAttribute('src') === 'https://i.redd.it/next.png' && viewer.pending === 0;

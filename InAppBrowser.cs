@@ -1,9 +1,9 @@
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 
-namespace Readdit;
+namespace Skein;
 
-/// <summary>Opens links inside Readdit, in a WebView2 that shares the signed-in browser profile.</summary>
+/// <summary>Opens links inside Skein, in a WebView2 that shares the signed-in browser profile.</summary>
 public sealed class InAppBrowser(WebView2 view) : ObservableObject
 {
     // Pages are arbitrary sites, so the only thing they can tell us is "Esc was pressed".

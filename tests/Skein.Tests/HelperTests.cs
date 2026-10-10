@@ -1,4 +1,4 @@
-namespace Readdit.Tests;
+namespace Skein.Tests;
 
 public class FormatTests
 {

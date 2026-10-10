@@ -5,7 +5,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>Uploading pictures and videos, and posting them (single, video, or a gallery).</summary>
 public sealed partial class RedditApi

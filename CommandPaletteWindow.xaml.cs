@@ -1,7 +1,7 @@
 using System.Windows;
 using System.Windows.Input;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>Ctrl+K: type to jump anywhere or run a command.</summary>
 public partial class CommandPaletteWindow : Window
@@ -34,7 +34,7 @@ public partial class CommandPaletteWindow : Window
             }
             Query.Focus();
         };
-        // Clicking back in Readdit dismisses it. (Not any loss of focus: Windows can briefly hand
+        // Clicking back in Skein dismisses it. (Not any loss of focus: Windows can briefly hand
         // the foreground elsewhere while the palette opens, which would close it on sight.)
         Deactivated += (_, _) => Dispatcher.BeginInvoke(() =>
         {

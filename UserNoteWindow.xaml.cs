@@ -1,6 +1,6 @@
 using System.Windows;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>Your private tag and note on a Reddit user.</summary>
 public partial class UserNoteWindow : Window

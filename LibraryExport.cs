@@ -2,7 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>Writes the offline library (or the part of it on screen) out as Markdown, HTML, CSV or JSON.</summary>
 public static class LibraryExport

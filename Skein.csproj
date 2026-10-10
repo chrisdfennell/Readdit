@@ -8,13 +8,13 @@
     <UseWPF>true</UseWPF>
     <!-- Only for the system tray icon (NotifyIcon). -->
     <UseWindowsForms>true</UseWindowsForms>
-    <RootNamespace>Readdit</RootNamespace>
-    <AssemblyName>Readdit</AssemblyName>
+    <RootNamespace>Skein</RootNamespace>
+    <AssemblyName>Skein</AssemblyName>
     <!-- Fluent ThemeMode is flagged experimental -->
     <NoWarn>$(NoWarn);WPF0001</NoWarn>
-    <ApplicationIcon>Assets\readdit.ico</ApplicationIcon>
+    <ApplicationIcon>Assets\skein.ico</ApplicationIcon>
     <!-- Custom Main so Velopack's installer hooks run before WPF starts. -->
-    <StartupObject>Readdit.Program</StartupObject>
+    <StartupObject>Skein.Program</StartupObject>
     <Version>0.4.0</Version>
   </PropertyGroup>
 
@@ -28,7 +28,7 @@
     <Compile Remove="tests\**" />
     <Page Remove="tests\**" />
     <None Remove="tests\**" />
-    <InternalsVisibleTo Include="Readdit.Tests" />
+    <InternalsVisibleTo Include="Skein.Tests" />
   </ItemGroup>
 
   <ItemGroup>
@@ -38,7 +38,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Resource Include="Assets\readdit.ico" />
+    <Resource Include="Assets\skein.ico" />
     <!-- The post view is a local web page served to WebView2 from the output folder. -->
     <None Update="wwwroot\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

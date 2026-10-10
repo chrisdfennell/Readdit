@@ -3,17 +3,17 @@ using System.IO.Pipes;
 using System.Windows;
 using Velopack;
 
-namespace Readdit;
+namespace Skein;
 
 public static class Program
 {
-    /// <summary>Passed by Readdit when it relaunches itself (account switch, portable update).</summary>
+    /// <summary>Passed by Skein when it relaunches itself (account switch, portable update).</summary>
     public const string RestartArgument = "--restarted";
 
-    static readonly string InstanceName = $"Readdit-{Environment.UserName}";
+    static readonly string InstanceName = $"Skein-{Environment.UserName}";
     static string LinkPipeName => InstanceName + "-links";
 
-    /// <summary>A link Readdit was started with (from another app), to open once signed in.</summary>
+    /// <summary>A link Skein was started with (from another app), to open once signed in.</summary>
     public static string? StartupUrl { get; private set; }
 
     [STAThread]
@@ -24,16 +24,16 @@ public static class Program
             .OnBeforeUninstallFastCallback(_ => LinkHandler.UnregisterAll())
             .Run();
 
-        // A link from another app (Readdit as the web link handler, or a readdit:// link).
+        // A link from another app (Skein as the web link handler, or a skein:// link).
         var url = args.Select(LinkHandler.NormalizeIncoming).FirstOrDefault(u => u != null);
         if (url != null && !LinkHandler.IsRedditUrl(url))
         {
-            // Not Reddit: straight on to the real browser, without starting Readdit at all.
+            // Not Reddit: straight on to the real browser, without starting Skein at all.
             LinkHandler.OpenInFallbackBrowser(url, AppSettings.Load().FallbackBrowserCommand);
             return;
         }
 
-        // One Readdit per user. Launching it again (e.g. from Start while it sits in the tray)
+        // One Skein per user. Launching it again (e.g. from Start while it sits in the tray)
         // brings the running one forward instead of starting a second copy with its own tray icon,
         // notifications and settings writes.
         using var instance = new Mutex(initiallyOwned: true, InstanceName, out var isFirst);
@@ -60,6 +60,7 @@ public static class Program
 
         // Before anything (WebView2, logs) opens the data folder.
         Paths.MigrateLocalData();
+        LinkHandler.RemoveLegacyRegistrations();
         LinkHandler.RegisterProtocol();
         // Keep the web link registration pointing at this copy (updates can move the exe).
         if (AppSettings.Load().LinkHandlerEnabled)
@@ -83,12 +84,12 @@ public static class Program
             while (showSignal.WaitOne())
                 app.Dispatcher.BeginInvoke(() => (app.MainWindow as MainWindow)?.BringToFront());
         })
-        { IsBackground = true, Name = "Readdit single-instance listener" };
+        { IsBackground = true, Name = "Skein single-instance listener" };
         listener.Start();
 
         // …or handed us a link to open.
         var links = new Thread(() => ReceiveLinks(url => app.Dispatcher.BeginInvoke(() => (app.MainWindow as MainWindow)?.OpenIncomingLink(url))))
-        { IsBackground = true, Name = "Readdit link listener" };
+        { IsBackground = true, Name = "Skein link listener" };
         links.Start();
 
         app.Run();

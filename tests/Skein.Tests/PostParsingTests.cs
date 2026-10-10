@@ -1,4 +1,4 @@
-namespace Readdit.Tests;
+namespace Skein.Tests;
 
 /// <summary>Turning Reddit's listing JSON into Post rows.</summary>
 public class PostParsingTests

@@ -1,4 +1,4 @@
-<Window x:Class="Readdit.ShortcutsWindow"
+<Window x:Class="Skein.ShortcutsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Keyboard shortcuts" Width="460" SizeToContent="Height"

@@ -1,28 +1,28 @@
 using System.Diagnostics;
 using Microsoft.Win32;
 
-namespace Readdit;
+namespace Skein;
 
 /// <summary>
-/// Lets other apps hand links to Readdit. Windows has no "open reddit.com links with…" setting,
-/// so Readdit offers to be the app for web links in general: it opens reddit links itself and
+/// Lets other apps hand links to Skein. Windows has no "open reddit.com links with…" setting,
+/// so Skein offers to be the app for web links in general: it opens reddit links itself and
 /// passes every other link straight on to the browser that had them before. It also registers a
-/// readdit:// link type (readdit://r/pics, readdit://https://www.reddit.com/…).
+/// skein:// link type (skein://r/pics, skein://https://www.reddit.com/…).
 /// </summary>
 static class LinkHandler
 {
-    const string Protocol = "readdit";
-    const string ProgId = "ReadditURL";
-    const string ClientKey = @"Software\Clients\StartMenuInternet\Readdit";
+    const string Protocol = "skein";
+    const string ProgId = "SkeinURL";
+    const string ClientKey = @"Software\Clients\StartMenuInternet\Skein";
     const string CapabilitiesKey = ClientKey + @"\Capabilities";
 
-    static string ExePath => Environment.ProcessPath ?? "Readdit.exe";
+    static string ExePath => Environment.ProcessPath ?? "Skein.exe";
     static string OpenCommand => $"\"{ExePath}\" \"%1\"";
 
     // ---- Incoming links -------------------------------------------------------------------------
 
     /// <summary>
-    /// A command-line argument as a web URL: readdit:// links become reddit.com ones; other
+    /// A command-line argument as a web URL: skein:// links become reddit.com ones; other
     /// http(s) links pass through. Null for anything else (flags like --restarted).
     /// </summary>
     public static string? NormalizeIncoming(string arg)
@@ -34,7 +34,7 @@ static class LinkHandler
             if (rest.Length == 0) return "https://www.reddit.com/";
             if (rest.StartsWith("http:", StringComparison.OrdinalIgnoreCase) || rest.StartsWith("https:", StringComparison.OrdinalIgnoreCase))
             {
-                // "readdit://https://…" arrives as "https:/www…" once slashes are collapsed.
+                // "skein://https://…" arrives as "https:/www…" once slashes are collapsed.
                 var colon = rest.IndexOf(':');
                 rest = rest[..(colon + 1)] + "//" + rest[(colon + 1)..].TrimStart('/');
                 return Uri.TryCreate(rest, UriKind.Absolute, out var full) ? full.AbsoluteUri : null;
@@ -55,7 +55,7 @@ static class LinkHandler
 
     /// <summary>
     /// Passes a non-reddit link on to the user's real browser. Never via the shell's "open this
-    /// URL", which would come straight back to Readdit while it's the web link handler.
+    /// URL", which would come straight back to Skein while it's the web link handler.
     /// </summary>
     public static void OpenInFallbackBrowser(string url, string command)
     {
@@ -101,13 +101,13 @@ static class LinkHandler
 
     // ---- Registration ---------------------------------------------------------------------------
 
-    /// <summary>The readdit:// link type; harmless to repeat, and keeps the exe path current.</summary>
+    /// <summary>The skein:// link type; harmless to repeat, and keeps the exe path current.</summary>
     public static void RegisterProtocol()
     {
         try
         {
             using var key = Registry.CurrentUser.CreateSubKey($@"Software\Classes\{Protocol}");
-            key.SetValue("", "URL:Readdit link");
+            key.SetValue("", "URL:Skein link");
             key.SetValue("URL Protocol", "");
             using (var icon = key.CreateSubKey("DefaultIcon")) icon.SetValue("", $"\"{ExePath}\",0");
             using var command = key.CreateSubKey(@"shell\open\command");
@@ -115,12 +115,12 @@ static class LinkHandler
         }
         catch
         {
-            // A convenience; Readdit works without it.
+            // A convenience; Skein works without it.
         }
     }
 
     /// <summary>
-    /// Registers Readdit as an app that can open web links, so it can be picked in Windows'
+    /// Registers Skein as an app that can open web links, so it can be picked in Windows'
     /// default apps settings. Returns the current default browser (to pass other links to).
     /// </summary>
     public static (string Command, string Name)? RegisterAsBrowser()
@@ -128,7 +128,7 @@ static class LinkHandler
         var previous = CurrentBrowser();
         using (var prog = Registry.CurrentUser.CreateSubKey($@"Software\Classes\{ProgId}"))
         {
-            prog.SetValue("", "Readdit link");
+            prog.SetValue("", "Skein link");
             prog.SetValue("URL Protocol", "");
             using (var icon = prog.CreateSubKey("DefaultIcon")) icon.SetValue("", $"\"{ExePath}\",0");
             using var command = prog.CreateSubKey(@"shell\open\command");
@@ -136,23 +136,23 @@ static class LinkHandler
         }
         using (var client = Registry.CurrentUser.CreateSubKey(ClientKey))
         {
-            client.SetValue("", "Readdit");
+            client.SetValue("", "Skein");
             using (var icon = client.CreateSubKey("DefaultIcon")) icon.SetValue("", $"\"{ExePath}\",0");
             using var command = client.CreateSubKey(@"shell\open\command");
             command.SetValue("", $"\"{ExePath}\"");
         }
         using (var caps = Registry.CurrentUser.CreateSubKey(CapabilitiesKey))
         {
-            caps.SetValue("ApplicationName", "Readdit");
+            caps.SetValue("ApplicationName", "Skein");
             caps.SetValue("ApplicationDescription",
-                "Opens Reddit links in Readdit and passes every other link to your usual browser.");
+                "Opens Reddit links in Skein and passes every other link to your usual browser.");
             caps.SetValue("ApplicationIcon", $"\"{ExePath}\",0");
             using var urls = caps.CreateSubKey("URLAssociations");
             urls.SetValue("http", ProgId);
             urls.SetValue("https", ProgId);
         }
         using (var apps = Registry.CurrentUser.CreateSubKey(@"Software\RegisteredApplications"))
-            apps.SetValue("Readdit", CapabilitiesKey);
+            apps.SetValue("Skein", CapabilitiesKey);
         return previous;
     }
 
@@ -161,7 +161,7 @@ static class LinkHandler
         try
         {
             using (var apps = Registry.CurrentUser.OpenSubKey(@"Software\RegisteredApplications", writable: true))
-                apps?.DeleteValue("Readdit", throwOnMissingValue: false);
+                apps?.DeleteValue("Skein", throwOnMissingValue: false);
             Registry.CurrentUser.DeleteSubKeyTree(ClientKey, throwOnMissingSubKey: false);
             Registry.CurrentUser.DeleteSubKeyTree($@"Software\Classes\{ProgId}", throwOnMissingSubKey: false);
         }
@@ -171,7 +171,27 @@ static class LinkHandler
         }
     }
 
-    /// <summary>Removes everything Readdit registered (on uninstall).</summary>
+    /// <summary>
+    /// Removes what Skein registered under its old name, Readdit (the readdit:// link type and
+    /// the web link handler entries).
+    /// </summary>
+    public static void RemoveLegacyRegistrations()
+    {
+        try
+        {
+            using (var apps = Registry.CurrentUser.OpenSubKey(@"Software\RegisteredApplications", writable: true))
+                apps?.DeleteValue("Readdit", throwOnMissingValue: false);
+            Registry.CurrentUser.DeleteSubKeyTree(@"Software\Clients\StartMenuInternet\Readdit", throwOnMissingSubKey: false);
+            Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\ReadditURL", throwOnMissingSubKey: false);
+            Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\readdit", throwOnMissingSubKey: false);
+        }
+        catch
+        {
+            // Leftovers are harmless.
+        }
+    }
+
+    /// <summary>Removes everything Skein registered (on uninstall).</summary>
     public static void UnregisterAll()
     {
         UnregisterAsBrowser();
@@ -185,10 +205,10 @@ static class LinkHandler
         }
     }
 
-    /// <summary>Whether Windows currently sends https links to Readdit.</summary>
+    /// <summary>Whether Windows currently sends https links to Skein.</summary>
     public static bool IsDefaultForWebLinks() => UserChoiceProgId("https") == ProgId;
 
-    /// <summary>The app Windows sends https links to now, unless that's Readdit: its command and name.</summary>
+    /// <summary>The app Windows sends https links to now, unless that's Skein: its command and name.</summary>
     public static (string Command, string Name)? CurrentBrowser()
     {
         var progId = UserChoiceProgId("https");
@@ -210,13 +230,13 @@ static class LinkHandler
         return choice?.GetValue("ProgId") as string;
     }
 
-    /// <summary>Opens Windows' default apps page for Readdit, where web links can be given to it.</summary>
-    public static void OpenDefaultAppsSettings(bool forReaddit = true)
+    /// <summary>Opens Windows' default apps page for Skein, where web links can be given to it.</summary>
+    public static void OpenDefaultAppsSettings(bool forSkein = true)
     {
         try
         {
-            Process.Start(new ProcessStartInfo(forReaddit
-                ? "ms-settings:defaultapps?registeredAppUser=Readdit"
+            Process.Start(new ProcessStartInfo(forSkein
+                ? "ms-settings:defaultapps?registeredAppUser=Skein"
                 : "ms-settings:defaultapps")
             { UseShellExecute = true });
         }

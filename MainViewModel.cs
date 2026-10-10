@@ -6,7 +6,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
 
-namespace Readdit;
+namespace Skein;
 
 public sealed partial class MainViewModel : ObservableObject
 {
@@ -33,7 +33,7 @@ public sealed partial class MainViewModel : ObservableObject
         _ = _updates.WarmUpAsync();
         InstallUpdateCommand = new RelayCommand(_ => InstallUpdate(), _ => _updates.IsUpdateReady);
         _updateTimer.Tick += async (_, _) => await CheckForUpdatesQuietlyAsync();
-        // Only the tab you're looking at, and only while Readdit is on screen.
+        // Only the tab you're looking at, and only while Skein is on screen.
         _newPostsTimer.Tick += async (_, _) =>
         {
             if (Settings.CheckForNewPosts && Application.Current.MainWindow is { IsVisible: true } && SelectedTab is { } tab)
@@ -178,11 +178,11 @@ public sealed partial class MainViewModel : ObservableObject
 
     // ---- Screenshot mode -----------------------------------------------------------------------
     //
-    // With READDIT_DEMO=1 set, the sidebar shows a stand-in set of popular communities (and a
-    // sample folder) and the account button hides your username, so pictures of Readdit don't
+    // With SKEIN_DEMO=1 set, the sidebar shows a stand-in set of popular communities (and a
+    // sample folder) and the account button hides your username, so pictures of Skein don't
     // show whose it is. Nothing shown in this mode is saved.
 
-    static readonly bool DemoMode = Environment.GetEnvironmentVariable("READDIT_DEMO") == "1";
+    static readonly bool DemoMode = Environment.GetEnvironmentVariable("SKEIN_DEMO") == "1";
 
     static readonly string[] DemoCommunities =
     [
@@ -468,7 +468,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    /// <summary>Called as Readdit exits: installs a downloaded update quietly if auto-update is on.</summary>
+    /// <summary>Called as Skein exits: installs a downloaded update quietly if auto-update is on.</summary>
     public void OnExit()
     {
         if (Settings.AutoUpdate && _updates.IsUpdateReady) _updates.ApplyOnExit();
@@ -568,7 +568,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     Post? SelectedPost => SelectedTab?.SelectedPost;
 
-    public string WindowTitle => SelectedTab == null ? "Readdit" : $"{SelectedTab.Title} · Readdit";
+    public string WindowTitle => SelectedTab == null ? "Skein" : $"{SelectedTab.Title} · Skein";
 
     void OnTabPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -640,7 +640,7 @@ public sealed partial class MainViewModel : ObservableObject
         if (spec is "u/me" or "saved" && _services.Api.UserName == null)
         {
             // "u/me" would otherwise open the profile of a real user called "me".
-            Status = "Readdit doesn't know your username yet. Try again in a moment.";
+            Status = "Skein doesn't know your username yet. Try again in a moment.";
             _ = RefreshInboxAsync(); // also refreshes the identity
             return;
         }
@@ -1307,7 +1307,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     // ---- Links ------------------------------------------------------------------------------
 
-    /// <summary>Opens Reddit links inside Readdit and everything else in the default browser.</summary>
+    /// <summary>Opens Reddit links inside Skein and everything else in the default browser.</summary>
     public void OpenUrl(string url)
     {
         switch (RedditLinks.Classify(url))
@@ -1609,7 +1609,7 @@ public sealed partial class MainViewModel : ObservableObject
     string? _copiedLink;
     string? _lastClipboard;
 
-    /// <summary>A reddit link on the clipboard that Readdit offers to open.</summary>
+    /// <summary>A reddit link on the clipboard that Skein offers to open.</summary>
     public string? CopiedLink
     {
         get => _copiedLink;
@@ -1626,7 +1626,7 @@ public sealed partial class MainViewModel : ObservableObject
     public string CopiedLinkLabel =>
         CopiedLink == null ? "" : "📋 Open the reddit link you copied? " + (CopiedLink.Length > 70 ? CopiedLink[..70] + "…" : CopiedLink);
 
-    /// <summary>Called when Readdit comes to the front: offer a newly copied reddit link.</summary>
+    /// <summary>Called when Skein comes to the front: offer a newly copied reddit link.</summary>
     public void CheckClipboard(string? text)
     {
         text = text?.Trim();
@@ -1760,7 +1760,7 @@ public sealed partial class MainViewModel : ObservableObject
         _isReady = false;
         _inboxTimer.Stop();
         ShowLogin = true;
-        LoginMessage = "Sign in to Reddit below. Readdit reads Reddit through your own session, " +
+        LoginMessage = "Sign in to Reddit below. Skein reads Reddit through your own session, " +
                        "so your password only goes to Reddit. You'll stay signed in next time.";
         _ = _services.Session.NavigateAsync(RedditSession.LoginPage);
     }
@@ -1845,7 +1845,7 @@ public sealed partial class MainViewModel : ObservableObject
             _ = SelectedTab?.ReloadAsync();
         }
 
-        // A link another app handed over before Readdit was ready.
+        // A link another app handed over before Skein was ready.
         if (_pendingUrl is { } pending)
         {
             _pendingUrl = null;
@@ -1865,9 +1865,9 @@ public sealed partial class MainViewModel : ObservableObject
     // ---- Multiple accounts --------------------------------------------------------------------
     //
     // Each account lives in its own WebView2 profile. A WebView can't change profile once
-    // created, so switching saves the choice and restarts Readdit (takes a second or two).
+    // created, so switching saves the choice and restarts Skein (takes a second or two).
 
-    /// <summary>Raised when Readdit must restart to switch account profiles.</summary>
+    /// <summary>Raised when Skein must restart to switch account profiles.</summary>
     public event Action? RestartRequested;
 
     public IReadOnlyList<AccountInfo> Accounts => Settings.Accounts;
@@ -1955,7 +1955,7 @@ public sealed partial class MainViewModel : ObservableObject
         if (_syncingLibrary) return;
         if (_services.Api.UserName is not { } me)
         {
-            Status = "Readdit doesn't know your username yet. Try again in a moment.";
+            Status = "Skein doesn't know your username yet. Try again in a moment.";
             return;
         }
         _syncingLibrary = true;
@@ -2014,7 +2014,7 @@ public sealed partial class MainViewModel : ObservableObject
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
             Title = "Export saved posts",
-            FileName = $"Readdit saved posts {DateTime.Now:yyyy-MM-dd}",
+            FileName = $"Skein saved posts {DateTime.Now:yyyy-MM-dd}",
             Filter = "Markdown (*.md)|*.md|Web page (*.html)|*.html|Spreadsheet (*.csv)|*.csv|JSON (*.json)|*.json",
         };
         if (dialog.ShowDialog(Application.Current.MainWindow) != true) return;

@@ -1,7 +1,7 @@
 using System.IO;
 using System.Windows;
 
-namespace Readdit;
+namespace Skein;
 
 public partial class App : Application
 {
@@ -13,7 +13,7 @@ public partial class App : Application
         {
             Log(args.Exception);
             MessageBox.Show($"Something went wrong:\n\n{args.Exception.Message}\n\nDetails were written to {CrashLog}",
-                "Readdit", MessageBoxButton.OK, MessageBoxImage.Error);
+                "Skein", MessageBoxButton.OK, MessageBoxImage.Error);
             args.Handled = true;
         };
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>

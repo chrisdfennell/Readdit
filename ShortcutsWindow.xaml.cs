@@ -1,6 +1,6 @@
 using System.Windows;
 
-namespace Readdit;
+namespace Skein;
 
 public partial class ShortcutsWindow : Window
 {
@@ -22,7 +22,7 @@ public partial class ShortcutsWindow : Window
             ["a / z"] = "Upvote / downvote",
             ["s"] = "Save or unsave",
             ["x"] = "Hide the post",
-            ["o"] = "Open the link inside Readdit",
+            ["o"] = "Open the link inside Skein",
             ["Shift+O"] = "Open the link in your default browser",
             ["f"] = "Reading mode (Esc to exit)",
             ["+ / -"] = "Bigger / smaller text in the post view",

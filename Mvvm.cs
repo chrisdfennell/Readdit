@@ -2,7 +2,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 
-namespace Readdit;
+namespace Skein;
 
 public abstract class ObservableObject : INotifyPropertyChanged
 {
