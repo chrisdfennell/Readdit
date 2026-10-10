@@ -40,7 +40,8 @@ public partial class PreferencesWindow : Window
         UiScale.Value = Math.Round(settings.UiScale * 100);
         DownloadFolder.Text = settings.DownloadFolder;
         UpdateUrl.Text = settings.UpdateUrl;
-        VersionText.Text = $"Readdit version {updates.CurrentVersion}";
+        VersionText.Text = $"Readdit version {updates.CurrentVersion} ({updates.Kind})";
+        AutoUpdate.IsChecked = settings.AutoUpdate;
         BlurNsfw.IsChecked = settings.BlurNsfw;
         HideNsfw.IsChecked = settings.HideNsfw;
         HideRead.IsChecked = settings.HideRead;
@@ -84,6 +85,7 @@ public partial class PreferencesWindow : Window
         _settings.ReadingFontSize = (int)ReadingSize.Value;
         _settings.UiScale = UiScale.Value / 100;
         if (DownloadFolder.Text.Trim().Length > 0) _settings.DownloadFolder = DownloadFolder.Text.Trim();
+        _settings.AutoUpdate = AutoUpdate.IsChecked == true;
         var url = UpdateUrl.Text.Trim();
         if (url != _settings.UpdateUrl)
         {

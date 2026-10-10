@@ -30,7 +30,8 @@ public sealed partial class MainViewModel : ObservableObject
         _detail = detail;
         _browser = browser;
         _updates = new UpdateService(services.Settings);
-        InstallUpdateCommand = new RelayCommand(_ => _updates.ApplyAndRestart(), _ => _updates.IsUpdateReady);
+        InstallUpdateCommand = new RelayCommand(_ => InstallUpdate(), _ => _updates.IsUpdateReady);
+        _updateTimer.Tick += async (_, _) => await CheckForUpdatesQuietlyAsync();
         _browser.PropertyChanged += (_, e) =>
         {
             switch (e.PropertyName)
@@ -226,12 +227,37 @@ public sealed partial class MainViewModel : ObservableObject
     bool _updateReady;
     public bool UpdateReady { get => _updateReady; private set => Set(ref _updateReady, value); }
 
+    readonly DispatcherTimer _updateTimer = new() { Interval = TimeSpan.FromHours(6) };
+
+    public string UpdateButtonLabel => $"⬆ Restart to update to {_updates.ReadyVersion}";
+
     async Task CheckForUpdatesQuietlyAsync()
     {
-        if (string.IsNullOrWhiteSpace(Settings.UpdateUrl)) return;
+        if (!Settings.AutoUpdate || string.IsNullOrWhiteSpace(Settings.UpdateUrl)) return;
+        var wasReady = UpdateReady;
         var message = await _updates.CheckAsync();
         UpdateReady = _updates.IsUpdateReady;
-        if (UpdateReady) Status = message;
+        Raise(nameof(UpdateButtonLabel));
+        if (UpdateReady && !wasReady) Status = message;
+    }
+
+    void InstallUpdate()
+    {
+        try
+        {
+            // Portable: files are swapped, so restart into the new exe. Installed: Velopack restarts itself.
+            if (_updates.Apply()) RestartRequested?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            Status = $"Couldn't install the update: {ex.Message}";
+        }
+    }
+
+    /// <summary>Called as Readdit exits: installs a downloaded update quietly if auto-update is on.</summary>
+    public void OnExit()
+    {
+        if (Settings.AutoUpdate && _updates.IsUpdateReady) _updates.ApplyOnExit();
     }
 
     public ICommand EditTagsCommand { get; }
@@ -846,6 +872,7 @@ public sealed partial class MainViewModel : ObservableObject
         var window = new PreferencesWindow(Settings, _updates) { Owner = Application.Current.MainWindow };
         var saved = window.ShowDialog() == true;
         UpdateReady = _updates.IsUpdateReady;
+        Raise(nameof(UpdateButtonLabel));
         if (!saved) return;
         Settings.Save();
         ApplyAppearance();
@@ -976,6 +1003,7 @@ public sealed partial class MainViewModel : ObservableObject
         _inboxTimer.Start();
         _ = LoadSubscriptionsAsync();
         _ = CheckForUpdatesQuietlyAsync();
+        _updateTimer.Start();
 
         if (Tabs.Count == 0)
         {

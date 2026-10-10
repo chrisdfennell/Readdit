@@ -1,6 +1,9 @@
-# Publishes a GitHub release with the installer and portable exe. Installed copies of Readdit
-# update from these. Start it by pushing a version tag (git tag v1.2.3 && git push origin v1.2.3),
-# or from the Actions tab with "Run workflow" and a version number.
+# Publishes a GitHub release with the installer and portable exe; installed and portable copies
+# of Readdit update from these.
+#
+# One click: Actions → Release → Run workflow, choose patch / minor / major. The next version is
+# worked out from the latest v* tag (the first release uses the version in Readdit.csproj).
+# Or push a tag yourself: git tag v1.2.3 && git push origin v1.2.3
 name: Release
 
 on:
@@ -8,22 +11,70 @@ on:
     tags: ['v*']
   workflow_dispatch:
     inputs:
+      bump:
+        description: 'Which part of the version to bump'
+        type: choice
+        options: [patch, minor, major]
+        default: patch
       version:
-        description: 'Version to release (e.g. 0.5.0)'
-        required: true
+        description: 'Or an exact version (e.g. 1.0.0); overrides the bump'
+        required: false
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  version:
+    name: Decide version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # need tags
+
+      - id: v
+        shell: pwsh
+        run: |
+          if ('${{ github.event_name }}' -eq 'push') {
+            $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          } elseif ('${{ inputs.version }}') {
+            $version = '${{ inputs.version }}'.TrimStart('v')
+          } else {
+            $last = git tag --list 'v*' --sort=-v:refname | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' } | Select-Object -First 1
+            if (-not $last) {
+              # First release: use the version the project already declares.
+              $version = ([xml](Get-Content Readdit.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+            } else {
+              $parts = $last.TrimStart('v').Split('.') | ForEach-Object { [int]$_ }
+              switch ('${{ inputs.bump }}') {
+                'major' { $version = "$($parts[0] + 1).0.0" }
+                'minor' { $version = "$($parts[0]).$($parts[1] + 1).0" }
+                default { $version = "$($parts[0]).$($parts[1]).$($parts[2] + 1)" }
+              }
+            }
+          }
+          if ($version -notmatch '^\d+\.\d+\.\d+([-+].+)?$') { throw "'$version' isn't a version like 1.2.3" }
+          if ('${{ github.event_name }}' -ne 'push' -and (git tag --list "v$version")) { throw "v$version already exists" }
+          Write-Host "Releasing $version"
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
   ci:
     name: CI
+    needs: version
     uses: ./.github/workflows/ci.yml
 
   release:
     name: Publish release
-    needs: ci
+    needs: [version, ci]
     runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
 
@@ -31,13 +82,12 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Version
-        shell: pwsh
+      # Manual runs create the tag here. (Pushes made with GITHUB_TOKEN don't start new workflow runs.)
+      - name: Tag
+        if: github.event_name == 'workflow_dispatch'
         run: |
-          $version = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '${{ inputs.version }}' } else { $env:GITHUB_REF_NAME }
-          $version = $version.TrimStart('v')
-          if ($version -notmatch '^\d+\.\d+\.\d+([-+].+)?$') { throw "'$version' isn't a version like 1.2.3" }
-          echo "VERSION=$version" >> $env:GITHUB_ENV
+          git tag v${{ env.VERSION }}
+          git push origin v${{ env.VERSION }}
 
       - name: Restore tools
         run: dotnet tool restore

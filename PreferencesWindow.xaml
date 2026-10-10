@@ -106,6 +106,8 @@
 
                 <TextBlock Text="Updates" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />
                 <TextBlock x:Name="VersionText" Opacity="0.75" Margin="0,4,0,0" />
+                <CheckBox x:Name="AutoUpdate" Margin="0,8,0,0"
+                          Content="Update automatically (checks every few hours, installs when Readdit closes)" />
                 <TextBlock Text="Update source (GitHub repository URL)" Margin="0,8,0,4" />
                 <DockPanel>
                     <Button x:Name="CheckButton" DockPanel.Dock="Right" Content="Check now" Margin="8,0,0,0" Click="OnCheckUpdates" />

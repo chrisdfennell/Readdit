@@ -50,6 +50,9 @@ public sealed class AppSettings
     /// <summary>GitHub repository URL that publishes Readdit releases (enables auto-update).</summary>
     public string UpdateUrl { get; set; } = "https://github.com/chrisdfennell/Readdit";
 
+    /// <summary>Check for updates regularly, download them, and install when Readdit closes.</summary>
+    public bool AutoUpdate { get; set; } = true;
+
     /// <summary>Open web links in Readdit's own browser pane instead of the default browser.</summary>
     public bool OpenLinksInApp { get; set; } = true;
 

@@ -52,7 +52,11 @@ public partial class MainWindow : Window
                 _tray.Notify("Readdit is still running",
                     "It'll let you know about new messages. Right-click the tray icon to exit, or turn this off in Preferences.");
         };
-        Closed += (_, _) => _tray.Dispose();
+        Closed += (_, _) =>
+        {
+            _tray.Dispose();
+            _vm.OnExit();
+        };
         _vm.RestartRequested += () =>
         {
             System.Diagnostics.Process.Start(Environment.ProcessPath!);

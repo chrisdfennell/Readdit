@@ -437,8 +437,9 @@
 
             <Button DockPanel.Dock="Right" Content="{Binding AccountLabel}" Margin="6,0,0,0"
                     Click="OnAccountButtonClick" ToolTip="Switch or add accounts" />
-            <Button DockPanel.Dock="Right" Content="⬆ Update ready" Margin="6,0,0,0"
-                    Style="{DynamicResource AccentButtonStyle}" ToolTip="Restart Readdit to install the new version"
+            <Button DockPanel.Dock="Right" Content="{Binding UpdateButtonLabel}" Margin="6,0,0,0"
+                    Style="{DynamicResource AccentButtonStyle}"
+                    ToolTip="Restart Readdit now to install the new version (or it installs when you close Readdit)"
                     Command="{Binding InstallUpdateCommand}"
                     Visibility="{Binding UpdateReady, Converter={StaticResource Vis}}" />
             <Button DockPanel.Dock="Right" Content="⚙" Margin="6,0,0,0" MinWidth="40"

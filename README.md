@@ -71,14 +71,14 @@ dotnet run                                # run a development build
 - **CI** ([ci.yml](.github/workflows/ci.yml)) runs on every push to `main` and every pull request. It builds with warnings treated as errors, runs the post view smoke test in headless Edge, and packages the installer and portable exe. Download them from the run's **Artifacts** to try that exact build.
 - **Release** ([release.yml](.github/workflows/release.yml)) runs CI first, then builds both and publishes a GitHub release. Installed copies of Readdit update from there automatically.
 
-To release, push a version tag:
+**To release:** on GitHub, open **Actions → Release → Run workflow** and pick `patch`, `minor` or `major`. The next version number is worked out from the last release. You can also type an exact version, or push a tag yourself:
 
 ```powershell
 git tag v0.4.1
 git push origin v0.4.1
 ```
 
-Or open **Actions → Release → Run workflow** on GitHub and enter a version.
+**Updates:** installed copies update through Velopack. The portable exe downloads the new `Readdit-Portable.exe` beside itself and swaps it in. Both check every few hours, and install when Readdit closes or when you click **Restart to update**. You can turn this off in Preferences.
 
 ## Where Readdit keeps data
 
