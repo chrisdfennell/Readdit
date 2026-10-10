@@ -51,12 +51,33 @@ public partial class MainWindow : Window
         };
         Closing += (_, e) =>
         {
-            if (_exiting || !_vm.CloseToTray) return;
+            // Tray "Exit", Windows shutting down and restarts skip the question.
+            if (_exiting) return;
+
+            var action = _vm.CloseAction;
+            if (action == "Ask")
+            {
+                var dialog = new CloseChoiceWindow { Owner = this };
+                if (dialog.ShowDialog() != true || dialog.Choice == null)
+                {
+                    e.Cancel = true; // Cancel: stay open
+                    return;
+                }
+                action = dialog.Choice;
+                if (dialog.RememberChoice) _vm.CloseAction = action;
+            }
+
+            if (action == "Exit")
+            {
+                _exiting = true;
+                return;
+            }
+
             e.Cancel = true;
             Hide();
             if (_vm.TakeTrayHint())
                 _tray.Notify("Readdit is still running",
-                    "It'll let you know about new messages. Right-click the tray icon to exit, or turn this off in Preferences.",
+                    "It'll let you know about new messages. Right-click the tray icon to exit, or change this in Preferences.",
                     BringToFront);
         };
         Closed += (_, _) =>

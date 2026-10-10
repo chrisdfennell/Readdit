@@ -145,7 +145,16 @@ public sealed partial class MainViewModel : ObservableObject
     readonly HashSet<string> _notified = [];
     bool _inboxPrimed;
 
-    public bool CloseToTray => Settings.CloseToTray;
+    /// <summary>Ask, Tray or Exit. See <see cref="AppSettings.CloseAction"/>.</summary>
+    public string CloseAction
+    {
+        get => Settings.CloseAction is "Tray" or "Exit" ? Settings.CloseAction : "Ask";
+        set
+        {
+            Settings.CloseAction = value;
+            Settings.Save();
+        }
+    }
 
     /// <summary>True the first time the window hides to the tray, so the user learns where it went.</summary>
     public bool TakeTrayHint()

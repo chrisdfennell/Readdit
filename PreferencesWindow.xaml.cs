@@ -58,7 +58,8 @@ public partial class PreferencesWindow : Window
         CheckForNewPosts.IsChecked = settings.CheckForNewPosts;
         SaveOffline.IsChecked = settings.SaveOffline;
         InboxNotifications.IsChecked = settings.InboxNotifications;
-        CloseToTray.IsChecked = settings.CloseToTray;
+        CloseAction.SelectedItem = CloseAction.Items.Cast<ComboBoxItem>()
+            .FirstOrDefault(i => (string)i.Tag == settings.CloseAction) ?? CloseAction.Items[0];
         MinScore.Text = settings.MinScore?.ToString() ?? "";
         CollapseBelow.Text = settings.CollapseBelowScore?.ToString() ?? "";
         MutedUsers.Text = string.Join(Environment.NewLine, settings.MutedUsers);
@@ -77,7 +78,7 @@ public partial class PreferencesWindow : Window
         _settings.CheckForNewPosts = CheckForNewPosts.IsChecked == true;
         _settings.SaveOffline = SaveOffline.IsChecked == true;
         _settings.InboxNotifications = InboxNotifications.IsChecked == true;
-        _settings.CloseToTray = CloseToTray.IsChecked == true;
+        _settings.CloseAction = (CloseAction.SelectedItem as ComboBoxItem)?.Tag as string ?? "Ask";
         _settings.MinScore = int.TryParse(MinScore.Text.Trim(), out var min) ? min : null;
         _settings.CollapseBelowScore = int.TryParse(CollapseBelow.Text.Trim(), out var collapse) ? collapse : null;
         _settings.MutedUsers = Lines(MutedUsers.Text).Select(StripUserPrefix).ToList();

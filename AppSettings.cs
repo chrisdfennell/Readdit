@@ -128,8 +128,8 @@ public sealed class AppSettings
     public bool SaveOffline { get; set; } = true;
     public bool InboxNotifications { get; set; } = true;
 
-    /// <summary>Keep running in the system tray when the window is closed.</summary>
-    public bool CloseToTray { get; set; } = true;
+    /// <summary>What closing the window does: Ask, Tray (keep running in the tray) or Exit.</summary>
+    public string CloseAction { get; set; } = "Ask";
     public bool TrayHintShown { get; set; }
 
     /// <summary>Hide posts below this score in Home, Popular, All and search (null = off).</summary>

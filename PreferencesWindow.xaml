@@ -58,7 +58,14 @@
                 <TextBlock Text="Library and inbox" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />
                 <CheckBox x:Name="SaveOffline" Content="Keep an offline copy of posts I save" Margin="0,8,0,0" />
                 <CheckBox x:Name="InboxNotifications" Content="Notify me about new replies and messages" Margin="0,4,0,0" />
-                <CheckBox x:Name="CloseToTray" Content="Keep running in the system tray when I close the window" Margin="0,4,0,0" />
+                <DockPanel Margin="0,8,0,0">
+                    <TextBlock Text="When I close the window" VerticalAlignment="Center" Margin="0,0,12,0" />
+                    <ComboBox x:Name="CloseAction" MinWidth="200" HorizontalAlignment="Left">
+                        <ComboBoxItem Content="Ask me" Tag="Ask" />
+                        <ComboBoxItem Content="Minimize to tray" Tag="Tray" />
+                        <ComboBoxItem Content="Exit Readdit" Tag="Exit" />
+                    </ComboBox>
+                </DockPanel>
 
                 <TextBlock Text="Smart filters" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />
                 <Grid Margin="0,8,0,0">
