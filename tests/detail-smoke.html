@@ -154,6 +154,14 @@ try {
   };
 
 
+  // Drafts: an unsent reply comes back (box open) after the post is re-rendered; Cancel discards it.
+  const firstBox = replyBox('t1_draft', () => {});
+  firstBox.querySelector('textarea').value = 'half-written reply';
+  saveDraft('reply:t1_draft', 'half-written reply'); // what the typing debounce does
+  const secondBox = replyBox('t1_draft', () => {});
+  result.draftRestored = !secondBox.hidden && secondBox.querySelector('textarea').value === 'half-written reply';
+  secondBox.querySelector('.reply-actions button:nth-child(2)').click(); // Cancel
+  result.draftCleared = loadDraft('reply:t1_draft') === null && replyBox('t1_draft', () => {}).hidden;
   // Picture viewer: which posts have pictures, and stepping past the last one moves to the next post.
   result.postImages = [
     postImages({ is_gallery: true, gallery_data: { items: [{ media_id: 'a' }, { media_id: 'b' }] },

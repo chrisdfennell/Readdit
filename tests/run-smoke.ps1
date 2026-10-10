@@ -92,6 +92,8 @@ $checks = [ordered]@{
     'viewer asks for the next post at the end' = $result.viewerAsked
     'viewer carries on in the next post'  = $result.viewerContinued
     'closing the viewer stops browsing'   = $result.viewerClosed
+    'unsent reply comes back'             = $result.draftRestored
+    'cancel discards the draft'           = $result.draftCleared
 }
 
 $failed = 0

@@ -431,6 +431,68 @@ public sealed class CommunityVisits
     }
 }
 
+/// <summary>An unfinished new post, kept so closing the window (or Readdit) doesn't lose it.</summary>
+public sealed record PostDraft(
+    string Subreddit, string Title, string Kind, string Body, bool Nsfw, bool Spoiler, List<PostDraft.MediaFile> Media)
+{
+    public sealed record MediaFile(string Path, string Caption);
+
+    /// <summary>Nothing worth keeping (the community alone doesn't count).</summary>
+    public bool IsEmpty => Title.Trim().Length == 0 && Body.Trim().Length == 0 && Media.Count == 0;
+}
+
+/// <summary>Keeps the one draft post on disk.</summary>
+public sealed class PostDraftStore(string file)
+{
+    public PostDraftStore() : this(Path.Combine(Paths.Local, "post-draft.json")) { }
+
+    public PostDraft? Load()
+    {
+        try
+        {
+            var draft = File.Exists(file) ? JsonSerializer.Deserialize<PostDraft>(File.ReadAllText(file)) : null;
+            if (draft == null || draft.IsEmpty) return null;
+            // Files that have since been moved or deleted can't be posted.
+            return draft with { Media = draft.Media.Where(m => File.Exists(m.Path)).ToList() };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Saves the draft, or removes the file when there's nothing worth keeping.</summary>
+    public void Save(PostDraft draft)
+    {
+        try
+        {
+            if (draft.IsEmpty)
+            {
+                Clear();
+                return;
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            File.WriteAllText(file, JsonSerializer.Serialize(draft));
+        }
+        catch
+        {
+            // Best-effort.
+        }
+    }
+
+    public void Clear()
+    {
+        try
+        {
+            File.Delete(file);
+        }
+        catch
+        {
+            // Best-effort.
+        }
+    }
+}
+
 /// <summary>Your private notes and tags on Reddit users (kept on this PC only).</summary>
 public sealed class UserNotes
 {

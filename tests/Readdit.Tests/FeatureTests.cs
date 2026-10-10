@@ -267,6 +267,49 @@ public class PicturePostTests
         Assert.Equal(expected, Link(json).HasPictures);
 }
 
+public class PostingTests : TempFolderTest
+{
+    [Theory]
+    [InlineData("photo.JPG", "image/jpeg")]
+    [InlineData("anim.gif", "image/gif")]
+    [InlineData("clip.mp4", "video/mp4")]
+    [InlineData("clip.MOV", "video/quicktime")]
+    [InlineData("doc.pdf", null)]
+    [InlineData("noextension", null)]
+    public void Knows_what_reddit_accepts(string file, string? type)
+    {
+        Assert.Equal(type, RedditApi.MediaTypeFor(file));
+        Assert.Equal(type?.StartsWith("video/") == true, RedditApi.IsVideoFile(file));
+    }
+
+    [Fact]
+    public void Drafts_survive_and_drop_missing_files()
+    {
+        var store = new PostDraftStore(Path.Combine(Dir, "draft.json"));
+        var picture = Path.Combine(Dir, "a.png");
+        File.WriteAllBytes(picture, [1, 2, 3]);
+        store.Save(new PostDraft("pics", "My cat", "media", "", true, false,
+            [new(picture, "first"), new(Path.Combine(Dir, "gone.png"), "")]));
+
+        var draft = new PostDraftStore(Path.Combine(Dir, "draft.json")).Load();
+        Assert.NotNull(draft);
+        Assert.Equal(("pics", "My cat", "media", true), (draft.Subreddit, draft.Title, draft.Kind, draft.Nsfw));
+        Assert.Equal(new PostDraft.MediaFile(picture, "first"), Assert.Single(draft.Media));
+    }
+
+    [Fact]
+    public void Empty_drafts_are_not_kept()
+    {
+        var file = Path.Combine(Dir, "draft.json");
+        var store = new PostDraftStore(file);
+        store.Save(new PostDraft("pics", "Title", "text", "", false, false, []));
+        Assert.True(File.Exists(file));
+        store.Save(new PostDraft("pics", "  ", "text", "", false, false, [])); // only the community left
+        Assert.False(File.Exists(file));
+        Assert.Null(store.Load());
+    }
+}
+
 public class SidebarStoreTests : TempFolderTest
 {
     [Fact]

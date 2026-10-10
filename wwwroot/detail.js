@@ -472,17 +472,79 @@ function syncPostState(m) {
     if (save && save.sync) save.sync(!!m.saved);
 }
 
+// ---- Drafts ----------------------------------------------------------------------------
+// What you're writing in a reply or an edit is kept (in this browser profile) until you send or
+// cancel it, so switching posts, closing Readdit or a crash doesn't lose it.
+
+const DRAFT_PREFIX = 'readdit-draft:';
+const DRAFT_DAYS = 30;
+
+function loadDraft(key) {
+    try {
+        const draft = JSON.parse(localStorage.getItem(DRAFT_PREFIX + key));
+        return draft && Date.now() - draft.at < DRAFT_DAYS * 864e5 ? draft.text : null;
+    } catch {
+        return null;
+    }
+}
+
+function saveDraft(key, text, original = '') {
+    try {
+        if (text.trim() && text !== original) localStorage.setItem(DRAFT_PREFIX + key, JSON.stringify({ text, at: Date.now() }));
+        else localStorage.removeItem(DRAFT_PREFIX + key);
+    } catch {
+        // Storage full or unavailable: drafts are a nicety.
+    }
+}
+
+const clearDraft = key => saveDraft(key, '');
+
+/** Forget drafts older than a month (once per page load). */
+try {
+    for (const key of Object.keys(localStorage)) {
+        if (key.startsWith(DRAFT_PREFIX) && loadDraft(key.slice(DRAFT_PREFIX.length)) == null) localStorage.removeItem(key);
+    }
+} catch {
+    // As above.
+}
+
+/** Saves the textarea as a draft while typing (shortly after each pause). */
+function keepDraft(textarea, key, original = '') {
+    let timer;
+    textarea.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => saveDraft(key, textarea.value, original), 400);
+    });
+}
+
 // ---- Replies ---------------------------------------------------------------------------
 
 function replyBox(parentName, onPosted) {
+    const draftKey = 'reply:' + parentName;
     const { textarea, preview } = markdownEditor('', 'Write a reply. Markdown is supported. Ctrl+Enter sends.');
     const status = el('span', { class: 'reply-status' });
     const submit = el('button', { class: 'primary' }, 'Reply');
     const cancel = el('button', null, 'Cancel');
     const box = el('div', { class: 'reply-box', hidden: true },
         textarea, el('div', { class: 'reply-actions' }, submit, cancel, status), preview);
+    keepDraft(textarea, draftKey);
 
-    cancel.onclick = () => { box.hidden = true; };
+    // An unsent reply from before: put it back, with the box open so it's noticed.
+    const draft = loadDraft(draftKey);
+    if (draft) {
+        textarea.value = draft;
+        textarea.dispatchEvent(new Event('input'));
+        box.hidden = false;
+        status.textContent = 'Your unsent reply, as you left it';
+    }
+
+    cancel.onclick = () => {
+        box.hidden = true;
+        clearDraft(draftKey);
+        textarea.value = '';
+        textarea.dispatchEvent(new Event('input'));
+        status.textContent = '';
+    };
     submit.onclick = async () => {
         const text = textarea.value.trim();
         if (!text) return;
@@ -490,8 +552,10 @@ function replyBox(parentName, onPosted) {
         status.textContent = 'Posting…';
         try {
             const comment = await call('comment', { parent: parentName, text });
+            clearDraft(draftKey);
             textarea.value = '';
             textarea.dispatchEvent(new Event('input'));
+            clearDraft(draftKey); // the input event above schedules a save of the empty text
             status.textContent = '';
             box.hidden = true;
             onPosted(comment);
@@ -517,21 +581,28 @@ function replyBox(parentName, onPosted) {
  * Swaps `target` for an editor until saved or cancelled. `save(text)` returns the updated
  * thing's data; `render(data)` builds the new body.
  */
-function openEditor(target, initial, save, render) {
-    const { textarea, preview } = markdownEditor(initial, 'Edit. Markdown is supported. Ctrl+Enter saves.');
-    const status = el('span', { class: 'reply-status' });
+function openEditor(target, initial, save, render, thingName) {
+    const draftKey = 'edit:' + thingName;
+    const draft = loadDraft(draftKey);
+    const { textarea, preview } = markdownEditor(draft ?? initial, 'Edit. Markdown is supported. Ctrl+Enter saves.');
+    const status = el('span', { class: 'reply-status' }, draft ? 'Your unsaved edit, as you left it' : '');
     const saveButton = el('button', { class: 'primary' }, 'Save edit');
     const cancel = el('button', null, 'Cancel');
     const editor = el('div', { class: 'reply-box' }, textarea, el('div', { class: 'reply-actions' }, saveButton, cancel, status), preview);
+    keepDraft(textarea, draftKey, initial);
     target.replaceWith(editor);
     textarea.focus();
 
-    cancel.onclick = () => editor.replaceWith(target);
+    cancel.onclick = () => {
+        clearDraft(draftKey);
+        editor.replaceWith(target);
+    };
     saveButton.onclick = async () => {
         saveButton.disabled = true;
         status.textContent = 'Saving…';
         try {
             const data = await save(textarea.value);
+            clearDraft(draftKey);
             editor.replaceWith(render(data));
             showToast('Edit saved');
         } catch (err) {
@@ -890,7 +961,7 @@ function renderPost(d, settings) {
                 data => {
                     d.selftext = data.selftext; // so a second edit starts from the saved text
                     return (body = mdNode(data.selftext_html || '', 'post-body', data.media_metadata));
-                })),
+                }, d.name)),
             mine && action('🗑 Delete', async () => {
                 if (await deleteThing(d.name, 'post')) article.querySelector('h1').textContent = '[deleted] ' + d.title;
             })),
@@ -1055,7 +1126,7 @@ function commentNode(c, depth, post) {
             data => {
                 c.body = data.body;
                 return (body = mdNode(data.body_html || '', 'c-body', data.media_metadata));
-            })),
+            }, c.name)),
         mine && action('Delete', async () => {
             // With the editor open the body is detached, and Cancel would bring it back.
             if (!body.isConnected) {

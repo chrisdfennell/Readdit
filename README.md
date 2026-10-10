@@ -21,17 +21,21 @@ Readdit is a native Windows app (WPF on .NET 10) for browsing Reddit. It signs i
 
 **Browsing**
 - Compact, card and picture-grid layouts, with infinite scroll.
-- Tabs that are restored on restart, and a sidebar with your subscriptions and favorites, including community icons.
+- Tabs that are restored on restart, and a sidebar with your subscriptions and favorites, including community icons. It handles thousands of subscriptions, shows them instantly at launch, and has an A–Z jump bar and a most-visited sort.
+- Folders: group communities your own way, and open a folder as one combined feed.
+- A command palette (<kbd>Ctrl</kbd>+<kbd>K</kbd>) to jump to any community, folder, tab or command.
 - Search with community suggestions as you type, plus user profiles and subreddit info banners.
 - Reading mode for distraction-free reading, with adjustable text size.
 - Hover previews for thumbnails, usernames and image links.
 - An in-app browser for links, signed in to Reddit.
 
 **Posts and comments**
-- Formatted text, Reddit video with sound, GIFs, galleries and a fullscreen image viewer.
+- Formatted text, Reddit video with sound, GIFs and galleries.
+- A picture viewer that steps from one post's pictures into the next post's, with a slideshow and full screen (<kbd>F11</kbd>).
 - Collapsible comment threads, "load more replies", and find-in-thread (Ctrl+F) that can load the whole thread.
-- Comments added since your last visit are highlighted.
-- Vote, save, reply, post, and edit or delete your own posts and comments, with a live formatting preview.
+- Jump between top-level comments, comments new since your last visit (highlighted), or the original poster's comments.
+- Vote, save, reply, and edit or delete your own posts and comments, with a live formatting preview. Unsent replies and edits are kept as drafts.
+- New posts: text, links, a picture, a gallery of up to 20, or a video. Unfinished posts are kept as drafts too.
 
 **Moderation** (for communities you moderate)
 - Mod queues in the sidebar: one for all your communities plus one per community, covering the queue, reports, unmoderated, spam and edited items.
@@ -41,8 +45,12 @@ Readdit is a native Windows app (WPF on .NET 10) for browsing Reddit. It signs i
 **Power features**
 - Filters: keywords, domains, subreddits, minimum score, auto-collapsing low-scored comments, muted users and highlighted users.
 - Read tracking (hide or dim posts you've opened) and hiding posts.
-- Notifications for replies and messages, with a system tray icon.
-- An offline library: saved posts are kept with their comments and media, and can be searched and tagged.
+- Notifications for replies and messages, with a system tray icon. A single new message can be answered straight from its notification.
+- Keyword alerts: get notified when new posts match your words, anywhere on Reddit or in communities you pick.
+- Private notes and tags on users, shown next to their names.
+- Subscription cleanup: find banned, private, quarantined and long-quiet communities and unsubscribe in one go.
+- An offline library: saved posts are kept with their comments and media. Pull in everything you've saved on Reddit, then search, tag and export it (Markdown, HTML, CSV or JSON).
+- Open reddit links from other apps in Readdit (optional; other links still go to your browser), plus `readdit://` links.
 - One-click download of images, galleries and video (merged with sound if [ffmpeg](https://ffmpeg.org) is installed).
 - Multiple accounts.
 - Light, dark and true-black themes, with accent colors and an interface size setting.
@@ -89,7 +97,7 @@ Releases are automatic.
 | What | Where |
 | --- | --- |
 | Settings | `%AppData%\Readdit\settings.json` |
-| Sign-in (browser profile), read history, offline library | `%LocalAppData%\ReadditData\` |
+| Sign-in (browser profile), read history, offline library, alerts, user notes, post draft | `%LocalAppData%\ReadditData\` |
 | Crash log | `%LocalAppData%\ReadditData\crash.log` |
 | The installed app itself | `%LocalAppData%\Readdit\` (managed by the installer) |
 | Downloads | `Pictures\Readdit` (configurable) |

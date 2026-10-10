@@ -1657,10 +1657,16 @@ public sealed partial class MainViewModel : ObservableObject
             ? SelectedTab.Target
             : "";
         var window = new SubmitWindow(_services.Api, defaultSub) { Owner = Application.Current.MainWindow };
-        if (window.ShowDialog() == true && window.PostUrl is { Length: > 0 } url)
+        if (window.ShowDialog() != true) return;
+        if (window.PostUrl is { Length: > 0 } url)
         {
             Status = "Posted!";
             OpenUrl(url);
+        }
+        else
+        {
+            // Media posts finish in the background on Reddit's side.
+            Status = "Posted! Reddit is still processing your upload; it'll appear on your profile in a moment.";
         }
     }
 

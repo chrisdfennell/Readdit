@@ -1,9 +1,22 @@
 <Window x:Class="Readdit.SubmitWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="New post" Width="620" Height="600" MinHeight="420"
-        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+        xmlns:local="clr-namespace:Readdit"
+        Title="New post" Width="660" Height="640" MinHeight="460"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" AllowDrop="True" Drop="OnDrop" DragOver="OnDragOver">
+    <Window.Resources>
+        <local:VisibilityConverter x:Key="VisConverter" />
+    </Window.Resources>
     <DockPanel Margin="20">
+        <!-- A draft from last time, put back. -->
+        <Border x:Name="DraftBar" DockPanel.Dock="Top" Visibility="Collapsed" Padding="10,6" Margin="0,0,0,12"
+                CornerRadius="6" Background="#22808080">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="Discard draft" Click="OnDiscardDraft" />
+                <TextBlock Text="📝 Your unfinished post is back, just as you left it." VerticalAlignment="Center" />
+            </DockPanel>
+        </Border>
+
         <DockPanel DockPanel.Dock="Bottom" Margin="0,16,0,0">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                 <Button x:Name="PostButton" Content="Post" MinWidth="90" Click="OnPost"
@@ -17,23 +30,57 @@
             <TextBlock Text="Community" Margin="0,0,0,4" />
             <DockPanel>
                 <TextBlock Text="r/" VerticalAlignment="Center" FontWeight="Bold" Foreground="#FF4500" Margin="0,0,6,0" />
-                <TextBox x:Name="Subreddit" />
+                <TextBox x:Name="Subreddit" TextChanged="OnChanged" />
             </DockPanel>
 
             <TextBlock Text="Title" Margin="0,12,0,4" />
-            <TextBox x:Name="PostTitle" MaxLength="300" />
+            <TextBox x:Name="PostTitle" MaxLength="300" TextChanged="OnChanged" />
 
             <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                 <RadioButton x:Name="TextKind" Content="Text post" IsChecked="True" Checked="OnKindChanged" />
                 <RadioButton x:Name="LinkKind" Content="Link" Margin="16,0,0,0" Checked="OnKindChanged" />
-                <CheckBox x:Name="Nsfw" Content="NSFW" Margin="24,0,0,0" />
-                <CheckBox x:Name="Spoiler" Content="Spoiler" Margin="12,0,0,0" />
+                <RadioButton x:Name="MediaKind" Content="Images &amp; video" Margin="16,0,0,0" Checked="OnKindChanged" />
+                <CheckBox x:Name="Nsfw" Content="NSFW" Margin="24,0,0,0" Click="OnChanged" />
+                <CheckBox x:Name="Spoiler" Content="Spoiler" Margin="12,0,0,0" Click="OnChanged" />
             </StackPanel>
 
             <TextBlock x:Name="ContentLabel" Text="Text (Markdown supported)" Margin="0,12,0,4" />
         </StackPanel>
 
-        <TextBox x:Name="Body" AcceptsReturn="True" AcceptsTab="True" TextWrapping="Wrap"
-                 VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" />
+        <Grid>
+            <TextBox x:Name="Body" AcceptsReturn="True" AcceptsTab="True" TextWrapping="Wrap" TextChanged="OnChanged"
+                     VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" />
+
+            <!-- Pictures (one, or up to 20 as a gallery) or a single video. -->
+            <DockPanel x:Name="MediaPanel" Visibility="Collapsed">
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                    <Button Content="+ Add pictures or a video…" Click="OnAddMedia" />
+                    <TextBlock x:Name="MediaHint" Margin="12,0,0,0" VerticalAlignment="Center" Opacity="0.7" TextWrapping="Wrap"
+                               Text="Or drop files here. One picture, up to 20 as a gallery, or one video." />
+                </DockPanel>
+                <ListBox x:Name="MediaList" HorizontalContentAlignment="Stretch">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="{x:Type local:SubmitMedia}">
+                            <DockPanel Margin="0,4">
+                                <Button DockPanel.Dock="Right" Content="✕" Padding="8,2" ToolTip="Remove" Click="OnRemoveMedia" Tag="{Binding}" />
+                                <Border Width="72" Height="54" CornerRadius="4" ClipToBounds="True" Background="#22808080" Margin="0,0,10,0">
+                                    <Grid>
+                                        <Image Source="{Binding Preview}" Stretch="UniformToFill" />
+                                        <TextBlock Text="🎬" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   Visibility="{Binding IsVideo, Converter={StaticResource VisConverter}}" />
+                                    </Grid>
+                                </Border>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                    <TextBox Text="{Binding Caption, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0" MaxLength="180"
+                                             ToolTip="Caption (galleries only)"
+                                             Visibility="{Binding DataContext.ShowCaptions, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource VisConverter}}" />
+                                </StackPanel>
+                            </DockPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Grid>
     </DockPanel>
 </Window>

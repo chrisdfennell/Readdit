@@ -169,22 +169,20 @@ public sealed class RedditSession(WebView2 webView, string profile)
         SendAsync("GET", url, null, null, ct);
 
     /// <summary>Runs fetch() inside the page so the request uses the browser's cookies.</summary>
+    /// <param name="json">A JSON request body, sent instead of <paramref name="form"/>.</param>
     public async Task<(int Status, string Body)> SendAsync(
         string method, string url, IDictionary<string, string>? form, string? modhash, CancellationToken ct,
-        bool park = true)
+        bool park = true, string? json = null)
     {
         if (park && !OnRedditOrigin) await ParkAsync();
 
-        var options = JsonSerializer.Serialize(new
-        {
-            method,
-            form,
-            headers = modhash == null ? new Dictionary<string, string>() : new() { ["X-Modhash"] = modhash },
-        });
+        var headers = modhash == null ? new Dictionary<string, string>() : new() { ["X-Modhash"] = modhash };
+        if (json != null) headers["Content-Type"] = "application/json";
+        var options = JsonSerializer.Serialize(new { method, form, json, headers });
         var expression =
             "(async () => { const o = " + options + ";" +
             " const init = { method: o.method, credentials: 'include', headers: o.headers };" +
-            " if (o.form) init.body = new URLSearchParams(o.form);" +
+            " if (o.json) init.body = o.json; else if (o.form) init.body = new URLSearchParams(o.form);" +
             " const r = await fetch(" + JsonSerializer.Serialize(url) + ", init);" +
             " return JSON.stringify({ status: r.status, body: await r.text() }); })()";
         var args = JsonSerializer.Serialize(new { expression, awaitPromise = true, returnByValue = true });
