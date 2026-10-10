@@ -1,5 +1,5 @@
-# Builds and tests every push to main and every pull request, and packages a test installer.
-# The release workflow also calls this, so nothing ships without passing it.
+# Builds and tests every push to main and every pull request, and packages a test installer
+# and portable exe. The release workflow also calls this, so nothing ships without passing it.
 name: CI
 
 on:
@@ -17,9 +17,9 @@ jobs:
     name: Build, test and package
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
@@ -30,28 +30,21 @@ jobs:
         shell: pwsh
         run: ./tests/run-smoke.ps1
 
-      # A throwaway prerelease version so every CI build produces an installable artifact.
+      # A throwaway prerelease version so every CI build produces installable artifacts.
       - name: CI version
         shell: pwsh
         run: |
           $base = dotnet msbuild Readdit.csproj -getProperty:Version
           echo "VERSION=$base-ci.${{ github.run_number }}" >> $env:GITHUB_ENV
 
-      - name: Restore tools
-        run: dotnet tool restore
+      - name: Package installer and portable exe
+        shell: pwsh
+        run: ./build-installer.ps1 -Version ${{ env.VERSION }}
 
-      - name: Publish
-        run: dotnet publish Readdit.csproj -c Release -r win-x64 --self-contained -p:Version=${{ env.VERSION }} -o publish
-
-      - name: Package installer
-        run: >
-          dotnet vpk pack --packId Readdit --packVersion ${{ env.VERSION }} --packDir publish
-          --mainExe Readdit.exe --packTitle Readdit --icon Assets\readdit.ico --outputDir Releases
-
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Readdit-${{ env.VERSION }}
           path: |
             Releases/Readdit-win-Setup.exe
-            Releases/Readdit-win-Portable.zip
+            Releases/Readdit-Portable.exe
           retention-days: 14

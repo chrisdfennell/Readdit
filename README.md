@@ -47,7 +47,10 @@ Press <kbd>?</kbd> in the app for all keyboard shortcuts (`j`/`k` to move, `a`/`
 
 ## Install
 
-Download `Readdit-win-Setup.exe` from the [latest release](https://github.com/chrisdfennell/Readdit/releases/latest) and run it. Readdit updates itself when new releases come out.
+From the [latest release](https://github.com/chrisdfennell/Readdit/releases/latest), download one of these:
+
+- **`Readdit-win-Setup.exe`** installs Readdit with a Start menu entry. It updates itself when new releases come out.
+- **`Readdit-Portable.exe`** is a single file you can run from anywhere, including a USB stick, with no install. It doesn't auto-update. On first run it unpacks itself to a temp folder, so the first start takes a moment.
 
 The installer isn't code-signed yet, so Windows SmartScreen may warn you. Choose **More info → Run anyway**.
 
@@ -60,13 +63,13 @@ You need the [.NET 10 SDK](https://dotnet.microsoft.com/download).
 ```powershell
 dotnet run                                # run a development build
 ./tests/run-smoke.ps1                     # post view smoke test (needs Edge or Chrome)
-./build-installer.ps1 -Version 0.4.0      # build Releases/Readdit-win-Setup.exe
+./build-installer.ps1 -Version 0.4.0      # build the installer and Readdit-Portable.exe into Releases/
 ```
 
 ## CI/CD
 
-- **CI** ([ci.yml](.github/workflows/ci.yml)) runs on every push to `main` and every pull request. It builds with warnings treated as errors, runs the post view smoke test in headless Edge, and packages an installer. Download it from the run's **Artifacts** to try that exact build.
-- **Release** ([release.yml](.github/workflows/release.yml)) runs CI first, then builds the installer and publishes a GitHub release. Installed copies of Readdit update from there automatically.
+- **CI** ([ci.yml](.github/workflows/ci.yml)) runs on every push to `main` and every pull request. It builds with warnings treated as errors, runs the post view smoke test in headless Edge, and packages the installer and portable exe. Download them from the run's **Artifacts** to try that exact build.
+- **Release** ([release.yml](.github/workflows/release.yml)) runs CI first, then builds both and publishes a GitHub release. Installed copies of Readdit update from there automatically.
 
 To release, push a version tag:
 

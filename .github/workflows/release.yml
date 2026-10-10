@@ -1,6 +1,6 @@
-# Publishes a GitHub release with the installer. Installed copies of Readdit update from these.
-# Start it by pushing a version tag (git tag v1.2.3 && git push origin v1.2.3), or from the
-# Actions tab with "Run workflow" and a version number.
+# Publishes a GitHub release with the installer and portable exe. Installed copies of Readdit
+# update from these. Start it by pushing a version tag (git tag v1.2.3 && git push origin v1.2.3),
+# or from the Actions tab with "Run workflow" and a version number.
 name: Release
 
 on:
@@ -25,9 +25,9 @@ jobs:
     needs: ci
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
@@ -42,21 +42,22 @@ jobs:
       - name: Restore tools
         run: dotnet tool restore
 
-      - name: Publish
-        run: dotnet publish Readdit.csproj -c Release -r win-x64 --self-contained -p:Version=${{ env.VERSION }} -o publish
-
       # Previous releases let vpk build small delta updates.
       - name: Download previous releases
         run: dotnet vpk download github --repoUrl ${{ github.server_url }}/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }} --outputDir Releases
         continue-on-error: true
 
-      - name: Pack installer
-        run: >
-          dotnet vpk pack --packId Readdit --packVersion ${{ env.VERSION }} --packDir publish
-          --mainExe Readdit.exe --packTitle Readdit --icon Assets\readdit.ico --outputDir Releases
+      - name: Build installer and portable exe
+        shell: pwsh
+        run: ./build-installer.ps1 -Version ${{ env.VERSION }}
 
       - name: Publish release
         run: >
           dotnet vpk upload github --repoUrl ${{ github.server_url }}/${{ github.repository }}
           --token ${{ secrets.GITHUB_TOKEN }} --outputDir Releases --publish
           --releaseName "Readdit ${{ env.VERSION }}" --tag v${{ env.VERSION }}
+
+      - name: Attach portable exe
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload v${{ env.VERSION }} Releases/Readdit-Portable.exe --clobber
