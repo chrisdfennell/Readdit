@@ -29,8 +29,8 @@ public sealed class AppSettings
     public List<string> OpenTabs { get; set; } = ["home"];
     public int SelectedTab { get; set; }
 
-    public List<string> Favorites { get; set; } =
-        ["popular", "all", "csharp", "dotnet", "programming", "technology", "worldnews", "pics"];
+    /// <summary>Cache of your Reddit favorites (starred communities), refreshed after sign-in.</summary>
+    public List<string> Favorites { get; set; } = [];
 
     /// <summary>Post list layout: Compact, Cards or Grid.</summary>
     public string LayoutMode { get; set; } = "Compact";

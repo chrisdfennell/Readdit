@@ -475,8 +475,12 @@
                         <TextBlock Text="FEEDS" Style="{StaticResource SectionHeader}" />
                         <ItemsControl ItemsSource="{Binding Feeds}" ItemTemplate="{StaticResource SidebarItemTemplate}" />
 
-                        <TextBlock Text="FAVORITES" Style="{StaticResource SectionHeader}" />
+                        <TextBlock Text="FAVORITES" Style="{StaticResource SectionHeader}"
+                                   ToolTip="Your favorite communities on Reddit. Starring one here stars it on Reddit too." />
                         <ItemsControl ItemsSource="{Binding FavoriteItems}" ItemTemplate="{StaticResource SidebarItemTemplate}" />
+                        <TextBlock Text="Star a community with ☆ Favorite (or right-click it) and it shows up here and on Reddit."
+                                   TextWrapping="Wrap" FontSize="12" Opacity="0.55" Margin="10,2,10,0"
+                                   Visibility="{Binding HasNoFavorites, Converter={StaticResource Vis}}" />
 
                         <DockPanel>
                             <Button DockPanel.Dock="Right" Content="⟳" Style="{StaticResource GlyphButton}" Margin="0,10,6,0"

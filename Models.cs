@@ -314,8 +314,8 @@ public sealed record SidebarItem(string Label, string Spec, string? Icon = null)
     public bool IsCommunity => Spec.StartsWith("r/");
 }
 
-/// <summary>A subreddit name and its icon URL, if it has one.</summary>
-public sealed record SubredditRef(string Name, string? Icon, long Subscribers = 0);
+/// <summary>A subreddit name, its icon URL if it has one, and whether you've starred it on Reddit.</summary>
+public sealed record SubredditRef(string Name, string? Icon, long Subscribers = 0, bool IsFavorite = false);
 
 static class Format
 {

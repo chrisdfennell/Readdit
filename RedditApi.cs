@@ -96,7 +96,8 @@ public sealed class RedditApi(RedditSession session)
     static SubredditRef ToSubredditRef(JsonElement d)
     {
         var icon = d.Str("community_icon") is { Length: > 0 } c ? c : d.Str("icon_img");
-        return new SubredditRef(d.Str("display_name"), icon.StartsWith("http") ? icon : null, d.Long("subscribers"));
+        return new SubredditRef(d.Str("display_name"), icon.StartsWith("http") ? icon : null, d.Long("subscribers"),
+            d.Bool("user_has_favorited"));
     }
 
     /// <summary>Community suggestions for a partial name, as Reddit's search box offers them.</summary>
@@ -179,6 +180,13 @@ public sealed class RedditApi(RedditSession session)
     public async Task HideAsync(string fullName, bool hide)
     {
         using var _ = await PostAsync(hide ? "/api/hide" : "/api/unhide", new() { ["id"] = fullName });
+    }
+
+    /// <summary>Stars or unstars a community (Reddit's "favorites" in its sidebar).</summary>
+    public async Task FavoriteAsync(string subreddit, bool favorite)
+    {
+        using var _ = await PostAsync("/api/favorite",
+            new() { ["make_favorite"] = favorite ? "true" : "false", ["sr_name"] = subreddit });
     }
 
     public async Task SubscribeAsync(string subreddit, bool subscribe)

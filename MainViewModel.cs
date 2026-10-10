@@ -477,9 +477,15 @@ public sealed partial class MainViewModel : ObservableObject
         {
             _subscriptions = await _services.Api.GetSubscriptionsAsync();
             foreach (var sub in _subscriptions.Where(s => s.Icon != null)) _icons[sub.Name] = sub.Icon!;
+
+            // Favorites come from Reddit (the communities you've starred); the saved list is just
+            // a cache so the sidebar isn't empty before this loads.
+            Favorites.Clear();
+            foreach (var sub in _subscriptions.Where(s => s.IsFavorite)) Favorites.Add(sub.Name);
+            SaveFavorites();
+
             Raise(nameof(SubscriptionItems));
             Raise(nameof(SubscriptionsHeader));
-            Raise(nameof(FavoriteItems));
         }
         catch (Exception ex)
         {
@@ -497,28 +503,40 @@ public sealed partial class MainViewModel : ObservableObject
     {
         if (SelectedTab?.IsSubreddit != true) return;
         var name = SelectedTab.Target;
-        var existing = Favorites.FirstOrDefault(f => f.Equals(name, StringComparison.OrdinalIgnoreCase));
-        if (existing != null) Favorites.Remove(existing);
-        else Favorites.Add(name);
-        SaveFavorites();
+        _ = SetFavoriteAsync(name, !Favorites.Contains(name, StringComparer.OrdinalIgnoreCase));
     }
 
     void AddFavorite(string spec)
     {
         if (!spec.StartsWith("r/")) return; // only communities can be favorites
-        var name = spec[2..];
-        if (Favorites.Contains(name, StringComparer.OrdinalIgnoreCase)) return;
-        Favorites.Add(name);
-        SaveFavorites();
+        _ = SetFavoriteAsync(spec[2..], true);
     }
 
-    void RemoveFavorite(string spec)
+    void RemoveFavorite(string spec) =>
+        _ = SetFavoriteAsync(spec.StartsWith("r/") ? spec[2..] : spec, false);
+
+    /// <summary>Stars or unstars a community on Reddit, updating the sidebar straight away.</summary>
+    async Task SetFavoriteAsync(string name, bool favorite)
     {
-        var name = spec.StartsWith("r/") ? spec[2..] : spec;
         var existing = Favorites.FirstOrDefault(f => f.Equals(name, StringComparison.OrdinalIgnoreCase));
-        if (existing == null) return;
-        Favorites.Remove(existing);
+        if (favorite == (existing != null)) return;
+
+        if (favorite) Favorites.Add(name);
+        else Favorites.Remove(existing!);
         SaveFavorites();
+        try
+        {
+            await _services.Api.FavoriteAsync(name, favorite);
+            Status = favorite ? $"Added r/{name} to your Reddit favorites." : $"Removed r/{name} from your Reddit favorites.";
+        }
+        catch (Exception ex)
+        {
+            // Put it back the way Reddit has it.
+            if (favorite) Favorites.Remove(Favorites.First(f => f.Equals(name, StringComparison.OrdinalIgnoreCase)));
+            else Favorites.Add(existing!);
+            SaveFavorites();
+            Status = $"Couldn't update favorites on Reddit: {ex.Message}";
+        }
     }
 
     void SaveFavorites()
@@ -527,7 +545,10 @@ public sealed partial class MainViewModel : ObservableObject
         Settings.Save();
         Raise(nameof(FavoriteLabel));
         Raise(nameof(FavoriteItems));
+        Raise(nameof(HasNoFavorites));
     }
+
+    public bool HasNoFavorites => Favorites.Count == 0;
 
     // ---- Search box ---------------------------------------------------------------------------
 
