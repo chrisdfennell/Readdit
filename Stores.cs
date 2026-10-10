@@ -131,6 +131,9 @@ public sealed partial class OfflineStore
     // two downloads never race in the same folder (or write into a folder that's being deleted).
     readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> _mediaJobs = new();
 
+    // Syncing a whole saved list starts hundreds of these; a few at a time is plenty.
+    readonly SemaphoreSlim _mediaSlots = new(3);
+
     public void StartMediaDownload(string postId, string rawThread)
     {
         CancelMediaDownload(postId);
@@ -138,8 +141,11 @@ public sealed partial class OfflineStore
         _mediaJobs[postId] = cts;
         _ = Task.Run(async () =>
         {
+            var slot = false;
             try
             {
+                await _mediaSlots.WaitAsync(cts.Token);
+                slot = true;
                 await SaveMediaAsync(postId, rawThread, cts.Token);
             }
             catch
@@ -148,6 +154,7 @@ public sealed partial class OfflineStore
             }
             finally
             {
+                if (slot) _mediaSlots.Release();
                 _mediaJobs.TryRemove(new KeyValuePair<string, CancellationTokenSource>(postId, cts));
             }
         });

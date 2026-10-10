@@ -700,6 +700,20 @@
 
                             <!-- Offline library: full-text search and tag filter. -->
                             <DockPanel Grid.Row="1" Margin="10,8" Visibility="{Binding IsOffline, Converter={StaticResource Vis}}">
+                                <!-- Organize: pull in everything saved on Reddit, tag what's shown, export it. -->
+                                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
+                                    <Button Content="⟳ Add all my saved posts"
+                                            ToolTip="Copy every post you've saved on Reddit into this library, so they can all be tagged and searched"
+                                            Command="{Binding DataContext.SyncLibraryCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                    <Button Content="🏷 Tag all shown…" Margin="6,0,0,0"
+                                            ToolTip="Add tags to every post the search and tag filter are showing"
+                                            Command="{Binding DataContext.TagShownCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}" />
+                                    <Button Content="⬇ Export…" Margin="6,0,0,0"
+                                            ToolTip="Save the posts shown as Markdown, a web page, a spreadsheet (CSV) or JSON"
+                                            Command="{Binding DataContext.ExportLibraryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}" />
+                                </StackPanel>
                                 <ComboBox DockPanel.Dock="Right" MinWidth="140" Margin="8,0,0,0" ToolTip="Filter by tag"
                                           ItemsSource="{Binding LibraryTagOptions}" SelectedItem="{Binding LibraryTag}" />
                                 <Grid>

@@ -86,6 +86,12 @@ $checks = [ordered]@{
     'find counts each match once'         = $result.findResult -eq '1 / 1'
     'Shift+N moves to the next new one'   = $result.newNavigation[0] -and $result.newNavigation[1] -and $result.newNavigation[0] -ne $result.newNavigation[1]
     'switching posts clears overlays'     = $result.overlaysClearedOnSwitch
+    'Shift+P finds the OP in a collapsed thread' = $result.opJump -eq 'c_c2'
+    'your tag shows next to the user'     = $result.userTag -eq 'friend' -and $result.visibleTagsOnOthers -eq 0
+    'viewer knows which posts have pictures' = ($result.postImages -join ',') -eq '1,1,0,0'
+    'viewer asks for the next post at the end' = $result.viewerAsked
+    'viewer carries on in the next post'  = $result.viewerContinued
+    'closing the viewer stops browsing'   = $result.viewerClosed
 }
 
 $failed = 0

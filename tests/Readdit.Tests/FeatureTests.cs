@@ -188,6 +188,85 @@ public class FolderTests
     }
 }
 
+public class LibraryExportTests
+{
+    static Post MakePost(object data) => Post.FromLink(JsonDocument.Parse(JsonSerializer.Serialize(data)).RootElement);
+
+    static readonly Post[] Posts =
+    [
+        MakePost(new
+        {
+            name = "t3_a", id = "a", title = "=HYPERLINK(\"evil\") [brackets]", subreddit = "csharp", author = "alice",
+            permalink = "/r/csharp/comments/a/x/", url = "https://example.com/page", is_self = false, domain = "example.com",
+            created_utc = 1_700_000_000,
+        }),
+        MakePost(new
+        {
+            name = "t3_b", id = "b", title = "<script>alert(1)</script>", subreddit = "pics", author = "bob",
+            permalink = "/r/pics/comments/b/y/", is_self = true, selftext = "body text", created_utc = 1_700_000_000,
+        }),
+    ];
+
+    static IReadOnlyList<string> Tags(Post p) => p.Id == "a" ? ["to read", "dotnet"] : [];
+
+    [Fact]
+    public void Csv_quotes_cells_and_defuses_formulas()
+    {
+        var csv = LibraryExport.Render(Posts, Tags, ".csv");
+        var lines = csv.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal("title,subreddit,author,created,url,permalink,tags", lines[0]);
+        Assert.StartsWith("\"'=HYPERLINK(\"\"evil\"\") [brackets]\",\"csharp\"", lines[1]);
+        Assert.Contains("\"to read; dotnet\"", lines[1]);
+        Assert.Equal(3, lines.Length);
+    }
+
+    [Fact]
+    public void Markdown_links_each_post_with_tags()
+    {
+        var md = LibraryExport.Render(Posts, Tags, ".md");
+        Assert.StartsWith("# Saved posts (2)", md);
+        Assert.Contains("- [=HYPERLINK(\"evil\") \\[brackets\\]](https://www.reddit.com/r/csharp/comments/a/x/)", md);
+        Assert.Contains("[link](https://example.com/page)", md);
+        Assert.Contains("#to-read #dotnet", md);
+    }
+
+    [Fact]
+    public void Html_escapes_titles()
+    {
+        var html = LibraryExport.Render(Posts, Tags, ".html");
+        Assert.DoesNotContain("<script>", html);
+        Assert.Contains("&lt;script&gt;alert(1)&lt;/script&gt;", html);
+        Assert.Contains("class=\"tag\">to read<", html);
+    }
+
+    [Fact]
+    public void Json_round_trips()
+    {
+        using var doc = JsonDocument.Parse(LibraryExport.Render(Posts, Tags, ".json"));
+        Assert.Equal(2, doc.RootElement.GetArrayLength());
+        Assert.Equal("https://example.com/page", doc.RootElement[0].GetProperty("url").GetString());
+        Assert.Equal(JsonValueKind.Null, doc.RootElement[1].GetProperty("url").ValueKind); // self post
+        Assert.Equal("body text", doc.RootElement[1].GetProperty("text").GetString());
+        Assert.Equal(["to read", "dotnet"], doc.RootElement[0].GetProperty("tags").EnumerateArray().Select(t => t.GetString()));
+    }
+}
+
+public class PicturePostTests
+{
+    static Post Link(string json) => Post.FromLink(JsonDocument.Parse(json).RootElement);
+
+    [Theory]
+    [InlineData("""{"name":"t3_a","post_hint":"image","url":"https://i.redd.it/a.jpg"}""", true)]
+    [InlineData("""{"name":"t3_a","url":"https://i.imgur.com/a.PNG?x=1"}""", true)]
+    [InlineData("""{"name":"t3_a","is_gallery":true,"media_metadata":{"x":{}},"url":"https://www.reddit.com/gallery/a"}""", true)]
+    [InlineData("""{"name":"t3_a","is_video":true,"post_hint":"hosted:video","url":"https://v.redd.it/a"}""", false)]
+    [InlineData("""{"name":"t3_a","is_self":true,"url":"https://www.reddit.com/r/x/comments/a/"}""", false)]
+    [InlineData("""{"name":"t3_a","post_hint":"link","url":"https://example.com/article"}""", false)]
+    [InlineData("""{"name":"t3_a","url":"https://www.reddit.com/r/x/comments/a/","crosspost_parent_list":[{"post_hint":"image","url":"https://i.redd.it/b.jpg"}]}""", true)]
+    public void Knows_which_posts_the_viewer_can_show(string json, bool expected) =>
+        Assert.Equal(expected, Link(json).HasPictures);
+}
+
 public class SidebarStoreTests : TempFolderTest
 {
     [Fact]

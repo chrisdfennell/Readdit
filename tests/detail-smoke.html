@@ -18,7 +18,7 @@
 <body>
 <div id="empty"></div>
 <main id="root"></main>
-<div id="lightbox" hidden><button class="lb-close"></button><button class="lb-nav lb-prev"></button><div class="lb-stage"><img alt=""></div><button class="lb-nav lb-next"></button><div class="lb-counter"></div></div>
+<div id="lightbox" hidden><div class="lb-bar"><span class="lb-title"></span><button class="lb-play"></button><button class="lb-full"></button></div><button class="lb-close"></button><button class="lb-nav lb-prev"></button><div class="lb-stage"><img alt=""></div><button class="lb-nav lb-next"></button><div class="lb-counter"></div></div>
 <div id="toast" hidden></div>
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script src="../wwwroot/detail.js"></script>
@@ -40,12 +40,13 @@ try {
 
   renderThread({
     sort: 'confidence', focus: null, offline: false, lastVisit: now - 120,
-    settings: { blurNsfw: true, collapseBelow: -5, muted: ['bob'], highlighted: ['carol'], me: 'dave', modOf: ['CSharp'] },
+    settings: { blurNsfw: true, collapseBelow: -5, muted: ['bob'], highlighted: ['carol'], me: 'dave', modOf: ['CSharp'],
+      notes: { alice: { tag: 'friend', note: 'Knows C#' } } },
     data: [
       { kind: 'Listing', data: { children: [{ kind: 't3', data: post }] } },
       { kind: 'Listing', data: { children: [
         comment('c1', 'bob', 'First comment', [
-          comment('c2', 'carol', 'Nested reply'),
+          (c => (c.data.is_submitter = true, c))(comment('c2', 'carol', 'Nested reply')), // OP replying
           { kind: 'more', data: { id: 'm1', count: 4, children: ['x1', 'x2'], parent_id: 't1_c1' } },
         ]),
         comment('c3', 'dave', 'Image: <a href="https://preview.redd.it/foo.png?width=100">https://preview.redd.it/foo.png?width=100</a>'),
@@ -109,6 +110,9 @@ try {
   const firstNew = document.querySelector('.comment.new.flash')?.id;
   nextNewComment();
   const secondNew = [...document.querySelectorAll('.comment.new.flash')].map(n => n.id).find(id => id !== firstNew);
+  // Shift+P: the original poster's comments (c2, inside a collapsed thread).
+  nextOpComment();
+  const opJump = document.querySelector('.comment.by-op.flash')?.id;
   window.scrollTo({ top: 0, behavior: 'instant' }); // cancel find's smooth scroll before measuring
 
   // Click a comment's upvote the way a user would: whatever is on top at that point gets it.
@@ -144,7 +148,29 @@ try {
     mutedCollapsed,
     highlighted,
     findResult,
+    opJump,
+    userTag: document.querySelector('.post .user-tag:not([hidden])')?.textContent,
+    visibleTagsOnOthers: document.querySelectorAll('.comment .user-tag:not([hidden])').length,
   };
+
+
+  // Picture viewer: which posts have pictures, and stepping past the last one moves to the next post.
+  result.postImages = [
+    postImages({ is_gallery: true, gallery_data: { items: [{ media_id: 'a' }, { media_id: 'b' }] },
+      media_metadata: { a: { status: 'valid', s: { u: 'https://i.example/a.jpg' } }, b: { status: 'failed' } } }).length,
+    postImages({ post_hint: 'image', url: 'https://i.redd.it/x.png' }).length,
+    postImages({ is_video: true, url: 'https://v.redd.it/x' }).length,
+    postImages({ is_self: true, url: 'https://www.reddit.com/r/x/comments/1/' }).length,
+  ];
+  openLightbox(['https://example.com/1.png', 'https://example.com/2.png'], 1, true);
+  stepLightbox(1);
+  result.viewerAsked = window.__sent.some(m => m.type === 'mediaStep' && m.direction === 1);
+  // Readdit selects the next post with pictures; when it renders, the viewer carries on there.
+  renderPost({ name: 't3_img', id: 'img', title: 'A picture', subreddit: 'pics', author: 'zed', created_utc: now,
+    permalink: '/r/pics/comments/img/a/', post_hint: 'image', url: 'https://i.redd.it/next.png', domain: 'i.redd.it', score: 1, num_comments: 0 });
+  result.viewerContinued = !lightbox.hidden && lightboxImg.getAttribute('src') === 'https://i.redd.it/next.png' && viewer.pending === 0;
+  exitViewer();
+  result.viewerClosed = lightbox.hidden && !viewer.browsing;
 
   // Last, because it clears the page: switching posts closes overlays and drops stale find results.
   openLightbox(['https://example.com/a.png'], 0);

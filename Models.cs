@@ -36,6 +36,9 @@ public sealed partial class Post : ObservableObject
     public bool IsSelf { get; init; }
     public bool IsVideo { get; init; }
     public bool IsGallery { get; init; }
+
+    /// <summary>Has pictures the viewer can show (a gallery or an image post).</summary>
+    public bool HasPictures { get; init; }
     public bool Over18 { get; init; }
     public bool Spoiler { get; init; }
     public bool Stickied { get; init; }
@@ -252,6 +255,7 @@ public sealed partial class Post : ObservableObject
             IsSelf = d.Bool("is_self"),
             IsVideo = d.Bool("is_video"),
             IsGallery = d.Bool("is_gallery"),
+            HasPictures = HasViewerPictures(d),
             Over18 = d.Bool("over_18"),
             Spoiler = d.Bool("spoiler"),
             Stickied = d.Bool("stickied"),
@@ -263,6 +267,23 @@ public sealed partial class Post : ObservableObject
             IsRemoved = ReadRemoved(d),
             RawJson = d.GetRawText(),
         };
+    }
+
+    /// <summary>
+    /// A gallery or an image post, as the post view's picture viewer sees it (its postImages
+    /// function). Crossposts carry their media on the original.
+    /// </summary>
+    static bool HasViewerPictures(JsonElement d)
+    {
+        var s = d.TryGetProperty("crosspost_parent_list", out var parents) && parents.ValueKind == JsonValueKind.Array &&
+                parents.GetArrayLength() > 0
+            ? parents[0]
+            : d;
+        if (s.Bool("is_gallery") && s.Child("media_metadata") != null) return true;
+        if (s.Bool("is_video")) return false;
+        var url = (s.Str("url_overridden_by_dest") is { Length: > 0 } o ? o : s.Str("url")).Split('?')[0].ToLowerInvariant();
+        return s.Str("post_hint") == "image" ||
+               url.EndsWith(".jpg") || url.EndsWith(".jpeg") || url.EndsWith(".png") || url.EndsWith(".gif") || url.EndsWith(".webp");
     }
 
     /// <summary>Best still image for a post, no wider than <paramref name="maxWidth"/> where possible.</summary>

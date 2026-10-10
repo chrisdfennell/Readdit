@@ -33,6 +33,7 @@ public partial class MainWindow : Window
         _vm.InboxNotification += OnInboxNotification;
         _vm.AlertNotification += OnAlertNotification;
         _vm.PaletteRequested += ShowPalette;
+        _vm.FullscreenRequested += SetFullscreen;
         Loaded += (_, _) => { if (Program.StartupUrl is { } url) _vm.OpenWhenReady(url); };
         // Offer a reddit link you copied elsewhere when you come back to Readdit.
         Activated += (_, _) =>
@@ -243,6 +244,44 @@ public partial class MainWindow : Window
         }
     }
 
+    // ---- Full screen (F11, or the picture viewer's ⛶) -------------------------------------------
+
+    WindowState _stateBeforeFullscreen;
+    WindowStyle _styleBeforeFullscreen;
+    ResizeMode _resizeBeforeFullscreen;
+    bool _readingBeforeFullscreen;
+
+    /// <summary>On, off, or (null) toggle. Full screen is reading mode without the window frame and bars.</summary>
+    void SetFullscreen(bool? on)
+    {
+        var target = on ?? !_vm.IsFullscreen;
+        if (target == _vm.IsFullscreen) return;
+        _vm.IsFullscreen = target;
+        if (target)
+        {
+            _stateBeforeFullscreen = WindowState;
+            _styleBeforeFullscreen = WindowStyle;
+            _resizeBeforeFullscreen = ResizeMode;
+            _readingBeforeFullscreen = _vm.IsReadingMode;
+            _vm.IsReadingMode = true;
+            // Collapse the toolbar and status bar rows (their visibility is bound to sign-in state).
+            RootGrid.RowDefinitions[0].Height = RootGrid.RowDefinitions[2].Height = new GridLength(0);
+            WindowStyle = WindowStyle.None;
+            ResizeMode = ResizeMode.NoResize;
+            // Via Normal, so an already maximized window re-maximizes over the taskbar.
+            WindowState = WindowState.Normal;
+            WindowState = WindowState.Maximized;
+        }
+        else
+        {
+            WindowStyle = _styleBeforeFullscreen;
+            ResizeMode = _resizeBeforeFullscreen;
+            WindowState = _stateBeforeFullscreen;
+            RootGrid.RowDefinitions[0].Height = RootGrid.RowDefinitions[2].Height = GridLength.Auto;
+            if (!_readingBeforeFullscreen) _vm.IsReadingMode = false;
+        }
+    }
+
     // ---- Accounts -----------------------------------------------------------------------------
 
     void OnAccountButtonClick(object sender, RoutedEventArgs e)
@@ -402,6 +441,7 @@ public partial class MainWindow : Window
         Key.Space => " ",
         Key.Tab => "Tab",
         Key.F5 => "F5",
+        Key.F11 => "F11",
         Key.Escape => "Escape",
         Key.OemPlus => shift ? "+" : "=",
         Key.Add => "+",

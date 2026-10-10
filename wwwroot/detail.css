@@ -505,6 +505,40 @@ button.link:hover { text-decoration: underline; }
 .lb-next { right: 12px; }
 .lb-counter { position: absolute; bottom: 14px; left: 0; right: 0; text-align: center; color: #ddd; font-size: 13px; }
 
+/* Viewer toolbar: the post's title, slideshow and full screen. */
+.lb-bar {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    right: 64px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    z-index: 1;
+}
+.lb-title {
+    flex: 1;
+    min-width: 0;
+    color: #eee;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-shadow: 0 1px 3px #000;
+}
+.lb-bar button { color: #fff; background: rgba(255, 255, 255, 0.12); width: 40px; height: 40px; font-size: 16px; }
+.lb-bar button.on { background: var(--accent); }
+#lightbox.loading .lb-stage::after {
+    content: 'Loading the next post…';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 40px;
+    text-align: center;
+    color: #ccc;
+    font-size: 13px;
+}
+
 /* ---- Middle-click auto-scroll marker ----------------------------------------------------- */
 
 #autoscroll {

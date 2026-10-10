@@ -354,6 +354,9 @@ public sealed class FeedViewModel : ObservableObject
 
     // ---- Loading ------------------------------------------------------------------------------
 
+    /// <summary>Loads the next page, if there is one (the picture viewer walks past the end).</summary>
+    public Task LoadMoreAsync() => HasMore && !IsLoading ? LoadPageAsync(_cts?.Token ?? default) : Task.CompletedTask;
+
     public async Task ReloadAsync()
     {
         _cts?.Cancel();

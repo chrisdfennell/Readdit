@@ -68,6 +68,8 @@ public sealed partial class MainViewModel : ObservableObject
         _detail.PostStateChanged += OnDetailPostStateChanged;
         _detail.ModActionDone += OnModActionDone;
         _detail.UserNoteChanged += OnUserNoteChanged;
+        _detail.MediaStepHandler = StepToPicturesAsync;
+        _detail.FullscreenRequested += on => FullscreenRequested?.Invoke(on);
         _detail.ThreadVisited += postId =>
         {
             foreach (var post in Tabs.SelectMany(t => t.Posts).Where(p => p.Id == postId)) post.NewComments = 0;
@@ -131,6 +133,9 @@ public sealed partial class MainViewModel : ObservableObject
             CopiedLink = null;
         });
         DismissCopiedLinkCommand = new RelayCommand(_ => CopiedLink = null);
+        SyncLibraryCommand = new RelayCommand(_ => _ = SyncSavedToLibraryAsync(), _ => _isReady && !_syncingLibrary);
+        ExportLibraryCommand = new RelayCommand(p => { if (p is FeedViewModel tab) ExportLibrary(tab); });
+        TagShownCommand = new RelayCommand(p => { if (p is FeedViewModel tab) TagShown(tab); });
         ToggleReadingModeCommand = new RelayCommand(_ => IsReadingMode = !IsReadingMode);
         HideCommand = new RelayCommand(p => _ = HideAsync(p as Post ?? SelectedPost));
         ApproveCommand = new RelayCommand(p => _ = ModerateAsync(p as Post ?? SelectedPost, "approve"));
@@ -180,6 +185,34 @@ public sealed partial class MainViewModel : ObservableObject
 
     /// <summary>Raised to open the command palette (Ctrl+K).</summary>
     public event Action? PaletteRequested;
+
+    /// <summary>Raised to turn full screen on (true), off (false) or toggle it (null).</summary>
+    public event Action<bool?>? FullscreenRequested;
+
+    /// <summary>
+    /// For the picture viewer: selects the next (1) or previous (-1) post in the list that has
+    /// pictures, loading more of the feed if needed. False when there isn't one.
+    /// </summary>
+    async Task<bool> StepToPicturesAsync(int direction)
+    {
+        var tab = SelectedTab;
+        if (tab == null || direction == 0) return false;
+        var from = tab.SelectedPost == null ? (direction > 0 ? -1 : tab.Posts.Count) : tab.Posts.IndexOf(tab.SelectedPost);
+        // A few pages at most, so a feed with no pictures doesn't page on forever.
+        for (var pages = 0; pages < 4; pages++)
+        {
+            for (var i = from + direction; i >= 0 && i < tab.Posts.Count; i += direction)
+            {
+                if (!tab.Posts[i].HasPictures) continue;
+                tab.SelectedPost = tab.Posts[i];
+                return true;
+            }
+            if (direction < 0 || !tab.HasMore || tab != SelectedTab) return false;
+            from = tab.Posts.Count - 1;
+            await tab.LoadMoreAsync();
+        }
+        return false;
+    }
 
     readonly AlertMonitor _alertMonitor;
     readonly DispatcherTimer _alertTimer = new() { Interval = TimeSpan.FromSeconds(20) };
@@ -245,6 +278,9 @@ public sealed partial class MainViewModel : ObservableObject
     public ICommand SubmitCommand { get; }
     public ICommand ShortcutsCommand { get; }
     public ICommand RefreshSubscriptionsCommand { get; }
+    public ICommand SyncLibraryCommand { get; }
+    public ICommand ExportLibraryCommand { get; }
+    public ICommand TagShownCommand { get; }
     public ICommand ManageAlertsCommand { get; }
     public ICommand CommandPaletteCommand { get; }
     public ICommand EditUserNoteCommand { get; }
@@ -442,6 +478,17 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     public string ReadingModeLabel => IsReadingMode ? "⤡ Exit reading" : "⤢ Read";
+
+    bool _isFullscreen;
+    /// <summary>Full screen (set by the window, which does the work).</summary>
+    public bool IsFullscreen
+    {
+        get => _isFullscreen;
+        set
+        {
+            if (Set(ref _isFullscreen, value)) _detail.SetFullscreenState(value);
+        }
+    }
 
     public int ReadingFontSize
     {
@@ -1284,12 +1331,16 @@ public sealed partial class MainViewModel : ObservableObject
 
         switch (key)
         {
+            case "Escape" when IsFullscreen: FullscreenRequested?.Invoke(false); return true;
             case "Escape" when ShowBrowser: ShowBrowser = false; return true;
             case "Escape" when IsReadingMode: IsReadingMode = false; return true;
             case "f": IsReadingMode = !IsReadingMode; return true;
             case "x": _ = HideAsync(SelectedPost); return true;
             case "N": _detail.NextNewComment(); return true;
+            case "P": _detail.NextOpComment(); return true;
+            case "F11": FullscreenRequested?.Invoke(null); return true;
             case "d": _detail.RequestDownload(); return true;
+            case "v": _detail.OpenViewer(); return true;
             case "J": _detail.NavigateComments(1); return true;
             case "K": _detail.NavigateComments(-1); return true;
             case "+" or "=": ReadingFontSize++; return true;
@@ -1850,6 +1901,112 @@ public sealed partial class MainViewModel : ObservableObject
         _services.Offline.SetTags(post.Id, dialog.Value.Split(','));
         Status = "Tags updated.";
         foreach (var tab in Tabs.Where(t => t.Kind == FeedKind.Offline)) _ = tab.RefreshLibraryAsync();
+    }
+
+    // ---- Organizing the offline library ---------------------------------------------------------
+
+    bool _syncingLibrary;
+
+    /// <summary>
+    /// Copies every post you've saved on Reddit into the offline library (the ones not there
+    /// yet), so all of them can be tagged, searched and exported.
+    /// </summary>
+    async Task SyncSavedToLibraryAsync()
+    {
+        if (_syncingLibrary) return;
+        if (_services.Api.UserName is not { } me)
+        {
+            Status = "Readdit doesn't know your username yet. Try again in a moment.";
+            return;
+        }
+        _syncingLibrary = true;
+        CommandManager.InvalidateRequerySuggested();
+        var added = 0;
+        var failed = 0;
+        try
+        {
+            string? after = null;
+            // Reddit keeps your newest 1,000 saved items.
+            for (var page = 0; page < 20; page++)
+            {
+                var (items, next) = await _services.Api.GetListingAsync($"/user/{me}/saved.json", after, default);
+                foreach (var post in items.Where(p => p.Kind == ItemKind.Link && !_services.Offline.Has(p.Id)))
+                {
+                    Status = $"Adding saved posts to your offline library… {added} so far";
+                    try
+                    {
+                        var raw = await _services.Api.GetThreadRawAsync(post.Id, "confidence", null, default);
+                        _services.Offline.Save(post.Id, raw);
+                        _services.Offline.StartMediaDownload(post.Id, raw);
+                        added++;
+                    }
+                    catch
+                    {
+                        failed++; // deleted, or a private community: skip it
+                    }
+                }
+                after = next;
+                if (after == null) break;
+            }
+            Status = added == 0
+                ? "Your offline library already has every post you've saved."
+                : $"Added {added} saved {(added == 1 ? "post" : "posts")} to your offline library" +
+                  (failed > 0 ? $" ({failed} couldn't be fetched)." : ".") + " Pictures and videos download in the background.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Couldn't finish syncing (added {added}): {ex.Message}";
+        }
+        finally
+        {
+            _syncingLibrary = false;
+            CommandManager.InvalidateRequerySuggested();
+            foreach (var tab in Tabs.Where(t => t.Kind == FeedKind.Offline)) _ = tab.RefreshLibraryAsync();
+        }
+    }
+
+    void ExportLibrary(FeedViewModel tab)
+    {
+        if (tab.Posts.Count == 0)
+        {
+            Status = "Nothing to export: no posts are showing.";
+            return;
+        }
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Export saved posts",
+            FileName = $"Readdit saved posts {DateTime.Now:yyyy-MM-dd}",
+            Filter = "Markdown (*.md)|*.md|Web page (*.html)|*.html|Spreadsheet (*.csv)|*.csv|JSON (*.json)|*.json",
+        };
+        if (dialog.ShowDialog(Application.Current.MainWindow) != true) return;
+        try
+        {
+            var text = LibraryExport.Render([.. tab.Posts], p => _services.Offline.TagsFor(p.Id),
+                System.IO.Path.GetExtension(dialog.FileName));
+            System.IO.File.WriteAllText(dialog.FileName, text, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            Status = $"Exported {tab.Posts.Count} posts to {dialog.FileName}";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Couldn't export: {ex.Message}";
+        }
+    }
+
+    /// <summary>Adds tags to every post the library is showing (after a search or tag filter).</summary>
+    void TagShown(FeedViewModel tab)
+    {
+        var posts = tab.Posts.Where(p => _services.Offline.Has(p.Id)).ToList();
+        if (posts.Count == 0) return;
+        var dialog = new TextInputWindow("Tag posts", $"Add tags to the {posts.Count} posts shown, separated by commas:", "")
+        {
+            Owner = Application.Current.MainWindow,
+        };
+        if (dialog.ShowDialog() != true) return;
+        var add = dialog.Value.Split(',').Select(t => t.Trim()).Where(t => t.Length > 0).ToList();
+        if (add.Count == 0) return;
+        foreach (var post in posts) _services.Offline.SetTags(post.Id, _services.Offline.TagsFor(post.Id).Concat(add));
+        Status = $"Tagged {posts.Count} posts with {string.Join(", ", add)}.";
+        _ = tab.RefreshLibraryAsync();
     }
 
     async Task ShowAccountAsync()

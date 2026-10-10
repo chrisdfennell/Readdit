@@ -228,6 +228,24 @@ public sealed class DetailBridge(WebView2 view, Services services)
     /// <summary>Jumps to the next comment posted since the last visit.</summary>
     public void NextNewComment() => Send("""{"type":"nextNew"}""");
 
+    /// <summary>Jumps to the next comment by the original poster.</summary>
+    public void NextOpComment() => Send("""{"type":"nextOp"}""");
+
+    /// <summary>Opens the picture viewer on the current post (or the next one with pictures).</summary>
+    public void OpenViewer() => Send("""{"type":"viewer"}""");
+
+    /// <summary>
+    /// The viewer asks for the next (1) or previous (-1) post with pictures; the handler selects
+    /// it and says whether there was one.
+    /// </summary>
+    public Func<int, Task<bool>>? MediaStepHandler { get; set; }
+
+    /// <summary>The viewer asks for full screen on (true), off (false) or toggled (null).</summary>
+    public event Action<bool?>? FullscreenRequested;
+
+    /// <summary>Tells the page whether the window is full screen (for the viewer's ⛶ button).</summary>
+    public void SetFullscreenState(bool on) => Send($$"""{"type":"fullscreenState","on":{{(on ? "true" : "false")}}}""");
+
     /// <summary>Asks the page to download the media of the post it's showing.</summary>
     public void RequestDownload() => Send("""{"type":"download"}""");
 
@@ -444,6 +462,16 @@ public sealed class DetailBridge(WebView2 view, Services services)
                     services.Settings.Save();
                     return SettingsJson;
                 }
+
+            case "mediaStep":
+                {
+                    var found = MediaStepHandler != null && await MediaStepHandler(Math.Sign((int)m.Long("direction")));
+                    return found ? "true" : "false";
+                }
+
+            case "fullscreen":
+                FullscreenRequested?.Invoke(m.NullableBool("on"));
+                return null;
 
             case "userNote":
                 {

@@ -73,6 +73,23 @@ if (host) {
             case 'navComments': navigateComments(m.direction); break;
             case 'find': openFind(); break;
             case 'nextNew': nextNewComment(); break;
+            case 'nextOp': nextOpComment(); break;
+            case 'fullscreenState':
+                viewer.fullscreen = !!m.on;
+                if (!m.on) viewer.ownsFullscreen = false;
+                fullButton.classList.toggle('on', viewer.fullscreen);
+                break;
+            case 'viewer': {
+                const pics = state.post ? postImages(state.post) : [];
+                if (pics.length) {
+                    openLightbox(pics, 0, true);
+                } else {
+                    // No pictures here: start from the next post that has some.
+                    showToast('Finding the next post with pictures…');
+                    stepPost(1);
+                }
+                break;
+            }
             case 'settings':
                 state.settings = m.settings;
                 refreshUserTags();
@@ -672,7 +689,8 @@ function redditVideo(fallbackUrl, poster, isGif) {
 
 function image(src, list, index) {
     const img = el('img', { src, class: 'zoomable', alt: '', loading: 'lazy' });
-    img.onclick = () => openLightbox(list || [src], index || 0);
+    // The post's own media: the viewer can step on to the next post's pictures.
+    img.onclick = () => openLightbox(list || [src], index || 0, true);
     return img;
 }
 
@@ -777,7 +795,7 @@ function clearView() {
     closeMenu();
     hideHovercard();
     resetFind();
-    state.newIndex = -1;
+    state.newIndex = state.opIndex = -1;
     state.post = null;
     root.replaceChildren();
     empty.hidden = false;
@@ -879,6 +897,7 @@ function renderPost(d, settings) {
         box);
 
     root.append(article, commentsSection(d));
+    continueViewer(d);
 }
 
 function commentsSection(d) {
@@ -902,6 +921,7 @@ function commentsSection(d) {
                     },
                 }, '⟳ Refresh'),
                 el('button', { class: 'action', title: 'Find in thread (Ctrl+F)', onclick: () => openFind() }, '🔍 Find'),
+                el('button', { class: 'action', title: 'Next comment by the original poster (Shift+P)', onclick: () => nextOpComment() }, 'OP ↓'),
                 select)),
         el('div', { id: 'new-note', class: 'note', hidden: true }),
         el('div', { id: 'focus-note', class: 'note', hidden: true }),
@@ -924,7 +944,7 @@ function renderThread(m) {
         const heading = root.querySelector('.comments-head h2');
         if (heading) heading.textContent = `${count(post.num_comments || 0)} comments`;
     }
-    state.newIndex = -1;
+    state.newIndex = state.opIndex = -1;
 
     const select = root.querySelector('.comments-head select');
     if (select) select.value = state.sort;
@@ -990,6 +1010,7 @@ function commentNode(c, depth, post) {
     node.classList.toggle('highlight', isHighlighted(c.author));
     node.classList.toggle('muted', muted);
     node.classList.toggle('new', isNew);
+    node.classList.toggle('by-op', !!c.is_submitter);
     // Comments in the "more" stubs don't carry a subreddit; they belong to the post's.
     if (!c.subreddit && post) c.subreddit = post.subreddit;
     const modOn = isModOf(c.subreddit);
@@ -1307,21 +1328,34 @@ function expandAncestors(node) {
     }
 }
 
-function nextNewComment() {
-    const fresh = [...root.querySelectorAll('.comment.new')];
-    if (!fresh.length) {
-        showToast('No new comments since your last visit');
+/**
+ * Steps through the comments matching a selector, in thread order, opening collapsed threads on
+ * the way. (Picking "the first one below the viewport top" re-picked the comment just centred,
+ * and skipped ones inside collapsed threads.) The position is kept in state[key].
+ */
+function jumpThrough(selector, key, noneMessage) {
+    const matches = [...root.querySelectorAll(selector)];
+    if (!matches.length) {
+        showToast(noneMessage);
         return;
     }
-    // Walk them in order. (Picking "the first one below the viewport top" re-picked the
-    // comment just centred, and skipped ones inside collapsed threads.)
-    state.newIndex = ((state.newIndex ?? -1) + 1) % fresh.length;
-    const next = fresh[state.newIndex];
+    state[key] = ((state[key] ?? -1) + 1) % matches.length;
+    const next = matches[state[key]];
     expandAncestors(next);
     next.scrollIntoView({ block: 'center', behavior: 'smooth' });
     next.classList.remove('flash');
-    void next.offsetWidth;
+    void next.offsetWidth; // restart the animation
     next.classList.add('flash');
+    if (matches.length > 1) showToast(`${state[key] + 1} of ${matches.length}`);
+}
+
+function nextNewComment() {
+    jumpThrough('.comment.new', 'newIndex', 'No new comments since your last visit');
+}
+
+/** The original poster's own comments: often the answers in a question thread. */
+function nextOpComment() {
+    jumpThrough('.comment.by-op', 'opIndex', 'The original poster hasn\'t commented here');
 }
 
 // ---- Find in thread ---------------------------------------------------------------------
@@ -1645,17 +1679,46 @@ window.addEventListener('scroll', hideHovercard, { passive: true });
 
 // ---- Lightbox --------------------------------------------------------------------------
 
+// The post's own pictures open as a viewer: stepping past the last one moves on to the next post
+// in the list that has pictures (and the slideshow does that by itself). Pictures from comments
+// stay a simple loop.
+
 const lightbox = document.getElementById('lightbox');
 const lightboxImg = lightbox.querySelector('img');
 const lightboxCounter = lightbox.querySelector('.lb-counter');
+const lightboxTitle = lightbox.querySelector('.lb-title');
+const playButton = lightbox.querySelector('.lb-play');
+const fullButton = lightbox.querySelector('.lb-full');
 let lightboxList = [];
 let lightboxIndex = 0;
 
-function openLightbox(list, index) {
+const SLIDE_SECONDS = 5;
+const viewer = { browsing: false, pending: 0, timer: null, fullscreen: false };
+
+/** Full-size pictures of a post (gallery, or a single image), for the viewer. */
+function postImages(d) {
+    const s = (d.crosspost_parent_list && d.crosspost_parent_list[0]) || d;
+    const url = s.url_overridden_by_dest || s.url || '';
+    if (s.is_gallery && s.gallery_data && s.media_metadata) {
+        const pics = s.gallery_data.items
+            .map(it => s.media_metadata[it.media_id])
+            .filter(m => m && m.status === 'valid' && m.s)
+            .map(m => mapUrl(m.s.u || m.s.gif));
+        if (pics.length) return pics;
+    }
+    if (s.is_video) return [];
+    if (s.post_hint === 'image' || /\.(jpe?g|png|gif|webp)(\?|$)/i.test(url)) return [mapUrl(url)];
+    return [];
+}
+
+function openLightbox(list, index, browsing = false) {
     lightboxList = list;
     lightboxIndex = index;
-    lightbox.classList.remove('zoomed');
+    viewer.browsing = browsing;
+    lightbox.classList.remove('zoomed', 'loading');
     lightbox.hidden = false;
+    lightboxTitle.textContent = browsing && state.post ? `${state.post.title}  ·  r/${state.post.subreddit}` : '';
+    playButton.hidden = !browsing && list.length < 2;
     paintLightbox();
 }
 
@@ -1663,26 +1726,99 @@ function paintLightbox() {
     lightboxImg.src = lightboxList[lightboxIndex];
     const many = lightboxList.length > 1;
     lightboxCounter.textContent = many ? `${lightboxIndex + 1} / ${lightboxList.length}` : '';
-    lightbox.querySelector('.lb-prev').hidden = !many;
-    lightbox.querySelector('.lb-next').hidden = !many;
+    lightbox.querySelector('.lb-prev').hidden = !many && !viewer.browsing;
+    lightbox.querySelector('.lb-next').hidden = !many && !viewer.browsing;
 }
 
 function stepLightbox(delta) {
-    lightboxIndex = (lightboxIndex + delta + lightboxList.length) % lightboxList.length;
+    const next = lightboxIndex + delta;
+    if (viewer.browsing && (next < 0 || next >= lightboxList.length)) {
+        stepPost(delta);
+        return;
+    }
+    lightboxIndex = (next + lightboxList.length) % lightboxList.length;
     lightbox.classList.remove('zoomed');
     paintLightbox();
 }
 
+/** Past the last (or before the first) picture: on to the next post with pictures. */
+async function stepPost(delta) {
+    if (viewer.pending) return;
+    viewer.pending = delta;
+    lightbox.classList.add('loading');
+    let found = false;
+    try {
+        found = await call('mediaStep', { direction: delta });
+    } catch {
+        found = false;
+    }
+    // On success the new post has already arrived and reopened the viewer (see renderPost).
+    if (!found && viewer.pending) {
+        viewer.pending = 0;
+        lightbox.classList.remove('loading');
+        stopSlideshow();
+        showToast(delta > 0 ? 'No more pictures in this feed' : 'No earlier posts with pictures');
+    }
+}
+
+/** Called after a post renders: reopen the viewer on it if we were stepping through posts. */
+function continueViewer(d) {
+    if (!viewer.pending) return;
+    const direction = viewer.pending;
+    viewer.pending = 0;
+    const pics = postImages(d);
+    if (pics.length) openLightbox(pics, direction > 0 ? 0 : pics.length - 1, true);
+    else stepPost(direction); // Readdit only picks posts with pictures, but just in case
+}
+
+function startSlideshow() {
+    stopSlideshow();
+    viewer.timer = setInterval(() => {
+        if (lightbox.hidden && !viewer.pending) stopSlideshow();
+        else if (!viewer.pending) stepLightbox(1);
+    }, SLIDE_SECONDS * 1000);
+    playButton.textContent = '❚❚';
+    playButton.classList.add('on');
+    showToast(`Slideshow: a new picture every ${SLIDE_SECONDS} seconds (Space to stop)`);
+}
+
+function stopSlideshow() {
+    clearInterval(viewer.timer);
+    viewer.timer = null;
+    playButton.textContent = '▶';
+    playButton.classList.remove('on');
+}
+
+function setFullscreen(on) {
+    viewer.fullscreen = on;
+    viewer.ownsFullscreen = on; // closing the viewer leaves full screen only if the viewer chose it
+    fullButton.classList.toggle('on', on);
+    send({ type: 'fullscreen', on });
+}
+
+/** Hides the overlay (switching posts does this too, mid-browse). */
 function closeLightbox() {
     lightbox.hidden = true;
     lightboxImg.removeAttribute('src');
+}
+
+/** You closed the viewer: stop the slideshow and leave full screen as well. */
+function exitViewer() {
+    closeLightbox();
+    stopSlideshow();
+    viewer.pending = 0;
+    viewer.browsing = false;
+    if (viewer.fullscreen && viewer.ownsFullscreen) setFullscreen(false);
 }
 
 lightbox.addEventListener('click', e => {
     if (e.target === lightboxImg) lightbox.classList.toggle('zoomed');
     else if (e.target.closest('.lb-prev')) stepLightbox(-1);
     else if (e.target.closest('.lb-next')) stepLightbox(1);
-    else closeLightbox();
+    else if (e.target.closest('.lb-play')) viewer.timer ? stopSlideshow() : startSlideshow();
+    else if (e.target.closest('.lb-full')) setFullscreen(!viewer.fullscreen);
+    else if (e.target.closest('.lb-bar')) return;
+    else exitViewer();
 });
 
 // ---- Global input ----------------------------------------------------------------------
@@ -1799,9 +1935,11 @@ document.addEventListener('keydown', e => {
     }
     if (!lightbox.hidden) {
         // Only claim the lightbox's own keys; Ctrl+C and friends keep working.
-        if (e.key === 'Escape') closeLightbox();
-        else if (e.key === 'ArrowRight') stepLightbox(1);
-        else if (e.key === 'ArrowLeft') stepLightbox(-1);
+        if (e.key === 'Escape') exitViewer();
+        else if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown') stepLightbox(1);
+        else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') stepLightbox(-1);
+        else if (e.key === ' ' && (viewer.browsing || lightboxList.length > 1)) viewer.timer ? stopSlideshow() : startSlideshow();
+        else if (e.key === 'F11') setFullscreen(!viewer.fullscreen);
         else return;
         e.preventDefault();
         return;
@@ -1826,6 +1964,11 @@ document.addEventListener('keydown', e => {
         e.preventDefault();
         return;
     }
+    if (!e.ctrlKey && e.key === 'P') {
+        nextOpComment();
+        e.preventDefault();
+        return;
+    }
 
     // Comment navigation is handled right here; no round trip needed.
     if (!e.ctrlKey && (e.key === 'J' || e.key === 'K')) {
@@ -1842,7 +1985,7 @@ document.addEventListener('keydown', e => {
     if (e.ctrlKey && ['c', 'a', 'f'].includes(e.key.toLowerCase())) return;
 
     // Forward shortcuts so they work no matter which pane has focus.
-    if (e.key.length === 1 || e.key === 'F5' || (e.ctrlKey && e.key === 'Tab')) {
+    if (e.key.length === 1 || e.key === 'F5' || e.key === 'F11' || (e.ctrlKey && e.key === 'Tab')) {
         send({ type: 'key', key: e.key, ctrl: e.ctrlKey, shift: e.shiftKey });
         e.preventDefault();
     }
