@@ -44,6 +44,7 @@ Skein is a native Windows app (WPF on .NET 10) for browsing Reddit. It signs in 
 - Hover previews for thumbnails, usernames and image links.
 - An in-app browser for links, signed in to Reddit.
 - Open any post side by side in a window of its own.
+- Made for wide and ultra-wide screens: the post list keeps a readable width (drag to change it; double-click the divider to reset), and on a wide post view the post stays on the left while its comments scroll on the right.
 - Remind me later: pick a time and Skein brings the post back with a notification.
 - Translate posts and comments (optional; uses MyMemory or your own LibreTranslate server).
 - Polls show their options and results.

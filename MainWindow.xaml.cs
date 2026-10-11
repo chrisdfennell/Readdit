@@ -295,6 +295,48 @@ public partial class MainWindow : Window
         window.Show();
     }
 
+    // ---- Pane widths ------------------------------------------------------------------------------
+    //
+    // The post list gets a width that suits reading a list (about 40% of the space beside the
+    // sidebar, between 360 and 720), and the post view takes the rest. On an ultra-wide screen
+    // that keeps the list from turning into one very wide column, and the post view lays the
+    // post and its comments out side by side. Widths you drag to are remembered.
+
+    public static double AutoListWidth(double available) => Math.Clamp(available * 0.4, 360, 720);
+
+    void OnPanesSizeChanged(object sender, SizeChangedEventArgs e) => ApplyPaneWidths();
+
+    void ApplyPaneWidths()
+    {
+        if (_vm.IsReadingMode || Panes.ActualWidth <= 0) return;
+        var settings = _vm.CurrentSettings;
+        var sidebar = settings.SidebarWidth >= SidebarColumn.MinWidth ? settings.SidebarWidth : 230;
+        // Always leave the post view room.
+        sidebar = Math.Min(sidebar, Math.Max(SidebarColumn.MinWidth, Panes.ActualWidth * 0.3));
+        SidebarColumn.Width = new GridLength(sidebar);
+        var beside = Panes.ActualWidth - sidebar - 10;
+        var list = settings.ListWidth >= ListColumn.MinWidth ? settings.ListWidth : AutoListWidth(beside);
+        ListColumn.Width = new GridLength(Math.Max(ListColumn.MinWidth, Math.Min(list, beside - 320)));
+    }
+
+    void OnSplitterDragged(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e)
+    {
+        var settings = _vm.CurrentSettings;
+        if (sender == SidebarSplitter) settings.SidebarWidth = Math.Round(SidebarColumn.ActualWidth);
+        else settings.ListWidth = Math.Round(ListColumn.ActualWidth);
+        settings.Save();
+    }
+
+    void OnSplitterReset(object sender, MouseButtonEventArgs e)
+    {
+        var settings = _vm.CurrentSettings;
+        if (sender == SidebarSplitter) settings.SidebarWidth = 0;
+        else settings.ListWidth = 0;
+        settings.Save();
+        ApplyPaneWidths();
+        e.Handled = true;
+    }
+
     /// <summary>Reading mode collapses the sidebar and post list so the post fills the window.</summary>
     void ApplyReadingMode(bool reading)
     {
@@ -315,6 +357,7 @@ public partial class MainWindow : Window
             SidebarColumn.MinWidth = _sidebarMin;
             ListColumn.MinWidth = _listMin;
             SidebarSplitter.Visibility = ListSplitter.Visibility = Visibility.Visible;
+            ApplyPaneWidths(); // the window may have changed size meanwhile
         }
     }
 

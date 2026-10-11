@@ -579,13 +579,13 @@
         </DockPanel>
 
         <!-- Main content -->
-        <Grid Grid.Row="1" Visibility="{Binding ShowLogin, Converter={StaticResource InvVis}}">
+        <Grid x:Name="Panes" Grid.Row="1" Visibility="{Binding ShowLogin, Converter={StaticResource InvVis}}" SizeChanged="OnPanesSizeChanged">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="SidebarColumn" Width="230" MinWidth="120" />
                 <ColumnDefinition x:Name="SidebarSplitColumn" Width="Auto" />
-                <ColumnDefinition x:Name="ListColumn" Width="2*" MinWidth="280" />
+                <ColumnDefinition x:Name="ListColumn" Width="520" MinWidth="280" />
                 <ColumnDefinition x:Name="ListSplitColumn" Width="Auto" />
-                <ColumnDefinition Width="3*" MinWidth="280" />
+                <ColumnDefinition Width="*" MinWidth="280" />
             </Grid.ColumnDefinitions>
 
             <!-- Sidebar -->
@@ -677,7 +677,9 @@
             </DockPanel>
 
             <GridSplitter x:Name="SidebarSplitter" Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch"
-                          Background="{StaticResource Divider}" ResizeBehavior="PreviousAndNext" />
+                          Background="{StaticResource Divider}" ResizeBehavior="PreviousAndNext"
+                          DragCompleted="OnSplitterDragged" MouseDoubleClick="OnSplitterReset"
+                          ToolTip="Drag to resize. Double-click to go back to the automatic size." />
 
             <!-- Tabs + post list -->
             <TabControl Grid.Column="2" ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}"
@@ -850,7 +852,9 @@
             </TabControl>
 
             <GridSplitter x:Name="ListSplitter" Grid.Column="3" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch"
-                          Background="{StaticResource Divider}" ResizeBehavior="PreviousAndNext" />
+                          Background="{StaticResource Divider}" ResizeBehavior="PreviousAndNext"
+                          DragCompleted="OnSplitterDragged" MouseDoubleClick="OnSplitterReset"
+                          ToolTip="Drag to resize. Double-click to go back to the automatic size." />
 
             <Grid Grid.Column="4">
                 <!-- Post + comments (HTML, see wwwroot/detail.*) -->

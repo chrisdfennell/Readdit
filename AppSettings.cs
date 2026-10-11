@@ -146,6 +146,12 @@ public sealed class AppSettings
     /// <summary>For each synced section: its hash when last synced, to notice changes made here.</summary>
     public Dictionary<string, string> SyncHashes { get; set; } = [];
 
+    /// <summary>Sidebar width you dragged it to (0 = the standard width).</summary>
+    public double SidebarWidth { get; set; }
+
+    /// <summary>Post list width you dragged it to (0 = sized to the window).</summary>
+    public double ListWidth { get; set; }
+
     /// <summary>Mini mode window position and size: left, top, width, height.</summary>
     public double[] MiniBounds { get; set; } = [];
 
