@@ -103,6 +103,7 @@ public partial class PreferencesWindow : Window
         ReadingFont.SelectedItem = ReadingFont.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == settings.ReadingFont)
                                    ?? ReadingFont.Items[0];
         CustomCss.Text = settings.CustomCss;
+        SetUpPages();
     }
 
     void ShowSummaryKeyState()
@@ -142,6 +143,132 @@ public partial class PreferencesWindow : Window
         catch (Exception ex)
         {
             ShareStatus.Text = $"Couldn't copy it: {ex.Message}";
+        }
+    }
+
+    // ---- Pages and search -----------------------------------------------------------------------
+
+    /// <summary>The page shown last time, so Preferences opens where you left it.</summary>
+    static string _lastPage = "appearance";
+
+    sealed record NavPage(string Key, string Icon, string Name, ScrollViewer Page)
+    {
+        /// <summary>Every word on the page (titles, descriptions, options), for search.</summary>
+        public string Text { get; set; } = "";
+    }
+
+    List<NavPage> _pages = [];
+
+    void SetUpPages()
+    {
+        _pages =
+        [
+            new("appearance", "🎨", "Appearance", PageAppearance),
+            new("feeds", "📰", "Feeds", PageFeeds),
+            new("filters", "🚫", "Filters", PageFilters),
+            new("people", "👥", "People", PagePeople),
+            new("window", "🔔", "Notifications and window", PageWindow),
+            new("links", "🔗", "Links and sharing", PageLinks),
+            new("language", "🌐", "Translation and summaries", PageLanguage),
+            new("library", "📥", "Library and downloads", PageLibrary),
+            new("sync", "🔄", "Sync and backup", PageSync),
+            new("updates", "⬆", "Updates", PageUpdates),
+            new("help", "❓", "Help", PageHelp),
+        ];
+        foreach (var page in _pages) page.Text = string.Join(" ", Words(page.Page)).ToLowerInvariant();
+        ShowNav(_pages);
+        Nav.SelectedItem = Nav.Items.Cast<ListBoxItem>().FirstOrDefault(i => ((NavPage)i.Tag).Key == _lastPage) ?? Nav.Items[0];
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control)
+            {
+                Search.Focus();
+                Search.SelectAll();
+                e.Handled = true;
+            }
+        };
+    }
+
+    void ShowNav(IEnumerable<NavPage> pages)
+    {
+        Nav.Items.Clear();
+        foreach (var page in pages)
+        {
+            Nav.Items.Add(new ListBoxItem
+            {
+                Tag = page,
+                Content = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Children =
+                    {
+                        new TextBlock { Text = page.Icon, Width = 28, FontSize = 15 },
+                        new TextBlock { Text = page.Name, FontSize = 14 },
+                    },
+                },
+            });
+            System.Windows.Automation.AutomationProperties.SetName((ListBoxItem)Nav.Items[^1], page.Name);
+        }
+    }
+
+    /// <summary>All the text on a page: headings, descriptions, checkbox labels, list choices.</summary>
+    static IEnumerable<string> Words(DependencyObject node)
+    {
+        switch (node)
+        {
+            case TextBlock { Text.Length: > 0 } text:
+                yield return text.Text;
+                break;
+            case ContentControl { Content: string label }:
+                yield return label;
+                break;
+        }
+        foreach (var child in LogicalTreeHelper.GetChildren(node).OfType<DependencyObject>())
+            foreach (var word in Words(child))
+                yield return word;
+    }
+
+    void OnPageChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (Nav.SelectedItem is not ListBoxItem { Tag: NavPage selected }) return;
+        foreach (var page in _pages) page.Page.Visibility = page == selected ? Visibility.Visible : Visibility.Collapsed;
+        selected.Page.ScrollToTop();
+        _lastPage = selected.Key;
+    }
+
+    void OnSearchChanged(object sender, TextChangedEventArgs e)
+    {
+        if (SearchHint == null) return; // during InitializeComponent
+        var query = Search.Text.Trim().ToLowerInvariant();
+        SearchHint.Visibility = query.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var current = (Nav.SelectedItem as ListBoxItem)?.Tag as NavPage;
+        // Every word typed must appear on the page (or in its name).
+        var terms = query.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var matches = _pages.Where(p => terms.All(t => p.Name.Contains(t, StringComparison.OrdinalIgnoreCase) || p.Text.Contains(t))).ToList();
+        ShowNav(matches);
+        NoMatches.Visibility = matches.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        Nav.SelectedItem = Nav.Items.Cast<ListBoxItem>().FirstOrDefault(i => i.Tag is NavPage p && p == current) ?? (Nav.Items.Count > 0 ? Nav.Items[0] : null);
+    }
+
+    void OnBrowseDownloadFolder(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = "Save downloads to",
+            InitialDirectory = System.IO.Directory.Exists(DownloadFolder.Text) ? DownloadFolder.Text : "",
+        };
+        if (dialog.ShowDialog(this) == true) DownloadFolder.Text = dialog.FolderName;
+    }
+
+    void OnOpenWebsite(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://chrisdfennell.github.io/Skein/") { UseShellExecute = true });
+        }
+        catch
+        {
+            // No browser registered; nothing sensible to do.
         }
     }
 
