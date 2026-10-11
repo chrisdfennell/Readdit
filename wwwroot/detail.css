@@ -586,10 +586,11 @@ body.editor-page { padding: 0; margin: 0; }
 }
 #focus-note { margin: 10px 0; padding: 8px 12px; background: var(--soft); border-radius: 8px; font-size: 13px; }
 
-.comment { display: flex; margin-top: 10px; }
+/* The − button sits in the gutter, with its thread's line running down from under it. */
+.comment { display: flex; margin-top: 10px; position: relative; }
 .thread-line {
     flex: none;
-    width: 14px;
+    width: 20px;
     margin-right: 6px;
     cursor: pointer;
     position: relative;
@@ -597,8 +598,8 @@ body.editor-page { padding: 0; margin: 0; }
 .thread-line::before {
     content: "";
     position: absolute;
-    left: 6px;
-    top: 26px;
+    left: 9px;
+    top: 24px;
     bottom: 0;
     width: 2px;
     background: var(--line);
@@ -612,6 +613,7 @@ body.editor-page { padding: 0; margin: 0; }
 .c-head .author.moderator { color: #2e8b57; }
 .c-head .author.admin { color: #d93a00; }
 .collapse { width: 20px; height: 20px; padding: 0; font-weight: 700; color: var(--muted); background: var(--soft); }
+.c-head > .collapse { position: absolute; left: 0; top: 0; }
 .badge { font-size: 10px; font-weight: 700; padding: 0 5px; border-radius: 4px; color: #fff; }
 .badge.op { background: #0079d3; }
 .badge.mod { background: #2e8b57; }
