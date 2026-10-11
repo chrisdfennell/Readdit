@@ -166,3 +166,19 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload v${{ steps.plan.outputs.version }} Releases/Skein-Portable.exe --clobber
+
+      # Once Skein is in winget (see winget/New-WingetManifest.ps1 for the first submission), each
+      # release opens the update there. Needs a WINGET_TOKEN secret: a GitHub token allowed to fork
+      # microsoft/winget-pkgs and open pull requests. Without it, this step does nothing.
+      - name: Update winget
+        if: steps.plan.outputs.release == 'true' && steps.plan.outputs.prerelease != 'True'
+        continue-on-error: true
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if (-not $env:WINGET_TOKEN) { Write-Host 'No WINGET_TOKEN secret: skipping winget.'; exit 0 }
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          ./wingetcreate.exe update ChrisFennell.Skein --version ${{ steps.plan.outputs.version }} `
+            --urls https://github.com/${{ github.repository }}/releases/download/v${{ steps.plan.outputs.version }}/Skein-win-Setup.exe `
+            --submit --token $env:WINGET_TOKEN

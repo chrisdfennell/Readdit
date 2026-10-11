@@ -321,6 +321,24 @@ try {
     internal: document.querySelectorAll('.modmail .bubble.internal').length,
     replyBox: !!document.querySelector('.modmail .md-editor textarea'),
   };
+  // Live threads: the comments the page doesn't have yet, parents before their replies.
+  const liveListing = { data: { children: [
+    { kind: 't1', data: { id: 'n1', replies: { data: { children: [{ kind: 't1', data: { id: 'n2', replies: '' } }] } } } },
+    { kind: 't1', data: { id: 'c1', replies: '' } },
+    { kind: 'more', data: { id: 'zz' } },
+  ] } };
+  result.liveUnseen = unseenComments(liveListing, id => id === 'c1').map(c => c.id).join(',');
+  // ✨ Summarize only once a key is set; symbol buttons are named for screen readers; your font and CSS apply.
+  state.settings.summaries = false;
+  const summaryOff = summarizeButton({ id: 'x' }).hidden;
+  state.settings.summaries = true;
+  result.summaryToggles = summaryOff && !summarizeButton({ id: 'x' }).hidden;
+  result.ariaVote = voteWidget({ name: 't3_q', score: 1 }, false).querySelector('button.up').getAttribute('aria-label');
+  result.ariaWords = el('button', { title: 'Not a symbol' }, 'Reply').hasAttribute('aria-label');
+  applyStyle({ font: 'Georgia"; } body { x', css: '.x { color: red; }' });
+  result.style = getComputedStyle(document.documentElement).getPropertyValue('--reading-font').trim().startsWith('"Georgia') &&
+    !getComputedStyle(document.documentElement).getPropertyValue('--reading-font').includes('}') &&
+    document.getElementById('custom-css').textContent === '.x { color: red; }';
   // Last, because it clears the page: switching posts closes overlays and drops stale find results.
   openLightbox(['https://example.com/a.png'], 0);
   findInput.value = 'comment';

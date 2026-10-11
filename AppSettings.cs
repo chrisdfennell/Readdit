@@ -164,6 +164,9 @@ public sealed class AppSettings
     /// <summary>Background tabs let go of their posts after this many minutes (0 = never).</summary>
     public int SleepTabsAfterMinutes { get; set; } = 15;
 
+    /// <summary>How each community was last sorted (lower-cased name → "new" or "top:week"); Hot isn't stored.</summary>
+    public Dictionary<string, string> CommunitySorts { get; set; } = [];
+
     /// <summary>Searches kept in the sidebar.</summary>
     public List<SavedSearch> SavedSearches { get; set; } = [];
 
@@ -194,6 +197,12 @@ public sealed class AppSettings
     /// <summary>The LibreTranslate server's API key, if it needs one.</summary>
     public string TranslateKey { get; set; } = "";
 
+    /// <summary>Your Anthropic API key for thread summaries, encrypted for this Windows account (see <see cref="KeyStore"/>).</summary>
+    public string SummaryKey { get; set; } = "";
+
+    /// <summary>The Claude model that writes thread summaries.</summary>
+    public string SummaryModel { get; set; } = "claude-opus-5-5";
+
     /// <summary>Your karma each day Skein ran (for the activity page's chart), per account.</summary>
     public Dictionary<string, List<KarmaPoint>> KarmaHistory { get; set; } = [];
 
@@ -217,6 +226,12 @@ public sealed class AppSettings
 
     /// <summary>Post list layout: Compact, Cards or Grid.</summary>
     public string LayoutMode { get; set; } = "Compact";
+
+    /// <summary>The post view's font family (empty = Segoe UI).</summary>
+    public string ReadingFont { get; set; } = "";
+
+    /// <summary>Your own CSS for the post view.</summary>
+    public string CustomCss { get; set; } = "";
 
     /// <summary>Base text size (px) in the post view.</summary>
     public int ReadingFontSize { get; set; } = 15;

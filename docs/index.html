@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Skein · a desktop Reddit client for Windows</title>
+    <meta name="description" content="Skein is a fast, keyboard-friendly Reddit client for Windows: tabs, a picture viewer, offline library, alerts, reminders, moderation tools and more. Free.">
+    <meta property="og:title" content="Skein · a desktop Reddit client for Windows">
+    <meta property="og:description" content="Fast, keyboard-friendly and free.">
+    <meta property="og:image" content="https://chrisdfennell.github.io/Skein/screenshots/main.png">
+    <link rel="icon" href="icon.png">
+    <style>
+        :root {
+            --bg: #ffffff;
+            --fg: #17181a;
+            --muted: #5d6167;
+            --soft: #f3f4f6;
+            --line: #dfe2e6;
+            --accent: #ff4500;
+            --accent-fg: #ffffff;
+            --card: #ffffff;
+            --shadow: 0 10px 30px rgba(15, 20, 30, 0.12);
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #111213;
+                --fg: #e9eaec;
+                --muted: #a1a6ad;
+                --soft: #1b1c1e;
+                --line: #2c2e31;
+                --card: #18191b;
+                --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+            }
+        }
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--fg);
+            font: 17px/1.6 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+        }
+        a { color: inherit; }
+        .wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+
+        header.top { display: flex; align-items: center; justify-content: space-between; padding: 18px 0; }
+        .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; text-decoration: none; }
+        .brand img { width: 30px; height: 30px; }
+        nav a { margin-left: 18px; color: var(--muted); text-decoration: none; font-size: 15px; }
+        nav a:hover { color: var(--fg); }
+
+        .hero { text-align: center; padding: 48px 0 28px; }
+        .hero h1 { font-size: clamp(34px, 6vw, 58px); line-height: 1.08; margin: 0 0 16px; letter-spacing: -0.02em; }
+        .hero h1 span { color: var(--accent); }
+        .hero p.lead { font-size: clamp(17px, 2.2vw, 21px); color: var(--muted); max-width: 720px; margin: 0 auto 28px; }
+        .buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+        .button {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 13px 22px;
+            border-radius: 10px;
+            font-weight: 600;
+            text-decoration: none;
+            border: 1px solid var(--line);
+            background: var(--card);
+        }
+        .button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+        .button:hover { transform: translateY(-1px); }
+        .fine { color: var(--muted); font-size: 14px; margin-top: 14px; }
+        code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 0.92em; background: var(--soft); padding: 2px 6px; border-radius: 5px; }
+
+        .shot { margin: 34px auto 0; max-width: 1100px; }
+        .shot img { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); box-shadow: var(--shadow); display: block; }
+
+        section { padding: 64px 0 8px; }
+        section h2 { font-size: clamp(26px, 3.4vw, 36px); margin: 0 0 10px; letter-spacing: -0.01em; }
+        section > .wrap > p.intro { color: var(--muted); max-width: 720px; margin: 0 0 28px; }
+
+        .features { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+        .feature { padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+        .feature h3 { margin: 0 0 6px; font-size: 18px; }
+        .feature h3 .icon { margin-right: 6px; }
+        .feature p { margin: 0; color: var(--muted); font-size: 15.5px; }
+
+        .gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr)); gap: 18px; }
+        .gallery figure { margin: 0; }
+        .gallery img { width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); display: block; }
+        .gallery figcaption { color: var(--muted); font-size: 14px; margin-top: 8px; }
+
+        .keys { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px 24px; }
+        .keys div { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding: 6px 0; font-size: 15px; }
+        kbd { font-family: inherit; font-size: 13px; padding: 1px 7px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--soft); }
+
+        .install { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+        .install .feature a { font-weight: 600; }
+
+        footer { margin-top: 72px; padding: 28px 0 40px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+        footer .wrap { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+
+        @media (max-width: 640px) {
+            nav a:not(.keep) { display: none; }
+            .hero { padding-top: 24px; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            html { scroll-behavior: auto; }
+            .button:hover { transform: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <header class="top">
+            <a class="brand" href="#"><img src="icon.png" alt="">Skein</a>
+            <nav>
+                <a href="#features">Features</a>
+                <a href="#screenshots">Screenshots</a>
+                <a href="#install">Install</a>
+                <a class="keep" href="https://github.com/chrisdfennell/Skein">GitHub</a>
+            </nav>
+        </header>
+
+        <div class="hero">
+            <h1>Reddit, made for <span>your desktop</span>.</h1>
+            <p class="lead">Skein is a fast, keyboard-friendly Reddit client for Windows. Tabs, a proper picture viewer,
+                an offline library, alerts and reminders, and real moderation tools. Free, with its source on GitHub.</p>
+            <div class="buttons">
+                <a class="button primary" href="https://github.com/chrisdfennell/Skein/releases/latest/download/Skein-win-Setup.exe">⬇ Download for Windows</a>
+                <a class="button" href="https://github.com/chrisdfennell/Skein/releases/latest/download/Skein-Portable.exe">Portable version</a>
+            </div>
+            <p class="fine">Windows 10 and 11 · free · updates itself</p>
+        </div>
+
+        <div class="shot">
+            <img src="screenshots/main.png" alt="Skein showing r/aww in the card layout, a kitten gallery open beside the list, and favorites, a folder and subscriptions in the sidebar">
+        </div>
+    </div>
+
+    <section id="features">
+        <div class="wrap">
+            <h2>Everything Reddit, the desktop way</h2>
+            <p class="intro">Skein reads Reddit through your own signed-in session, so there's nothing to set up: sign in once and go.</p>
+            <div class="features">
+                <div class="feature"><h3><span class="icon">🗂</span>Tabs and folders</h3><p>Open communities, searches and profiles in tabs. Group communities into folders and read a folder as one feed.</p></div>
+                <div class="feature"><h3><span class="icon">⌨</span>Keyboard first</h3><p><kbd>j</kbd>/<kbd>k</kbd> to move, <kbd>a</kbd>/<kbd>z</kbd> to vote, <kbd>Ctrl</kbd>+<kbd>K</kbd> to jump anywhere. Every action has a shortcut.</p></div>
+                <div class="feature"><h3><span class="icon">🖼</span>Pictures and video</h3><p>Galleries, Reddit video with sound, a viewer that steps from post to post, a slideshow, and picture in picture.</p></div>
+                <div class="feature"><h3><span class="icon">💬</span>Better threads</h3><p>New-since-last-visit highlights, live threads, find in thread, jump to the original poster, and a ✨ summary on demand.</p></div>
+                <div class="feature"><h3><span class="icon">✏</span>Write comfortably</h3><p>Markdown or rich text with a toolbar, spell check, saved replies, drafts that never get lost, and posts scheduled for later.</p></div>
+                <div class="feature"><h3><span class="icon">🔔</span>Alerts and reminders</h3><p>Keyword alerts, watched threads, followed people, and “remind me later”, all as Windows notifications you can reply from.</p></div>
+                <div class="feature"><h3><span class="icon">📥</span>Offline library</h3><p>Saved posts are kept with their comments and media. Search them, tag them and export them.</p></div>
+                <div class="feature"><h3><span class="icon">🛡</span>For moderators</h3><p>Mod queues, removal reasons, modmail, user history at a glance, bans and every mod action, without leaving the post.</p></div>
+                <div class="feature"><h3><span class="icon">🖥</span>Fits any screen</h3><p>Compact, card and grid layouts, mini mode, side-by-side posts, and a layout that uses ultra-wide monitors well.</p></div>
+                <div class="feature"><h3><span class="icon">🔄</span>Your settings everywhere</h3><p>Sync folders, alerts, notes and more between PCs through OneDrive, and back everything up to one file.</p></div>
+                <div class="feature"><h3><span class="icon">🌐</span>Translate</h3><p>Read posts and comments in other languages, when you turn translation on.</p></div>
+                <div class="feature"><h3><span class="icon">🔒</span>Private by design</h3><p>No account with us, no tracking. Your password only ever goes to Reddit, and the source code is on GitHub for anyone to read.</p></div>
+            </div>
+        </div>
+    </section>
+
+    <section id="screenshots">
+        <div class="wrap">
+            <h2>A closer look</h2>
+            <div class="gallery">
+                <figure><img src="screenshots/comments.png" alt="Compact list with a comment thread open" loading="lazy"><figcaption>Compact list with a thread open</figcaption></figure>
+                <figure><img src="screenshots/grid.png" alt="Picture grid with a video post open" loading="lazy"><figcaption>The picture grid</figcaption></figure>
+                <figure><img src="screenshots/viewer.png" alt="The picture viewer over a post" loading="lazy"><figcaption>The picture viewer</figcaption></figure>
+                <figure><img src="screenshots/palette.png" alt="The Ctrl+K command palette searching for tech" loading="lazy"><figcaption>Go anywhere with <kbd>Ctrl</kbd>+<kbd>K</kbd></figcaption></figure>
+            </div>
+        </div>
+    </section>
+
+    <section id="keys">
+        <div class="wrap">
+            <h2>A few of the shortcuts</h2>
+            <div class="keys">
+                <div><span>Next / previous post</span><span><kbd>j</kbd> <kbd>k</kbd></span></div>
+                <div><span>Upvote / downvote</span><span><kbd>a</kbd> <kbd>z</kbd></span></div>
+                <div><span>Save</span><span><kbd>s</kbd></span></div>
+                <div><span>Go anywhere</span><span><kbd>Ctrl</kbd>+<kbd>K</kbd></span></div>
+                <div><span>Reading mode</span><span><kbd>f</kbd></span></div>
+                <div><span>Picture viewer</span><span><kbd>v</kbd></span></div>
+                <div><span>Next new comment</span><span><kbd>Shift</kbd>+<kbd>N</kbd></span></div>
+                <div><span>Read aloud</span><span><kbd>Shift</kbd>+<kbd>R</kbd></span></div>
+                <div><span>Mini mode</span><span><kbd>Ctrl</kbd>+<kbd>M</kbd></span></div>
+                <div><span>All shortcuts</span><span><kbd>?</kbd></span></div>
+            </div>
+        </div>
+    </section>
+
+    <section id="install">
+        <div class="wrap">
+            <h2>Install</h2>
+            <div class="install">
+                <div class="feature"><h3>Installer</h3><p><a href="https://github.com/chrisdfennell/Skein/releases/latest/download/Skein-win-Setup.exe">Skein-win-Setup.exe</a> installs Skein for you (no admin needed), adds it to Start and keeps it up to date.</p></div>
+                <div class="feature"><h3>Portable</h3><p><a href="https://github.com/chrisdfennell/Skein/releases/latest/download/Skein-Portable.exe">Skein-Portable.exe</a> is a single file you can run from anywhere, including a USB stick.</p></div>
+            </div>
+            <p class="fine">Skein needs Microsoft Edge WebView2, which Windows 10 and 11 already include. Release notes are on the <a href="https://github.com/chrisdfennell/Skein/releases">releases page</a>.</p>
+        </div>
+    </section>
+
+    <footer>
+        <div class="wrap">
+            <span>Skein is free. Not affiliated with Reddit.</span>
+            <span><a href="https://github.com/chrisdfennell/Skein">Source</a> · <a href="https://github.com/chrisdfennell/Skein/issues/new">Report a problem</a></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -63,7 +63,7 @@ html, body {
     margin: 0;
     background: var(--bg);
     color: var(--fg);
-    font: var(--font-size, 15px)/1.55 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    font: var(--font-size, 15px)/1.55 var(--reading-font, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif);
 }
 
 /* A comfortable reading width, centred when the pane is wider than that. */
@@ -895,3 +895,89 @@ body.autoscrolling, body.autoscrolling * { cursor: ns-resize !important; user-se
 .bubble.internal { background: color-mix(in srgb, #e08a00 16%, transparent); }
 .badge.internal { background: #e08a00; margin-left: 6px; }
 label.check { display: block; font-size: 13px; margin: 4px 0; }
+
+/* ---- Live threads, summaries, video pop-out ---------------------------------------------- */
+
+.live-button.on { color: #fff; background: #d0142c; }
+.live-button.on::first-letter { animation: livePulse 1.6s ease-in-out infinite; }
+@keyframes livePulse { 50% { opacity: 0.35; } }
+.live-bar { position: sticky; top: 46px; z-index: 4; display: flex; justify-content: center; margin: 8px 0; }
+.live-show {
+    padding: 6px 16px;
+    border-radius: 16px;
+    font-weight: 600;
+    color: #fff;
+    background: var(--accent);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+.summary {
+    margin: 10px 0 14px;
+    padding: 10px 14px;
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.summary-label { display: flex; gap: 10px; align-items: baseline; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.summary .md p:first-child { margin-top: 0; }
+.media { position: relative; }
+.video-popout {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 2;
+    padding: 3px 10px;
+    font-size: 12px;
+    border-radius: 12px;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.6);
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+.media:hover .video-popout, .video-popout:focus-visible { opacity: 1; }
+body.player-page { margin: 0; background: #000; overflow: hidden; }
+body.player-page #player, body.player-page video { width: 100vw; height: 100vh; display: block; object-fit: contain; background: #000; }
+
+/* ---- Flair picker ---------------------------------------------------------------------- */
+
+#menu .flair-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 40vh; overflow-y: auto; padding: 2px; }
+#menu .flair-option { padding: 3px 10px !important; border-radius: 12px; background: var(--soft); font-size: 12px; text-align: center; }
+#menu .flair-option.on { background: var(--accent); color: #fff; }
+
+/* ---- Accessibility ----------------------------------------------------------------------- */
+
+/* Where the keyboard is: a clear ring on whatever has focus (mouse clicks don't show it). */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+/* High contrast (Preferences → Theme): white on black, yellow links and focus, solid borders. */
+:root[data-theme="high contrast"] {
+    color-scheme: dark;
+    --bg: #000000;
+    --fg: #ffffff;
+    --muted: #e6e6e6;
+    --soft: #000000;
+    --line: #ffffff;
+    --link: #ffff00;
+    --code: #000000;
+    --card: #000000;
+    --accent: #ffd400 !important;
+}
+:root[data-theme="high contrast"] a { text-decoration: underline; }
+:root[data-theme="high contrast"] button,
+:root[data-theme="high contrast"] .action,
+:root[data-theme="high contrast"] .tag,
+:root[data-theme="high contrast"] .badge,
+:root[data-theme="high contrast"] .bubble,
+:root[data-theme="high contrast"] .comment.new > .c-content > .c-body { border: 1px solid #ffffff; }
+:root[data-theme="high contrast"] .muted, :root[data-theme="high contrast"] .meta { color: #e6e6e6; }
+:root[data-theme="high contrast"] :focus-visible { outline: 3px solid #ffff00; }
+
+/* Windows' own high contrast themes: let them choose the colours, but keep shapes visible. */
+@media (forced-colors: active) {
+    button, .action, .tag, .badge, .bubble, .poll-option { border: 1px solid ButtonText; }
+    .poll-bar, .bar, .column-bar { background: Highlight; forced-color-adjust: none; }
+}
+
+/* Less motion when Windows is set to show fewer animations. */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

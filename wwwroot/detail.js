@@ -70,6 +70,7 @@ if (host) {
                 break;
             case 'postState': syncPostState(m); break;
             case 'display': applyDisplay(m); break;
+            case 'style': applyStyle(m); break;
             case 'theme':
                 document.documentElement.dataset.theme = m.theme;
                 document.documentElement.style.setProperty('--accent', m.accent);
@@ -98,7 +99,7 @@ if (host) {
             case 'settings':
                 state.settings = m.settings;
                 refreshUserTags();
-                root.querySelectorAll('.watch-button, .remind-button, .translate-action').forEach(b => b.paint && b.paint());
+                root.querySelectorAll('.watch-button, .remind-button, .translate-action, .summary-action').forEach(b => b.paint && b.paint());
                 break;
         }
     });
@@ -120,7 +121,15 @@ function el(tag, attrs, ...children) {
         if (child == null || child === false) continue;
         node.append(child instanceof Node ? child : String(child));
     }
+    // Symbol-only buttons (▲, ✕, ⋯) are read out by their title, not as "black up-pointing triangle".
+    if (tag === 'button' && node.title && !node.hasAttribute('aria-label') && isSymbolLabel(node.textContent))
+        node.setAttribute('aria-label', node.title);
     return node;
+}
+
+function isSymbolLabel(text) {
+    const t = (text || '').trim();
+    return t.length > 0 && t.length <= 4 && !/[\p{L}\p{N}]/u.test(t);
 }
 
 function count(n) {
@@ -1081,14 +1090,15 @@ function buildMedia(s) {
 
     const rv = (s.secure_media && s.secure_media.reddit_video) || (s.media && s.media.reddit_video) ||
         (s.preview && s.preview.reddit_video_preview);
-    if (rv && rv.fallback_url) return redditVideo(mapUrl(rv.fallback_url), previewUrl(s), rv.is_gif);
-    if (rv) return videoPlayer(rv.hls_url, null, previewUrl(s), rv.is_gif);
+    // Videos remember where they came from, so they can be popped out into a window of their own.
+    if (rv && rv.fallback_url) return withSource(redditVideo(mapUrl(rv.fallback_url), previewUrl(s), rv.is_gif), { kind: 'reddit', url: rv.fallback_url });
+    if (rv) return withSource(videoPlayer(rv.hls_url, null, previewUrl(s), rv.is_gif), { kind: 'hls', url: rv.hls_url });
 
     if (/\.gifv(\?|$)/i.test(url)) {
         const mp4 = url.replace(/\.gifv/i, '.mp4');
         return videoPlayer(null, mapUrl(mp4), previewUrl(s), true);
     }
-    if (/\.(mp4|webm)(\?|$)/i.test(url)) return videoPlayer(null, mapUrl(url), previewUrl(s), false);
+    if (/\.(mp4|webm)(\?|$)/i.test(url)) return withSource(videoPlayer(null, mapUrl(url), previewUrl(s), false), { kind: 'mp4', url });
     if (s.post_hint === 'image' || /\.(jpe?g|png|gif|webp)(\?|$)/i.test(url)) return image(mapUrl(url));
 
     const yt = youtubeId(url);
@@ -1115,6 +1125,12 @@ function mediaFor(source, post) {
     if (!content) return null;
     const blur = state.settings.blurNsfw && (post.over_18 || post.spoiler);
     const wrap = el('div', { class: 'media' + (blur ? ' blurred' : '') }, content);
+    if (content.__source && !content.loop) {
+        wrap.append(el('button', {
+            class: 'video-popout', title: 'Keep watching in a small window while you read (picture in picture)',
+            onclick: e => { e.stopPropagation(); popOutVideo(content); },
+        }, '⧉ Pop out'));
+    }
     if (blur) {
         const reveal = el('button', { class: 'reveal' }, post.over_18 ? 'NSFW: click to show' : 'Spoiler: click to show');
         reveal.onclick = e => {
@@ -1139,8 +1155,9 @@ function clearView() {
         a.load(); // aborts the in-flight download
     }
     state.audios = [];
-    // Overlays, reading aloud and find results belong to the old post.
+    // Overlays, reading aloud, live updates and find results belong to the old post.
     stopReading();
+    stopLive();
     closeLightbox();
     closeMenu();
     hideHovercard();
@@ -1243,6 +1260,7 @@ function renderPost(d, settings) {
                 class: 'action menu-trigger mod-action', title: 'Moderator actions',
                 onclick: e => openModMenu(e.currentTarget, d, 't3', postBadges, 0),
             }, '🛡 Mod'),
+            (mine || modOn) && postFlairButton(d, () => article),
             mine && d.is_self && action('✏ Edit', () => openEditor(body, d.selftext || '',
                 text => call('edit', { id: d.name, text }),
                 data => {
@@ -1271,6 +1289,8 @@ function commentsSection(d) {
         el('div', { class: 'comments-head' },
             el('h2', null, `${count(d.num_comments || 0)} comments`),
             el('div', { class: 'head-tools' },
+                summarizeButton(d),
+                liveButton(d),
                 el('button', {
                     class: 'action', title: 'Load the latest comments',
                     onclick: () => {
@@ -1284,6 +1304,8 @@ function commentsSection(d) {
                 el('select', { id: 'comment-filter', title: 'Show only some comments', onchange: e => filterComments(e.target.value) },
                     COMMENT_FILTERS.map(([value, label]) => el('option', { value }, label))),
                 select)),
+        el('div', { id: 'live-bar', class: 'live-bar', hidden: true }),
+        el('div', { id: 'summary', class: 'summary', hidden: true }),
         el('div', { id: 'highlights', class: 'highlights', hidden: true }),
         el('div', { id: 'filter-note', class: 'note', hidden: true }),
         el('div', { id: 'new-note', class: 'note', hidden: true }),
@@ -1349,6 +1371,12 @@ function renderThread(m) {
             el('button', { class: 'link', onclick: () => nextNewComment() }, 'Jump to next new (Shift+N)'));
     }
     if (!findBar.hidden) runFind();
+
+    // Game, match and live threads keep themselves up to date.
+    if (live.post && live.post.name !== post.name) stopLive();
+    if (!live.timer && !m.focus && !m.offline && LIVE_TITLES.test(post.title + ' ' + (post.link_flair_text || '')) &&
+        Date.now() / 1000 - post.created_utc < 86400) startLive(post);
+    paintLive();
 
     if (m.focus) {
         const focused = document.getElementById('c_' + m.focus);
@@ -2133,6 +2161,257 @@ function updateReaderBar() {
     reader.bar.querySelector('.reader-label').textContent = `🔊 Reading aloud · ${at} of ${total}`;
 }
 
+// ---- Flair -------------------------------------------------------------------------------------
+
+/**
+ * A flair picker in the menu popup: the community's flairs (with editable text where allowed).
+ * onPick(flair, text) saves; a flair of { id: '' } means "none" (offered when noneLabel is given).
+ */
+function openFlairPicker(anchor, title, flairs, currentId, onPick, noneLabel) {
+    closeMenu();
+    const text = el('input', { type: 'text', maxlength: '64', placeholder: 'Flair text', hidden: true });
+    const status = el('div', { class: 'reply-status' });
+    const save = el('button', { class: 'primary', disabled: true }, 'Save');
+    let chosen = null;
+    const list = el('div', { class: 'flair-list' });
+    const option = (flair, label) => {
+        const button = el('button', { class: 'flair-option' + (flair.id && flair.id === currentId ? ' on' : '') }, label);
+        button.onclick = e => {
+            e.stopPropagation();
+            chosen = flair;
+            list.querySelectorAll('.flair-option').forEach(b => b.classList.toggle('on', b === button));
+            text.hidden = !flair.editable;
+            text.value = flair.text || '';
+            save.disabled = false;
+            if (flair.editable) text.focus();
+        };
+        return button;
+    };
+    if (noneLabel) list.append(option({ id: '', text: '' }, noneLabel));
+    for (const flair of flairs) list.append(option(flair, flair.text || '(flair)'));
+    save.onclick = async e => {
+        e.stopPropagation();
+        save.disabled = true;
+        status.textContent = 'Saving…';
+        try {
+            await onPick(chosen, text.hidden ? '' : text.value.trim());
+            closeMenu();
+        } catch (err) {
+            status.textContent = err.message;
+            save.disabled = false;
+        }
+    };
+    const menu = el('div', { id: 'menu', class: 'form wide' },
+        el('div', { class: 'menu-title' }, title), list, text,
+        el('div', { class: 'reply-actions' }, save, el('button', { onclick: () => closeMenu() }, 'Cancel')), status);
+    document.body.append(menu);
+    positionMenu(menu, anchor);
+    fitMenu(menu);
+}
+
+/** 🏷 Flair… on your own posts (and posts in communities you moderate). */
+function postFlairButton(d, getArticle) {
+    const button = el('button', { class: 'action menu-trigger', title: 'Change this post\'s flair' }, '🏷 Flair…');
+    button.onclick = async () => {
+        let flairs;
+        try {
+            flairs = await call('postFlairs', { sub: d.subreddit });
+        } catch (err) {
+            showToast(err.message);
+            return;
+        }
+        if (!flairs.length) {
+            showToast(`r/${d.subreddit} has no post flairs`);
+            return;
+        }
+        openFlairPicker(button, `Post flair · r/${d.subreddit}`, flairs, d.link_flair_template_id, async (flair, text) => {
+            await call('setPostFlair', { sub: d.subreddit, id: d.name, flairId: flair.id, text });
+            d.link_flair_text = text || flair.text;
+            d.link_flair_template_id = flair.id;
+            const fresh = tagsLine(d);
+            const article = getArticle();
+            const tags = article.querySelector('.post-titles .tags');
+            if (tags && fresh) tags.replaceWith(fresh);
+            else if (fresh) article.querySelector('.post-titles h1').after(fresh);
+            showToast('Flair changed');
+        });
+    };
+    return button;
+}
+
+/** 🏷 Your flair… on a community's page. */
+function userFlairButton(sub, about) {
+    const button = el('button', { class: 'action menu-trigger', title: 'Choose the flair shown next to your name here' }, '🏷 Your flair…');
+    button.onclick = async () => {
+        let raw;
+        try {
+            raw = await call('userFlairs', { sub });
+        } catch (err) {
+            showToast(err.message);
+            return;
+        }
+        const flairs = (Array.isArray(raw) ? raw : [])
+            .filter(f => !f.mod_only || isModOf(sub))
+            .map(f => ({ id: f.id, text: f.text || '', editable: !!f.text_editable }));
+        if (!flairs.length) {
+            showToast(`r/${sub} doesn't offer user flair`);
+            return;
+        }
+        openFlairPicker(button, `Your flair in r/${sub}`, flairs, about.user_flair_template_id, async (flair, text) => {
+            await call('setUserFlair', { sub, flairId: flair.id, text });
+            showToast(flair.id ? `Your flair in r/${sub} is now “${text || flair.text}”` : `Your flair in r/${sub} is hidden`);
+        }, 'No flair (hide it)');
+    };
+    return button;
+}
+
+// ---- Video pop-out ----------------------------------------------------------------------------
+
+function withSource(video, source) {
+    video.__source = source;
+    return video;
+}
+
+/** Picture in picture where the browser offers it; otherwise Skein's own small player window. */
+async function popOutVideo(video) {
+    if (document.pictureInPictureEnabled && !video.disablePictureInPicture) {
+        try {
+            if (video.paused) await video.play();
+            await video.requestPictureInPicture();
+            return;
+        } catch {
+            // Not allowed here: use the player window instead.
+        }
+    }
+    video.pause();
+    send({
+        type: 'videoWindow', kind: video.__source.kind, url: video.__source.url, poster: video.poster || '',
+        time: video.currentTime || 0, title: state.post ? state.post.title : '',
+    });
+}
+
+// ---- Live threads --------------------------------------------------------------------------------
+// New comments are fetched every 20 seconds and offered in a bar ("12 new comments · Show"),
+// so the thread doesn't jump about while you read. Game, match and live threads start live.
+
+const LIVE_SECONDS = 20;
+const live = { post: null, timer: null, pending: [] };
+const LIVE_TITLES = /\b(live|game thread|match thread|megathread|race thread|discussion thread|post.?game)\b/i;
+
+function liveButton(d) {
+    const button = el('button', { class: 'action live-button', title: 'Show new comments as they\'re posted' }, '● Live');
+    button.onclick = () => (live.timer ? stopLive() : startLive(d));
+    return button;
+}
+
+function startLive(d) {
+    stopLive();
+    live.post = d;
+    live.timer = setInterval(pollLive, LIVE_SECONDS * 1000);
+    paintLive();
+}
+
+function stopLive() {
+    clearInterval(live.timer);
+    live.timer = null;
+    live.pending = [];
+    paintLive();
+}
+
+function paintLive() {
+    const button = root.querySelector('.live-button');
+    if (button) {
+        button.classList.toggle('on', !!live.timer);
+        button.title = live.timer ? `Live: checking for new comments every ${LIVE_SECONDS} seconds. Click to stop.` : 'Show new comments as they\'re posted';
+    }
+    const bar = document.getElementById('live-bar');
+    if (!bar) return;
+    const n = live.pending.length;
+    bar.hidden = n === 0;
+    bar.replaceChildren(n ? el('button', { class: 'live-show', onclick: () => showLiveComments() }, `${n} new ${n === 1 ? 'comment' : 'comments'} · Show`) : '');
+}
+
+/** The comments a listing has that the page doesn't show yet, parents before their replies. */
+function unseenComments(listing, known) {
+    const found = [];
+    const walk = children => {
+        for (const child of children || []) {
+            if (child.kind !== 't1') continue;
+            const c = child.data;
+            if (!known(c.id)) found.push(c);
+            if (c.replies && c.replies.data) walk(c.replies.data.children);
+        }
+    };
+    walk(listing && listing.data && listing.data.children);
+    return found;
+}
+
+async function pollLive() {
+    const post = live.post;
+    if (!post || document.visibilityState === 'hidden') return;
+    let raw;
+    try {
+        raw = await call('liveComments', { id: post.id });
+    } catch {
+        return; // try again next time
+    }
+    if (!state.post || state.post.name !== post.name) {
+        stopLive();
+        return;
+    }
+    const fresh = unseenComments(raw[1], id => !!document.getElementById('c_' + id) || live.pending.some(p => p.id === id));
+    if (!fresh.length) return;
+    live.pending.push(...fresh);
+    paintLive();
+}
+
+function showLiveComments() {
+    const list = document.getElementById('comments');
+    for (const c of live.pending) {
+        const copy = { ...c, replies: '' }; // its replies come as their own pending entries
+        const parent = c.parent_id && c.parent_id.startsWith('t1_') ? document.getElementById('c_' + c.parent_id.slice(3)) : null;
+        if (c.parent_id && c.parent_id.startsWith('t1_') && !parent) continue; // its thread isn't loaded here
+        const node = commentNode(copy, parent ? Number(parent.dataset.depth) + 1 : 0, state.post);
+        node.classList.add('new');
+        if (parent) parent.querySelector(':scope > .c-content > .replies').prepend(node);
+        else list.prepend(node);
+    }
+    list.querySelector('.no-comments')?.remove();
+    live.pending = [];
+    paintLive();
+}
+
+// ---- Thread summaries ------------------------------------------------------------------------------
+
+/** ✨ Summarize: a short summary by Claude (shown once an API key is set in Preferences). */
+function summarizeButton(d) {
+    const button = el('button', {
+        class: 'action summary-action',
+        title: 'A short summary of this thread, written by Claude with your Anthropic API key',
+    }, '✨ Summarize');
+    button.paint = () => { button.hidden = !state.settings.summaries; };
+    button.onclick = async () => {
+        const box = document.getElementById('summary');
+        if (!box) return;
+        box.hidden = false;
+        box.replaceChildren(el('div', { class: 'summary-label' }, '✨ Reading the thread…'), spinner());
+        button.disabled = true;
+        try {
+            const result = await call('summarize', { id: d.id });
+            box.replaceChildren(
+                el('div', { class: 'summary-label' }, '✨ Summary by Claude · it can get things wrong',
+                    el('button', { class: 'link', onclick: () => { box.hidden = true; } }, 'Hide')),
+                el('div', { class: 'md' }, renderMarkdown(result.text)));
+        } catch (err) {
+            box.replaceChildren(el('div', { class: 'error' }, `Couldn't summarize: ${err.message}`));
+        } finally {
+            button.disabled = false;
+        }
+    };
+    button.paint();
+    return button;
+}
+
 // ---- Reminders ---------------------------------------------------------------------------------
 
 /** ⏰ Remind me: Skein asks when, and brings the post back then. */
@@ -2727,6 +3006,7 @@ function renderCommunity(m) {
         about.public_description ? el('p', { class: 'community-tagline' }, about.public_description) : null,
         el('div', { class: 'actions' },
             about.wiki_enabled !== false && action('📖 Wiki', () => openWiki(name, 'index')),
+            state.settings.me && about.user_is_subscriber && about.can_assign_user_flair !== false && userFlairButton(name, about),
             action('↗ Open on Reddit', () => send({ type: 'external', url: `https://www.reddit.com/r/${name}/` }))),
         rules.length ? section(`Rules (${rules.length})`, el('ol', { class: 'rules' }, rules.map(r =>
             el('li', null, el('details', null,
@@ -2769,6 +3049,16 @@ function wikiLink(href) {
 }
 
 // ---- Display and navigation ------------------------------------------------------------
+
+/** Your post font and your own CSS (Preferences → Appearance). */
+function applyStyle(m) {
+    const font = (m.font || '').replace(/["\\;{}<>]/g, '').trim();
+    if (font) document.documentElement.style.setProperty('--reading-font', `"${font}", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif`);
+    else document.documentElement.style.removeProperty('--reading-font');
+    let sheet = document.getElementById('custom-css');
+    if (!sheet) document.head.append(sheet = el('style', { id: 'custom-css' }));
+    sheet.textContent = m.css || '';
+}
 
 function applyDisplay(m) {
     document.documentElement.style.setProperty('--font-size', m.fontSize + 'px');

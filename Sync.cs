@@ -91,6 +91,7 @@ public sealed class SettingsSync(AppSettings settings, UserNotes notes, Action? 
         ["searches"] = JsonSerializer.Serialize(settings.SavedSearches),
         ["reminders"] = JsonSerializer.Serialize(settings.Reminders.OrderBy(r => r.Id, StringComparer.Ordinal)),
         ["replies"] = JsonSerializer.Serialize(settings.SavedReplies),
+        ["sorts"] = JsonSerializer.Serialize(settings.CommunitySorts.OrderBy(s => s.Key, StringComparer.Ordinal).ToDictionary(s => s.Key, s => s.Value)),
         ["watching"] = JsonSerializer.Serialize(new
         {
             threads = settings.WatchedThreads.Select(w => new { w.PostId, w.Title, w.Subreddit }),
@@ -122,6 +123,8 @@ public sealed class SettingsSync(AppSettings settings, UserNotes notes, Action? 
             settings.Accent,
             settings.LayoutMode,
             settings.ReadingFontSize,
+            settings.ReadingFont,
+            settings.CustomCss,
         }),
     };
 
@@ -153,6 +156,9 @@ public sealed class SettingsSync(AppSettings settings, UserNotes notes, Action? 
                 break;
             case "reminders":
                 settings.Reminders = data.Deserialize<List<Reminder>>() ?? [];
+                break;
+            case "sorts":
+                settings.CommunitySorts = data.Deserialize<Dictionary<string, string>>() ?? [];
                 break;
             case "replies":
                 settings.SavedReplies = data.Deserialize<List<SavedReply>>() ?? [];
@@ -188,6 +194,8 @@ public sealed class SettingsSync(AppSettings settings, UserNotes notes, Action? 
                 settings.Accent = data["Accent"]?.GetValue<string>() ?? settings.Accent;
                 settings.LayoutMode = data["LayoutMode"]?.GetValue<string>() ?? settings.LayoutMode;
                 settings.ReadingFontSize = data["ReadingFontSize"]?.GetValue<int>() ?? settings.ReadingFontSize;
+                settings.ReadingFont = data["ReadingFont"]?.GetValue<string>() ?? settings.ReadingFont;
+                settings.CustomCss = data["CustomCss"]?.GetValue<string>() ?? settings.CustomCss;
                 break;
         }
     }

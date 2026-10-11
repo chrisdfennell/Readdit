@@ -74,6 +74,13 @@ public sealed class FeedViewModel : ObservableObject
         Target = target;
         Scope = scope;
         _sort = Sorts.Count > 0 ? Sorts[0] : "";
+        // Communities open the way you last sorted them (r/news on New, say).
+        if (kind == FeedKind.Subreddit && services.Settings.CommunitySorts.GetValueOrDefault(target.ToLowerInvariant()) is { } remembered)
+        {
+            var parts = remembered.Split(':');
+            if (Sorts.Contains(parts[0])) _sort = parts[0];
+            if (parts.Length > 1 && parts[1].Length > 0) _timeFilter = parts[1];
+        }
         LoadMoreCommand = new RelayCommand(_ => _ = LoadPageAsync(_cts?.Token ?? default), _ => HasMore && !IsLoading);
         ShowNewCommand = new RelayCommand(_ => _ = ReloadAsync());
         HeaderActionCommand = new RelayCommand(_ => _ = RunHeaderActionAsync(), _ => HeaderActionLabel.Length > 0 && !_headerBusy);
@@ -243,6 +250,7 @@ public sealed class FeedViewModel : ObservableObject
         {
             if (value == null || !Set(ref _sort, value)) return;
             Raise(nameof(UsesTimeFilter));
+            RememberSort();
             _ = ReloadAsync();
         }
     }
@@ -256,8 +264,22 @@ public sealed class FeedViewModel : ObservableObject
         get => _timeFilter;
         set
         {
-            if (value != null && Set(ref _timeFilter, value) && UsesTimeFilter) _ = ReloadAsync();
+            if (value == null || !Set(ref _timeFilter, value)) return;
+            RememberSort();
+            if (UsesTimeFilter) _ = ReloadAsync();
         }
+    }
+
+    /// <summary>Keeps a community's sort for next time (the usual Hot isn't stored).</summary>
+    void RememberSort()
+    {
+        if (Kind != FeedKind.Subreddit || Target.Length == 0) return;
+        var key = Target.ToLowerInvariant();
+        var sorts = _services.Settings.CommunitySorts;
+        var value = UsesTimeFilter ? $"{Sort}:{TimeFilter}" : Sort;
+        if (value == Sorts[0]) sorts.Remove(key);
+        else sorts[key] = value;
+        _services.Settings.Save();
     }
 
     Post? _selectedPost;

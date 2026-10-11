@@ -591,9 +591,11 @@ public sealed class Services
         Session = new RedditSession(sessionView, Settings.ActiveProfile);
         Api = new RedditApi(Session);
         Translator = new Translator(Settings);
+        Summarizer = new ThreadSummarizer(Settings);
     }
 
     public Translator Translator { get; }
+    public ThreadSummarizer Summarizer { get; }
 
     public RedditSession Session { get; }
     public RedditApi Api { get; }

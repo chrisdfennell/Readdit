@@ -91,6 +91,35 @@ public partial class PreferencesWindow : Window
         TranslateServer.Text = settings.TranslateServer;
         TranslateKey.Text = settings.TranslateKey;
         SendTo.IsChecked = TaskbarExtras.IsInSendTo;
+
+        foreach (var (id, label) in ThreadSummarizer.Models) SummaryModel.Items.Add(new ComboBoxItem { Content = label, Tag = id });
+        SummaryModel.SelectedItem = SummaryModel.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == settings.SummaryModel)
+                                    ?? SummaryModel.Items[0];
+        ShowSummaryKeyState();
+
+        ReadingFont.Items.Add(new ComboBoxItem { Content = "Segoe UI (standard)", Tag = "" });
+        foreach (var family in System.Windows.Media.Fonts.SystemFontFamilies.Select(f => f.Source).Order(StringComparer.OrdinalIgnoreCase))
+            ReadingFont.Items.Add(new ComboBoxItem { Content = family, Tag = family, FontFamily = new System.Windows.Media.FontFamily(family) });
+        ReadingFont.SelectedItem = ReadingFont.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == settings.ReadingFont)
+                                   ?? ReadingFont.Items[0];
+        CustomCss.Text = settings.CustomCss;
+    }
+
+    void ShowSummaryKeyState()
+    {
+        var saved = KeyStore.Unprotect(_settings.SummaryKey) != null;
+        var fromEnvironment = !saved && Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY") is { Length: > 0 };
+        SummaryStatus.Text = saved ? "✓ A key is saved. Type a new one to replace it."
+            : fromEnvironment ? "✓ Using the key in the ANTHROPIC_API_KEY environment variable."
+            : "No key yet: ✨ Summarize stays hidden until you add one (from console.anthropic.com).";
+        ForgetKey.IsEnabled = saved;
+    }
+
+    void OnForgetKey(object sender, RoutedEventArgs e)
+    {
+        _settings.SummaryKey = "";
+        SummaryKey.Password = "";
+        ShowSummaryKeyState();
     }
 
     static readonly (string Code, string Name)[] Languages =
@@ -273,6 +302,10 @@ public partial class PreferencesWindow : Window
         _settings.KeywordFilters = Lines(Keywords.Text);
         _settings.DomainFilters = Lines(Domains.Text);
         _settings.SubredditFilters = Lines(Subreddits.Text);
+        if (SummaryKey.Password.Trim().Length > 0) _settings.SummaryKey = KeyStore.Protect(SummaryKey.Password.Trim());
+        _settings.SummaryModel = (SummaryModel.SelectedItem as ComboBoxItem)?.Tag as string ?? ThreadSummarizer.Models[0].Id;
+        _settings.ReadingFont = (ReadingFont.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
+        _settings.CustomCss = CustomCss.Text.Length > 20000 ? CustomCss.Text[..20000] : CustomCss.Text;
         _settings.TranslateEnabled = TranslateEnabled.IsChecked == true;
         _settings.TranslateTo = (TranslateTo.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
         _settings.TranslateServer = TranslateServer.Text.Trim();

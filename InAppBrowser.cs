@@ -30,10 +30,29 @@ public sealed class InAppBrowser(WebView2 view) : ObservableObject
     public bool CanGoBack => Core?.CanGoBack == true;
     public bool CanGoForward => Core?.CanGoForward == true;
 
+    CoreWebView2Environment? _environment;
+    CoreWebView2ControllerOptions? _options;
+    string _theme = "System";
+    bool _starting;
+
+    /// <summary>
+    /// Gets ready to browse. The browser itself only starts with the first link opened, so it costs
+    /// nothing (no extra browser processes or memory) for people who never use it.
+    /// </summary>
     /// <param name="options">The signed-in account's profile, so reddit.com pages open logged in.</param>
-    public async Task InitializeAsync(CoreWebView2Environment environment, CoreWebView2ControllerOptions options)
+    public Task InitializeAsync(CoreWebView2Environment environment, CoreWebView2ControllerOptions options)
     {
-        await view.EnsureCoreWebView2Async(environment, options);
+        _environment = environment;
+        _options = options;
+        return Task.CompletedTask;
+    }
+
+    async Task StartAsync()
+    {
+        if (_starting || _environment == null) return;
+        _starting = true;
+        await view.EnsureCoreWebView2Async(_environment, _options);
+        Appearance.ApplyToWebView(view.CoreWebView2, _theme);
         var core = view.CoreWebView2;
         await core.AddScriptToExecuteOnDocumentCreatedAsync(EscapeScript);
         core.WebMessageReceived += (_, e) =>
@@ -70,12 +89,14 @@ public sealed class InAppBrowser(WebView2 view) : ObservableObject
         if (!_initialized)
         {
             _pending = url;
+            _ = StartAsync();
             return;
         }
         _pending = null;
         Url = url;
         Title = "Loading…";
         Core!.IsMuted = false;
+        Core.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Normal;
         Core.Navigate(url);
     }
 
@@ -83,7 +104,11 @@ public sealed class InAppBrowser(WebView2 view) : ObservableObject
         host is "accounts.google.com" or "appleid.apple.com" or "login.microsoftonline.com" or "login.live.com" ||
         host.EndsWith(".facebook.com") || host == "github.com";
 
-    public void ApplyTheme(string theme) => Appearance.ApplyToWebView(Core, theme);
+    public void ApplyTheme(string theme)
+    {
+        _theme = theme;
+        if (Core != null) Appearance.ApplyToWebView(Core, theme);
+    }
 
     public void GoBack() { if (CanGoBack) Core!.GoBack(); }
     public void GoForward() { if (CanGoForward) Core!.GoForward(); }
@@ -98,5 +123,7 @@ public sealed class InAppBrowser(WebView2 view) : ObservableObject
         if (!_initialized) return;
         Core!.IsMuted = true;
         _ = Core.ExecuteScriptAsync("document.querySelectorAll('video,audio').forEach(m => m.pause())");
+        // Hidden: let the browser give memory back until it's shown again.
+        Core.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Low;
     }
 }

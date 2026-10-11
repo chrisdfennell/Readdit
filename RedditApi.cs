@@ -254,6 +254,37 @@ public sealed partial class RedditApi(RedditSession session)
         return new PostingInfo(flairList, requirements?.RootElement.Bool("is_flair_required") == true, ruleList);
     }
 
+    /// <summary>The user flairs a community offers you, as Reddit's JSON (an array of templates).</summary>
+    public Task<string> GetUserFlairsRawAsync(string subreddit, CancellationToken ct) =>
+        NameChars().IsMatch(subreddit)
+            ? GetBodyAsync($"{Base}/r/{subreddit}/api/user_flair_v2.json?raw_json=1", ct)
+            : throw new InvalidOperationException("That isn't a community name.");
+
+    /// <summary>Sets your flair in a community (and shows it), or hides it with an empty template.</summary>
+    public async Task SetUserFlairAsync(string subreddit, string templateId, string text)
+    {
+        if (!NameChars().IsMatch(subreddit) || UserName == null) throw new InvalidOperationException("Invalid community.");
+        if (templateId.Length == 0)
+        {
+            using var _ = await PostAsync($"/r/{subreddit}/api/setflairenabled", new() { ["flair_enabled"] = "false" });
+            return;
+        }
+        var form = new Dictionary<string, string> { ["name"] = UserName, ["flair_template_id"] = templateId };
+        if (text.Length > 0) form["text"] = text;
+        using (await PostAsync($"/r/{subreddit}/api/selectflair", form)) { }
+        using (await PostAsync($"/r/{subreddit}/api/setflairenabled", new() { ["flair_enabled"] = "true" })) { }
+    }
+
+    /// <summary>Changes a post's flair (your own post, or any post in a community you moderate).</summary>
+    public async Task SetPostFlairAsync(string subreddit, string postFullName, string templateId, string text)
+    {
+        if (!NameChars().IsMatch(subreddit) || !postFullName.StartsWith("t3_") || !ThingId().IsMatch(postFullName))
+            throw new InvalidOperationException("Invalid post.");
+        var form = new Dictionary<string, string> { ["link"] = postFullName, ["flair_template_id"] = templateId };
+        if (text.Length > 0) form["text"] = text;
+        using var _ = await PostAsync($"/r/{subreddit}/api/selectflair", form);
+    }
+
     /// <summary>Current details (comment counts…) for posts by id, up to 100 per request.</summary>
     public async Task<List<Post>> GetPostsInfoAsync(IReadOnlyList<string> postIds, CancellationToken ct)
     {
@@ -721,7 +752,18 @@ public sealed partial class RedditApi(RedditSession session)
 
     async Task<string> GetBodyAsync(string url, CancellationToken ct)
     {
-        var (status, body) = await session.GetAsync(url, ct);
+        // Stay inside Reddit's allowance, and after "too many requests" wait and try again (twice).
+        int status;
+        string body;
+        for (var attempt = 0; ; attempt++)
+        {
+            await session.RateLimit.WaitAsync(ct);
+            (status, body) = await session.GetAsync(url, ct);
+            if (status != 429 || attempt >= 2) break;
+            ApiLog.Write($"GET rate limited; waiting before try {attempt + 2}");
+            var wait = session.RateLimit.Delay();
+            await Task.Delay(wait > TimeSpan.FromSeconds(2) ? wait : TimeSpan.FromSeconds(2 * (attempt + 1)), ct);
+        }
 
         switch (status)
         {
@@ -805,9 +847,20 @@ public sealed partial class RedditApi(RedditSession session)
             return null;
         }
 
+        await session.RateLimit.WaitAsync(default);
         var result = oauthFirst
             ? await ViaOAuth() ?? await ViaModhash()
             : await ViaModhash() ?? await ViaOAuth();
+        if (result == null && failures.Any(f => f.EndsWith("HTTP 429")))
+        {
+            // Too many requests just now: wait a moment and try once more, rather than lose a vote or reply.
+            var wait = session.RateLimit.Delay();
+            await Task.Delay(wait > TimeSpan.FromSeconds(3) ? wait : TimeSpan.FromSeconds(3));
+            failures.Clear();
+            result = oauthFirst
+                ? await ViaOAuth() ?? await ViaModhash()
+                : await ViaModhash() ?? await ViaOAuth();
+        }
         if (result != null) return Checked(result);
 
         throw new InvalidOperationException($"Reddit refused the request ({string.Join("; ", failures)}).");

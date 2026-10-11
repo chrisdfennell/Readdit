@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self';
+                   script-src 'self' https://cdn.jsdelivr.net;
+                   style-src 'self' 'unsafe-inline';
+                   img-src https: data: blob:;
+                   media-src https: blob:;
+                   connect-src https:;
+                   worker-src blob:;">
+    <title>Skein player</title>
+    <link rel="stylesheet" href="detail.css">
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js" defer></script>
+    <!-- The post view's own players (Reddit video with its separate sound track, HLS). -->
+    <script src="detail.js" defer></script>
+    <script src="player.js" defer></script>
+</head>
+<body class="player-page">
+    <div id="empty" hidden></div>
+    <main id="root" hidden></main>
+    <div id="lightbox" hidden><div class="lb-bar"><span class="lb-title"></span><button class="lb-play"></button><button class="lb-full"></button></div><button class="lb-close"></button><button class="lb-nav lb-prev"></button><div class="lb-stage"><img alt=""></div><button class="lb-nav lb-next"></button><div class="lb-counter"></div></div>
+    <div id="toast" hidden></div>
+    <div id="player"></div>
+</body>
+</html>

@@ -4,7 +4,7 @@
 
 <h1 align="center">Skein</h1>
 
-<p align="center">A fast, keyboard-friendly desktop Reddit client for Windows.</p>
+<p align="center">A fast, keyboard-friendly desktop Reddit client for Windows.<br><a href="https://chrisdfennell.github.io/Skein/">chrisdfennell.github.io/Skein</a></p>
 
 <p align="center">
   <a href="https://github.com/chrisdfennell/Skein/actions/workflows/release.yml"><img src="https://github.com/chrisdfennell/Skein/actions/workflows/release.yml/badge.svg" alt="Build and release"></a>
@@ -36,6 +36,7 @@ Skein is a native Windows app (WPF on .NET 10) for browsing Reddit. It signs in 
 - Tabs you haven't looked at for a while go to sleep to save memory, and wake up when you come back.
 - The same link posted in several communities shows once in combined feeds, marked with where else it was posted.
 - Folders: group communities your own way, and open a folder as one combined feed.
+- Each community opens the way you last sorted it (r/news on New, say).
 - A command palette (<kbd>Ctrl</kbd>+<kbd>K</kbd>) to jump to any community, folder, tab or command.
 - Search with community suggestions as you type. Refine results by author, flair, site, titles only, or text posts versus links, and save searches to the sidebar.
 - Community pages: rules, posting guidelines, sidebar, moderators and the wiki, all inside Skein.
@@ -48,6 +49,9 @@ Skein is a native Windows app (WPF on .NET 10) for browsing Reddit. It signs in 
 - Remind me later: pick a time and Skein brings the post back with a notification.
 - Translate posts and comments (optional; uses MyMemory or your own LibreTranslate server).
 - Polls show their options and results.
+- Live threads: in game, match and live threads (or any thread, with ● Live), new comments arrive as you read, offered in a bar so the page doesn't jump.
+- ✨ Summarize a thread with Claude, using your own Anthropic API key (optional; add it in Preferences).
+- Pop a video out to keep watching while you read (picture in picture, or a small always-on-top player).
 
 **Posts and comments**
 - Formatted text, Reddit video with sound, GIFs and galleries.
@@ -58,6 +62,7 @@ Skein is a native Windows app (WPF on .NET 10) for browsing Reddit. It signs in 
 - Vote, save, reply, and edit or delete your own posts and comments, with spell check and a formatting toolbar (<kbd>Ctrl</kbd>+<kbd>B</kbd>, <kbd>I</kbd>, <kbd>K</kbd>). Write in Markdown with a live preview, or switch to rich text and Skein turns it into Markdown for you. Unsent replies and edits are kept as drafts.
 - New posts: text, links, a picture, a gallery of up to 20, or a video. Unfinished posts are kept as drafts too. The community's rules are shown alongside, you can pick a post flair, and the text box has the same toolbar and rich text mode. Crop, rotate or blur pictures before posting, and schedule text and link posts for later.
 - Saved replies: keep snippets you send often and drop them into any reply or post.
+- Choose your user flair in a community, and change a post's flair after posting.
 - Read aloud (<kbd>Shift</kbd>+<kbd>R</kbd>): listen to a post and its comments, with pause and skip.
 
 **Moderation** (for communities you moderate)
@@ -84,11 +89,14 @@ Skein is a native Windows app (WPF on .NET 10) for browsing Reddit. It signs in 
 - Multiple accounts.
 - Your activity: karma over time, your best posts and comments, where your karma comes from and when you post.
 - On the taskbar: an unread badge, and a jump list for Inbox, Home, New post and Reminders.
+- Windows notifications you can act on: reply to a message or mark it read right in the notification, and snooze reminders.
 - Share to Skein: send pictures from Explorer's Send to menu, or post any web page with the “Post to Skein” bookmark.
 - Sync between PCs: folders, alerts, reminders, saved replies, user notes, filters and appearance stay the same on every PC, through a shared folder such as OneDrive.
 - Back up and restore your settings, notes, alerts and (optionally) your offline library as a single file.
 - Report a problem from Preferences: Skein bundles its logs, with personal details removed, and opens a GitHub issue.
-- Light, dark and true-black themes, with accent colors and an interface size setting.
+- Light, dark, true-black and high-contrast themes, accent colors, an interface size setting, your choice of reading font, and your own CSS for the post view.
+- Accessible: buttons are named for screen readers, keyboard focus is always visible, and Windows' high contrast and reduced-motion settings are respected.
+- Easy on resources and on Reddit: the in-app browser only starts when used, Skein gives memory back while minimized or in the tray, and it paces its requests to stay inside Reddit's limits.
 - Automatic updates.
 
 Press <kbd>?</kbd> in the app for all keyboard shortcuts (`j`/`k` to move, `a`/`z` to vote, `f` for reading mode, and more).

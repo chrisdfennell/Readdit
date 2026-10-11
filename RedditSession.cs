@@ -141,6 +141,13 @@ public sealed class RedditSession(WebView2 webView, string profile)
 
     public void ApplyTheme(string theme) => Appearance.ApplyToWebView(webView.CoreWebView2, theme);
 
+    /// <summary>While Skein is out of sight, the hidden browser keeps working but gives memory back.</summary>
+    public void SetMemoryLow(bool low)
+    {
+        if (webView.CoreWebView2 is { } core)
+            core.MemoryUsageTargetLevel = low ? CoreWebView2MemoryUsageTargetLevel.Low : CoreWebView2MemoryUsageTargetLevel.Normal;
+    }
+
     /// <summary>Returns the signed-in username, or null if signed out (or the page isn't on reddit.com yet).</summary>
     public async Task<string?> GetUserNameAsync()
     {
@@ -184,7 +191,9 @@ public sealed class RedditSession(WebView2 webView, string profile)
             " const init = { method: o.method, credentials: 'include', headers: o.headers };" +
             " if (o.json) init.body = o.json; else if (o.form) init.body = new URLSearchParams(o.form);" +
             " const r = await fetch(" + JsonSerializer.Serialize(url) + ", init);" +
-            " return JSON.stringify({ status: r.status, body: await r.text() }); })()";
+            " return JSON.stringify({ status: r.status, body: await r.text()," +
+            " remaining: r.headers.get('x-ratelimit-remaining'), reset: r.headers.get('x-ratelimit-reset')," +
+            " retryAfter: r.headers.get('retry-after') }); })()";
         var args = JsonSerializer.Serialize(new { expression, awaitPromise = true, returnByValue = true });
 
         // DevTools' Runtime.evaluate can await the promise, which ExecuteScriptAsync can't.
@@ -200,6 +209,57 @@ public sealed class RedditSession(WebView2 webView, string profile)
         }
 
         using var result = JsonDocument.Parse(root.GetProperty("result").Str("value"));
-        return ((int)result.RootElement.Long("status"), result.RootElement.Str("body"));
+        var r = result.RootElement;
+        RateLimit.Observe(r.Str("remaining"), r.Str("reset"), r.Str("retryAfter"), (int)r.Long("status"));
+        return ((int)r.Long("status"), r.Str("body"));
     }
+
+    /// <summary>What Reddit says about how many more requests it will take right now.</summary>
+    public RateLimiter RateLimit { get; } = new();
+}
+
+/// <summary>
+/// Keeps Skein inside Reddit's request allowance. Reddit reports how many requests are left and
+/// when the count resets; when it's nearly used up, requests wait for the reset (a few seconds at
+/// most) instead of failing with "Rate limited". After a 429 the next requests wait as asked.
+/// </summary>
+public sealed class RateLimiter(Func<DateTime>? clock = null)
+{
+    readonly Func<DateTime> _now = clock ?? (() => DateTime.UtcNow);
+    double? _remaining;
+    DateTime _resetsAt = DateTime.MinValue;
+
+    /// <summary>Requests to leave spare for things you click (votes, replies) when background checks run.</summary>
+    const double Reserve = 3;
+
+    /// <summary>The longest Skein will hold a request back.</summary>
+    public static readonly TimeSpan MaxWait = TimeSpan.FromSeconds(30);
+
+    public void Observe(string remaining, string reset, string retryAfter, int status)
+    {
+        var now = _now();
+        if (double.TryParse(remaining, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var left))
+            _remaining = left;
+        if (double.TryParse(reset, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var seconds))
+            _resetsAt = now.AddSeconds(seconds);
+        if (status == 429)
+        {
+            _remaining = 0;
+            var wait = double.TryParse(retryAfter, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var after)
+                ? after : 5;
+            _resetsAt = new[] { _resetsAt, now.AddSeconds(wait) }.Max();
+        }
+    }
+
+    /// <summary>How long the next request should wait (zero if there's allowance left).</summary>
+    public TimeSpan Delay()
+    {
+        var now = _now();
+        if (_remaining is not { } left || left > Reserve || _resetsAt <= now) return TimeSpan.Zero;
+        var wait = _resetsAt - now;
+        return wait > MaxWait ? MaxWait : wait;
+    }
+
+    /// <summary>Waits, if the allowance is nearly used up, until it resets.</summary>
+    public Task WaitAsync(CancellationToken ct) => Delay() is { Ticks: > 0 } wait ? Task.Delay(wait, ct) : Task.CompletedTask;
 }

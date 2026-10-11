@@ -27,6 +27,7 @@ public partial class App : Application
             args.SetObserved();
         };
         UpdateService.CleanUpAfterPortableUpdate();
+        Accessibility.Start();
         // Apply the saved theme before the window appears, to avoid a flash of the wrong one.
         Appearance.ApplyToApp(AppSettings.Load());
         base.OnStartup(e);

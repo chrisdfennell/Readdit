@@ -21,7 +21,11 @@ public static class Program
     {
         // Must run first: handles install/uninstall/update hooks from the Velopack installer.
         VelopackApp.Build()
-            .OnBeforeUninstallFastCallback(_ => LinkHandler.UnregisterAll())
+            .OnBeforeUninstallFastCallback(_ =>
+            {
+                LinkHandler.UnregisterAll();
+                Toasts.Uninstall();
+            })
             .Run();
 
         // A link from another app (Skein as the web link handler, or a skein:// link), or

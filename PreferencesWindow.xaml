@@ -23,6 +23,7 @@
                         <RowDefinition />
                         <RowDefinition />
                         <RowDefinition />
+                        <RowDefinition />
                     </Grid.RowDefinitions>
 
                     <TextBlock Text="Theme" VerticalAlignment="Center" />
@@ -46,7 +47,25 @@
                         <Slider x:Name="UiScale" Minimum="80" Maximum="150" TickFrequency="5" IsSnapToTickEnabled="True"
                                 VerticalAlignment="Center" />
                     </DockPanel>
+
+                    <TextBlock Grid.Row="4" Text="Post font" VerticalAlignment="Center" Margin="0,8,0,0" />
+                    <ComboBox x:Name="ReadingFont" Grid.Row="4" Grid.Column="1" Margin="0,8,0,0" IsEditable="False"
+                              ToolTip="The font for posts and comments">
+                        <ComboBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <VirtualizingStackPanel />
+                            </ItemsPanelTemplate>
+                        </ComboBox.ItemsPanel>
+                    </ComboBox>
                 </Grid>
+                <Expander Header="Your own styles (advanced)" Margin="0,8,0,0">
+                    <StackPanel Margin="0,6,0,0">
+                        <TextBlock TextWrapping="Wrap" Opacity="0.75"
+                                   Text="CSS added to the post view, for example: .comment { margin-top: 4px; }   Leave empty for none." />
+                        <TextBox x:Name="CustomCss" AcceptsReturn="True" AcceptsTab="True" Height="110" Margin="0,6,0,0"
+                                 FontFamily="Consolas" TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
+                    </StackPanel>
+                </Expander>
 
                 <TextBlock Text="Content" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />
                 <CheckBox x:Name="BlurNsfw" Content="Blur NSFW and spoiler images until clicked" Margin="0,8,0,0" />
@@ -148,6 +167,20 @@
                     <TextBox x:Name="TranslateKey" DockPanel.Dock="Right" Width="160" Margin="8,0,0,0" ToolTip="API key, if the server needs one" />
                     <TextBox x:Name="TranslateServer" ToolTip="e.g. https://libretranslate.example.com (leave empty for MyMemory)" />
                 </DockPanel>
+
+                <TextBlock Text="Thread summaries" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />
+                <TextBlock TextWrapping="Wrap" Opacity="0.8" Margin="0,4,0,0"
+                           Text="✨ Summarize sends a thread's post and comments to Claude, using your own Anthropic API key, and shows a short summary. Anthropic bills your account for each one: usually a few cents up to about 15 cents for a big thread with Opus, and a small fraction of that with Haiku." />
+                <DockPanel Margin="0,8,0,0">
+                    <TextBlock Text="API key" Width="90" VerticalAlignment="Center" />
+                    <Button x:Name="ForgetKey" DockPanel.Dock="Right" Content="Forget key" Margin="8,0,0,0" Click="OnForgetKey" />
+                    <PasswordBox x:Name="SummaryKey" ToolTip="Starts with sk-ant-. Kept encrypted for your Windows account." />
+                </DockPanel>
+                <DockPanel Margin="0,8,0,0">
+                    <TextBlock Text="Model" Width="90" VerticalAlignment="Center" />
+                    <ComboBox x:Name="SummaryModel" MinWidth="260" HorizontalAlignment="Left" />
+                </DockPanel>
+                <TextBlock x:Name="SummaryStatus" TextWrapping="Wrap" Opacity="0.75" Margin="0,6,0,0" />
 
                 <TextBlock Text="Share to Skein" FontSize="16" FontWeight="SemiBold" Margin="0,20,0,0" />
                 <CheckBox x:Name="SendTo" Margin="0,8,0,0">

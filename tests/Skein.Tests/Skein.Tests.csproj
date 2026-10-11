@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <!-- Windows + WPF because the app it tests is a WPF app. -->
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

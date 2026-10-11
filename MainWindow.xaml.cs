@@ -23,9 +23,21 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         var services = _services = new Services(LoginWebView);
-        _vm = new MainViewModel(services, new DetailBridge(DetailWebView, services), new InAppBrowser(BrowserWebView));
+        var detail = new DetailBridge(DetailWebView, services);
+        detail.VideoWindowRequested += (kind, url, poster, time, title) =>
+        {
+            var area = TaskbarExtras.WorkAreaOf(this) ?? SystemParameters.WorkArea;
+            new PlayerWindow(services, kind, url, poster, time, title, area).Show();
+        };
+        _vm = new MainViewModel(services, detail, new InAppBrowser(BrowserWebView));
         DataContext = _vm;
         _vm.ReminderNotification += OnReminderNotification;
+        Toasts.Activated += OnToastActivated;
+        Toasts.Start();
+        // Out of sight (minimized, or hidden in the tray): use less memory.
+        void UpdateBackground() => _vm.SetInBackground(!IsVisible || WindowState == WindowState.Minimized);
+        StateChanged += (_, _) => UpdateBackground();
+        IsVisibleChanged += (_, _) => UpdateBackground();
         _vm.PopOutRequested += PopOut;
         TaskbarItemInfo = new System.Windows.Shell.TaskbarItemInfo();
         Loaded += (_, _) =>
@@ -203,23 +215,117 @@ public partial class MainWindow : Window
         _vm.OpenFeedCommand.Execute("inbox");
     }
 
+    // ---- Notifications ----------------------------------------------------------------------------
+    //
+    // Windows' own notifications, with buttons: a new message can be answered or marked read
+    // right in the notification, and a reminder snoozed. The tray's plain notifications are the
+    // fallback where Windows won't show them.
+
+    /// <summary>Inbox items announced in notifications, so their buttons can act on them.</summary>
+    readonly Dictionary<string, Post> _notifiedItems = [];
+
     void OnInboxNotification(string title, string text, Post? item)
     {
-        // A single new message or reply can be answered right from the notification.
-        if (!IsVisible || !IsActive) _tray.Notify(title, text, item != null ? () => ShowQuickReply(item) : OpenInbox);
         FlashTaskbar();
+        if (IsVisible && IsActive) return;
+        if (item != null) _notifiedItems[item.FullName] = item;
+        var shown = Toasts.Show(toast =>
+        {
+            toast.AddArgument("do", "inbox").AddArgument("id", item?.FullName ?? "").AddText(title).AddText(text);
+            if (item == null) return;
+            toast.AddInputTextBox("reply", placeHolderContent: "Write a reply…");
+            toast.AddButton(new Microsoft.Toolkit.Uwp.Notifications.ToastButton()
+                .SetContent("Reply").AddArgument("do", "reply").AddArgument("id", item.FullName).SetTextBoxId("reply"));
+            toast.AddButton(new Microsoft.Toolkit.Uwp.Notifications.ToastButton()
+                .SetContent("Mark read").AddArgument("do", "read").AddArgument("id", item.FullName));
+        });
+        // A single new message or reply can be answered right from the notification.
+        if (!shown) _tray.Notify(title, text, item != null ? () => ShowQuickReply(item) : OpenInbox);
     }
 
     void OnAlertNotification(string title, string text, Post? post)
     {
         if (IsVisible && IsActive) return; // the status bar says it already
-        _tray.Notify(title, text, () =>
-        {
-            BringToFront();
-            if (post != null) _vm.OpenUrl(post.PermalinkUrl);
-            else _vm.OpenFeedCommand.Execute("alerts");
-        });
         FlashTaskbar();
+        var target = post?.PermalinkUrl ?? "alerts";
+        if (!Toasts.Show(toast => toast.AddArgument("do", "open").AddArgument("target", target).AddText(title).AddText(text)))
+            _tray.Notify(title, text, () =>
+            {
+                BringToFront();
+                _vm.OpenNotificationTarget(target);
+            });
+    }
+
+    void OnReminderNotification(string title, string text, string target, bool canSnooze)
+    {
+        // Reminders are asked for, so they show even while Skein is in front.
+        FlashTaskbar();
+        var shown = Toasts.Show(toast =>
+        {
+            toast.AddArgument("do", "open").AddArgument("target", target).AddText(title).AddText(text);
+            if (!canSnooze) return;
+            toast.AddButton(new Microsoft.Toolkit.Uwp.Notifications.ToastButton()
+                .SetContent("Open").AddArgument("do", "open").AddArgument("target", target));
+            toast.AddButton(new Microsoft.Toolkit.Uwp.Notifications.ToastButton()
+                .SetContent("Snooze an hour").AddArgument("do", "snooze").AddArgument("target", target).AddArgument("title", text));
+        });
+        if (!shown)
+            _tray.Notify(title, text, () =>
+            {
+                BringToFront();
+                _vm.OpenNotificationTarget(target);
+            });
+    }
+
+    async void OnToastActivated(Microsoft.Toolkit.Uwp.Notifications.ToastArguments args, IReadOnlyDictionary<string, object> input)
+    {
+        string Arg(string key) => args.TryGetValue(key, out string value) ? value : "";
+        var item = _notifiedItems.GetValueOrDefault(Arg("id"));
+        switch (Arg("do"))
+        {
+            case "reply" when item != null:
+                var text = input.GetValueOrDefault("reply") as string ?? "";
+                if (text.Trim().Length == 0)
+                {
+                    ShowQuickReply(item); // pressed Reply without typing: open the reply box instead
+                    return;
+                }
+                try
+                {
+                    await _vm.Api.CommentAsync(item.FullName, text.Trim());
+                    await _vm.Api.MarkReadAsync(item.FullName);
+                    _vm.OnItemMarkedRead(item);
+                    Toasts.Show(toast => toast.AddArgument("do", "inbox").AddText("Reply sent ✓").AddText(text.Trim()));
+                }
+                catch (Exception ex)
+                {
+                    Toasts.Show(toast => toast.AddArgument("do", "inbox").AddArgument("id", item.FullName)
+                        .AddText("Your reply didn't send").AddText(ex.Message));
+                }
+                return;
+            case "read" when item != null:
+                try
+                {
+                    await _vm.Api.MarkReadAsync(item.FullName);
+                    _vm.OnItemMarkedRead(item);
+                }
+                catch
+                {
+                    // It stays unread; the inbox shows it.
+                }
+                return;
+            case "snooze":
+                _vm.SnoozeReminder(Arg("title"), Arg("target"));
+                return;
+            case "open":
+                BringToFront();
+                _vm.OpenNotificationTarget(Arg("target"));
+                return;
+            default:
+                if (item != null) ShowQuickReply(item);
+                else OpenInbox();
+                return;
+        }
     }
 
     QuickReplyWindow? _quickReply;
@@ -272,17 +378,6 @@ public partial class MainWindow : Window
     }
 
     readonly Services _services;
-
-    void OnReminderNotification(string title, string text, string target)
-    {
-        // Reminders are asked for, so they show even while Skein is in front.
-        _tray.Notify(title, text, () =>
-        {
-            BringToFront();
-            _vm.OpenNotificationTarget(target);
-        });
-        FlashTaskbar();
-    }
 
     /// <summary>Opens a post in its own window and puts the two side by side.</summary>
     void PopOut(string postId)

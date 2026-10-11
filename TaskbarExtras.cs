@@ -119,25 +119,29 @@ static class TaskbarExtras
     /// <summary>Puts <paramref name="left"/> on the left half of its screen and <paramref name="right"/> on the right half.</summary>
     public static void SideBySide(Window left, Window right)
     {
-        var handle = new WindowInteropHelper(left).Handle;
-        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
-        if (handle == IntPtr.Zero || !GetMonitorInfo(MonitorFromWindow(handle, 2), ref info)) return;
-        var toDips = PresentationSource.FromVisual(left)?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
-        var topLeft = toDips.Transform(new Point(info.Work.Left, info.Work.Top));
-        var bottomRight = toDips.Transform(new Point(info.Work.Right, info.Work.Bottom));
-        var half = (bottomRight.X - topLeft.X) / 2;
-        var height = bottomRight.Y - topLeft.Y;
-
+        if (WorkAreaOf(left) is not { } area) return;
+        var half = area.Width / 2;
         left.WindowState = WindowState.Normal;
-        left.Left = topLeft.X;
-        left.Top = topLeft.Y;
+        left.Left = area.Left;
+        left.Top = area.Top;
         left.Width = half;
-        left.Height = height;
+        left.Height = area.Height;
         right.WindowState = WindowState.Normal;
-        right.Left = topLeft.X + half;
-        right.Top = topLeft.Y;
+        right.Left = area.Left + half;
+        right.Top = area.Top;
         right.Width = half;
-        right.Height = height;
+        right.Height = area.Height;
+    }
+
+    /// <summary>The usable part (without the taskbar) of the screen a window is on, in WPF units.</summary>
+    public static System.Windows.Rect? WorkAreaOf(Window window)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (handle == IntPtr.Zero || !GetMonitorInfo(MonitorFromWindow(handle, 2), ref info)) return null;
+        var toDips = PresentationSource.FromVisual(window)?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
+        return new System.Windows.Rect(toDips.Transform(new Point(info.Work.Left, info.Work.Top)),
+            toDips.Transform(new Point(info.Work.Right, info.Work.Bottom)));
     }
 
     [StructLayout(LayoutKind.Sequential)]

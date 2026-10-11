@@ -118,7 +118,11 @@ $checks = [ordered]@{
                                             $result.laterPage.buttons -eq 'Open|Cancel|Try again|Cancel|Cancel' -and $result.laterPage.retrySent
     'activity charts scale'               = $result.activity.points -eq 3 -and $result.activity.tallest -eq '100%' -and $result.activity.half -eq '50%'
     'modmail conversation'                = $result.modmail.bubbles -eq 2 -and $result.modmail.mine -eq 1 -and $result.modmail.internal -eq 1 -and $result.modmail.replyBox
-    'conversation in order, yours marked' =$result.conversation.order -eq 'm_m1,m_m2,m_m3' -and $result.conversation.mine -eq 'm_m2' -and $result.conversation.focused -eq 'm_m3'
+    'live: unseen comments, parents first' = $result.liveUnseen -eq 'n1,n2'
+    'summarize only with a key'           = $result.summaryToggles
+    'symbol buttons named for readers'    = $result.ariaVote -eq 'Upvote' -and -not $result.ariaWords
+    'your font and styles, safely'        = $result.style
+    'conversation in order, yours marked' = $result.conversation.order -eq 'm_m1,m_m2,m_m3' -and $result.conversation.mine -eq 'm_m2' -and $result.conversation.focused -eq 'm_m3'
 }
 
 $failed = 0

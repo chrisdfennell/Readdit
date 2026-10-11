@@ -92,6 +92,7 @@ public sealed class DetailBridge(WebView2 view, Services services)
         followed = services.Settings.FollowedUsers.Select(f => f.Name),
         savedReplies = services.Settings.SavedReplies.Select(r => new { name = r.Name, text = r.Text }),
         translate = services.Settings.TranslateEnabled,
+        summaries = services.Summarizer.IsReady,
         reminded = services.Settings.Reminders.Select(r => r.PostId),
         // Lower-cased names → your tag and note on that user.
         notes = services.UserNotes.All.ToDictionary(n => n.Key.ToLowerInvariant(), n => new { tag = n.Value.Tag, note = n.Value.Note }),
@@ -224,6 +225,9 @@ public sealed class DetailBridge(WebView2 view, Services services)
     /// <summary>The page asks to be reminded about a post: id, title, community, permalink.</summary>
     public event Action<string, string, string, string>? RemindRequested;
 
+    /// <summary>The page asks for a video in a small window of its own: kind, url, poster, start time, title.</summary>
+    public event Action<string, string, string, double, string>? VideoWindowRequested;
+
     /// <summary>The page asks to open a post in a window of its own, beside this one.</summary>
     public event Action<string>? PopOutRequested;
 
@@ -296,6 +300,13 @@ public sealed class DetailBridge(WebView2 view, Services services)
     {
         Appearance.ApplyToWebView(view.CoreWebView2, theme);
         Send(JsonSerializer.Serialize(new { type = "theme", theme = theme.ToLowerInvariant(), accent }));
+    }
+
+    /// <summary>While Skein is minimized or in the tray, let the post view give memory back.</summary>
+    public void SetMemoryLow(bool low)
+    {
+        if (view.CoreWebView2 is { } core)
+            core.MemoryUsageTargetLevel = low ? CoreWebView2MemoryUsageTargetLevel.Low : CoreWebView2MemoryUsageTargetLevel.Normal;
     }
 
     /// <summary>Opens the find-in-thread bar.</summary>
@@ -376,8 +387,11 @@ public sealed class DetailBridge(WebView2 view, Services services)
     /// <summary>Jump to the next (1) or previous (-1) top-level comment.</summary>
     public void NavigateComments(int direction) => Send($$"""{"type":"navComments","direction":{{direction}}}""");
 
-    public void SetDisplay(int fontSize, bool readingMode) =>
+    public void SetDisplay(int fontSize, bool readingMode)
+    {
         Send($$"""{"type":"display","fontSize":{{fontSize}},"reading":{{(readingMode ? "true" : "false")}}}""");
+        Send(JsonSerializer.Serialize(new { type = "style", font = services.Settings.ReadingFont, css = services.Settings.CustomCss }));
+    }
 
     /// <summary>Keeps the page's vote/save buttons in step with changes made from the post list.</summary>
     public void SyncPostState(Post post) =>
@@ -573,6 +587,47 @@ public sealed class DetailBridge(WebView2 view, Services services)
                 {
                     var (text, from) = await services.Translator.TranslateAsync(m.Str("text"), default);
                     return JsonSerializer.Serialize(new { text, from, to = services.Translator.TargetLanguage });
+                }
+
+            case "summarize":
+                {
+                    var postId = m.Str("id");
+                    if (!System.Text.RegularExpressions.Regex.IsMatch(postId, "^[a-z0-9]+$")) throw new InvalidOperationException("That isn't a post.");
+                    // The top comments, fresh, whatever the page is sorted by.
+                    var raw = await services.Api.GetThreadRawAsync(postId, "top", null, default);
+                    return JsonSerializer.Serialize(new { text = await services.Summarizer.SummarizeAsync(postId, raw, default) });
+                }
+
+            case "userFlairs":
+                return await services.Api.GetUserFlairsRawAsync(m.Str("sub"), default);
+
+            case "setUserFlair":
+                await services.Api.SetUserFlairAsync(m.Str("sub"), m.Str("flairId"), m.Str("text"));
+                return null;
+
+            case "postFlairs":
+                {
+                    var info = await services.Api.GetPostingInfoAsync(m.Str("sub"), default);
+                    return JsonSerializer.Serialize(info.Flairs.Select(f => new { id = f.Id, text = f.Text, editable = f.Editable }));
+                }
+
+            case "setPostFlair":
+                await services.Api.SetPostFlairAsync(m.Str("sub"), m.Str("id"), m.Str("flairId"), m.Str("text"));
+                return null;
+
+            case "videoWindow":
+                {
+                    var url = m.Str("url");
+                    if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return null;
+                    VideoWindowRequested?.Invoke(m.Str("kind"), url, m.Str("poster"), m.Double("time"), m.Str("title"));
+                    return null;
+                }
+
+            case "liveComments":
+                {
+                    var postId = m.Str("id");
+                    if (!System.Text.RegularExpressions.Regex.IsMatch(postId, "^[a-z0-9]+$")) throw new InvalidOperationException("That isn't a post.");
+                    return await services.Api.GetThreadRawAsync(postId, "new", null, default);
                 }
 
             case "savedReply":
